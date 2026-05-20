@@ -1,0 +1,312 @@
+/* Theme variables. Dark is the default; data-theme="light" on the document
+   element switches to light. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #1d1d1f;
+  --surface: #2c2c2e;
+  --surface-hover: #3a3a3c;
+  --text: #f5f5f7;
+  --text-subtle: #98989d;
+  --border: #3a3a3c;
+  --row-border: #38383a;
+  --accent: #0a84ff;
+  --accent-hover: #2196ff;
+  --accent-disabled: #0a84ff66;
+  --danger: #ff453a;
+  --banner-success-bg: #14532d44;
+  --banner-success-text: #6ee7a3;
+  --banner-error-bg: #7f1d1d44;
+  --banner-error-text: #fda4a4;
+  --banner-info-bg: #1e3a8a44;
+  --banner-info-text: #93c5fd;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --surface-hover: #f0f0f2;
+  --text: #1d1d1f;
+  --text-subtle: #6e6e73;
+  --border: #d2d2d7;
+  --row-border: #f0f0f2;
+  --accent: #0071e3;
+  --accent-hover: #0077ed;
+  --accent-disabled: #a1d3ff;
+  --danger: #d70015;
+  --banner-success-bg: #d1f4d8;
+  --banner-success-text: #14532d;
+  --banner-error-bg: #fee2e2;
+  --banner-error-text: #7f1d1d;
+  --banner-info-bg: #dbeafe;
+  --banner-info-text: #1e3a8a;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  background: var(--bg);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.tab {
+  padding: 8px 16px;
+  background: none;
+  border: none;
+  font-size: 14px;
+  cursor: pointer;
+  color: var(--text-subtle);
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab.active { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+
+.card {
+  background: var(--surface);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow);
+}
+
+h1 { font-size: 24px; margin: 0 0 4px; color: var(--text); }
+h2 { font-size: 16px; margin: 0 0 16px; color: var(--text); }
+.subtle { color: var(--text-subtle); font-size: 13px; margin-bottom: 16px; }
+
+label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: var(--text);
+}
+
+input[type="text"], input[type="password"], input[type="number"], input[type="date"],
+input[type="email"], input[type="url"], input[type="time"], input[type="search"],
+select, textarea {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: inherit;
+}
+
+textarea { min-height: 60px; resize: vertical; }
+
+.row { display: flex; gap: 12px; margin-bottom: 12px; }
+.row > * { flex: 1; }
+
+.field { margin-bottom: 12px; }
+
+button.primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+button.primary:hover { background: var(--accent-hover); }
+button.primary:disabled { background: var(--accent-disabled); cursor: not-allowed; }
+
+button.secondary {
+  background: var(--surface-hover);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+button.danger {
+  background: none;
+  color: var(--danger);
+  border: none;
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px 8px;
+}
+
+.show-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--row-border);
+}
+.show-row:last-child { border-bottom: none; }
+
+.banner {
+  padding: 12px 16px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  font-size: 13px;
+}
+.banner.success { background: var(--banner-success-bg); color: var(--banner-success-text); }
+.banner.error { background: var(--banner-error-bg); color: var(--banner-error-text); }
+.banner.info { background: var(--banner-info-bg); color: var(--banner-info-text); }
+
+.day-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+.day-table th, .day-table td {
+  text-align: left;
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--row-border);
+  font-size: 13px;
+  vertical-align: middle;
+  color: var(--text);
+}
+.day-table th {
+  font-weight: 600;
+  color: var(--text-subtle);
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.day-table td input[type="time"] {
+  padding: 4px 6px;
+  font-size: 13px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 0;
+}
+.theme-toggle button {
+  background: transparent;
+  border: none;
+  color: var(--text-subtle);
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 6px;
+}
+.theme-toggle button.active {
+  background: var(--surface);
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* --- Week picker --- */
+.week-picker { position: relative; display: inline-block; }
+.week-picker-trigger {
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+  min-width: 180px;
+  text-align: left;
+}
+.week-picker-trigger:hover { background: var(--surface-hover); }
+
+.week-picker-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 100;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  padding: 10px;
+  min-width: 260px;
+}
+
+.week-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: var(--text);
+}
+.week-picker-nav {
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 18px;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  line-height: 1;
+}
+.week-picker-nav:hover { background: var(--surface-hover); }
+
+.week-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.week-picker-dow {
+  font-size: 11px;
+  color: var(--text-subtle);
+  text-align: center;
+  padding: 4px 0;
+  font-weight: 600;
+}
+.week-picker-day {
+  background: none;
+  border: 1px solid transparent;
+  color: var(--text-subtle);
+  padding: 6px 0;
+  font-size: 13px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+}
+.week-picker-day.is-out-of-month { opacity: 0.35; }
+.week-picker-day.is-other-day { opacity: 0.4; }
+.week-picker-day.is-monday {
+  color: var(--text);
+  font-weight: 600;
+  opacity: 1;
+}
+.week-picker-day.is-row-hover { background: var(--surface-hover); }
+.week-picker-day.is-selected {
+  background: var(--accent);
+  color: #fff;
+  opacity: 1;
+  border-color: var(--accent);
+}
+.week-picker-day.is-selected.is-other-day { opacity: 0.85; }
+
