@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, shell } from 'electron';
 import { join } from 'node:path';
 import electronUpdater from 'electron-updater';
+
+const GITHUB_REPO = 'somersaudio/autoCARL';
 import { readConfig, updateConfig } from './config';
 import { saveCredential, hasCredential, clearCredential, getCredential } from './credentials';
 import { scrapeCarl } from '../automation/scrapeCarl';
@@ -20,10 +22,44 @@ function makeReporter(op: ProgressOp) {
 
 const isDev = !app.isPackaged;
 
-// Auto-update from GitHub Releases. Checks once on launch; downloads in the
-// background; prompts to restart when ready. No-ops in dev (unpackaged).
-function initAutoUpdater(): void {
-  if (isDev) return;
+/** "0.8.2" > "0.8.1"? Simple 3-part semver compare. */
+function isNewerVersion(latest: string, current: string): boolean {
+  const a = latest.split('.').map((n) => parseInt(n, 10) || 0);
+  const b = current.split('.').map((n) => parseInt(n, 10) || 0);
+  for (let i = 0; i < 3; i++) {
+    if ((a[i] || 0) > (b[i] || 0)) return true;
+    if ((a[i] || 0) < (b[i] || 0)) return false;
+  }
+  return false;
+}
+
+// Mac (unsigned): can't silently self-install, so check GitHub Releases and, if
+// a newer version exists, prompt the user to download the new DMG.
+async function checkMacUpdateAndNotify(): Promise<void> {
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/latest`, {
+      headers: { Accept: 'application/vnd.github+json' },
+    });
+    if (!res.ok) return;
+    const rel = (await res.json()) as { tag_name?: string; html_url?: string };
+    const latest = String(rel.tag_name || '').replace(/^v/, '');
+    if (!latest || !isNewerVersion(latest, app.getVersion())) return;
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Download', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      message: `AUTOcarl ${latest} is available`,
+      detail: `You're on ${app.getVersion()}. Download the new version and drag it to Applications to update.`,
+    });
+    if (response === 0 && rel.html_url) shell.openExternal(rel.html_url);
+  } catch {
+    /* offline / API error — silently skip */
+  }
+}
+
+// Windows: electron-updater downloads in the background and prompts to restart.
+function initWindowsAutoUpdater(): void {
   const { autoUpdater } = electronUpdater;
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -47,6 +83,16 @@ function initAutoUpdater(): void {
   autoUpdater.checkForUpdates().catch((e) => {
     console.log('[autocarl] checkForUpdates failed:', e instanceof Error ? e.message : e);
   });
+}
+
+// Check for updates once on launch. No-ops in dev (unpackaged).
+function initAutoUpdater(): void {
+  if (isDev) return;
+  if (process.platform === 'win32') {
+    initWindowsAutoUpdater();
+  } else {
+    checkMacUpdateAndNotify();
+  }
 }
 
 async function createWindow(): Promise<void> {
