@@ -6,3 +6,4 @@ dist/
 *.log
 .env
 .env.local
+src/main/secrets.ts

@@ -12,14 +12,13 @@ const DEFAULT_CONFIG: AppConfig = {
   pulledShowsAt: null,
   profile: null,
   weeklyDefaults: {
-    startTime: '07:00',
-    endTime: '19:00',
-    workMonFri: true,
     dailyRate: null,
   },
   savedWeeks: {},
   sswAppId: null,
   theme: 'dark',
+  autoApplySchedule: true,
+  hideMealBreak: false,
 };
 
 function configPath(): string {

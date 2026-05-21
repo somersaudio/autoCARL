@@ -1,9 +1,9 @@
 {
   "name": "autocarl",
-  "version": "0.1.0",
+  "version": "0.8.1",
   "description": "Automates crew-site timecard entry and expense-report PDF filling",
   "main": "out/main/index.js",
-  "author": "John (teamsomo)",
+  "author": "Creative Technology Crew",
   "private": true,
   "scripts": {
     "dev": "electron-vite dev",
@@ -12,10 +12,12 @@
     "dist": "electron-vite build && electron-builder -mw",
     "dist:mac": "electron-vite build && electron-builder --mac --arm64 --x64",
     "dist:win": "electron-vite build && electron-builder --win --x64",
+    "release": "electron-vite build && electron-builder --publish always",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "electron-updater": "^6.8.3",
     "keytar": "^7.9.0",
     "pdf-lib": "^1.17.1",
     "playwright": "^1.48.0",
@@ -43,21 +45,46 @@
       "out/**/*",
       "!**/{.eslintrc.cjs,.prettierrc,.gitignore}"
     ],
+    "publish": {
+      "provider": "github",
+      "owner": "somersaudio",
+      "repo": "autoCARL"
+    },
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["arm64", "x64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
       ],
       "category": "public.app-category.productivity",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "win": {
       "target": [
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
-      "artifactName": "${productName}-${version}-portable.${ext}"
+      "artifactName": "${productName}-${version}-setup.${ext}"
     },
-    "portable": {
-      "artifactName": "${productName}-${version}-portable.${ext}"
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
     }
   }
 }

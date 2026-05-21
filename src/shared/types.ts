@@ -3,21 +3,29 @@ export type CredService = 'carl' | 'ssw';
 
 // ----- Shows + profile pulled from C.A.R.L. -----
 export type PulledShow = {
-  jobNumber: string;        // e.g. "CTLA025403"
-  jobName: string;          // e.g. "Google I/O '26 - Tracks Audio Labor"
+  jobNumber: string;        // job/show number, e.g. "CTXX000000"
+  jobName: string;          // show name, e.g. "Show Name - Department Labor"
   task: string;             // e.g. "3 Show"
   status: string;           // e.g. "Confirmed"
-  notes: string;            // e.g. "" or "Dark Day 6.2.26"
-  dateRange: string;        // raw text from C.A.R.L., e.g. "05/10/2026 to 05/23/2026"
-  laborCoordinator: string; // e.g. "Leah Hall"
-  projectManager: string;   // e.g. "Andrew Young"
-  position: string;         // e.g. "Outdoor Audio Engineer" (from show detail page)
-  perDiem: number | null;   // e.g. 92 (from CARL field_348). null if show has no per diem.
+  notes: string;            // e.g. "" or "Dark Day"
+  dateRange: string;        // raw text from C.A.R.L., e.g. "MM/DD/YYYY to MM/DD/YYYY"
+  laborCoordinator: string; // labor coordinator name
+  projectManager: string;   // project manager name
+  position: string;         // e.g. "Audio Engineer" (from show detail page)
+  perDiem: number | null;   // explicit dollar amount from CARL field_348. null if not set on the booking.
+  perDiemIncluded: boolean; // true when the booking's travel requirements list "Per Diem".
+  city: string;             // venue city extracted from the detail-page header
+  state: string;            // 2-letter state code, e.g. "CA"
+  // ISO dates pulled from the booking record (field_145 = show start,
+  // field_222 = travel return). Used to auto-fill the timesheet form with
+  // the days the user is actually on the show.
+  scheduledStart: string | null; // "2026-05-10"
+  scheduledEnd: string | null;   // "2026-05-23" (inclusive)
 };
 
 export type CarlProfile = {
-  name: string;             // e.g. "John Somers"
-  userId: string;           // SpreadsheetWeb User ID (e.g. "16065")
+  name: string;             // crew member's full name from C.A.R.L.
+  userId: string;           // SpreadsheetWeb User ID (numeric string)
   phone: string;
   email: string;
 };
@@ -32,6 +40,10 @@ export type DayHours = {
   // Per-diem dollar amount for this day. null/undefined = off (leave SSW
   // txtPD blank); a number = fill that dollar amount into txtPD_N_1.
   perDiem?: number | null;
+  // The show (job number) this day is billed to, written to C.A.R.L.'s
+  // per-day cmbJob_N select. Auto-filled from the schedule, user-overridable.
+  // '' = no show assigned for this day.
+  jobNumber?: string;
 };
 
 export type WeekEntry = {
@@ -42,10 +54,9 @@ export type WeekEntry = {
 };
 
 // ----- Defaults for pre-fill -----
+// Standard scheduled-day hours are hardcoded to 08:00–18:00 (see DEFAULT_START_TIME
+// / DEFAULT_END_TIME constants in the renderer). Only dailyRate remains user-configurable.
 export type WeeklyDefaults = {
-  startTime: string;        // default "07:00"
-  endTime: string;          // default "19:00"
-  workMonFri: boolean;      // default true: pre-check Mon-Fri, leave Sat/Sun unchecked
   dailyRate: number | null; // user's daily rate; null = don't fill it on the form
 };
 
@@ -62,12 +73,15 @@ export type SavedWeek = {
   includePerDiem: boolean;
   lastSavedAt: string;          // ISO timestamp
   sswRecordId: string | null;   // SpreadsheetWeb RecordID, captured on first save
+  // SSW workflow status of the record (e.g. "Complete", "Paid", "" for editable).
+  // Used to show a lock banner when the timesheet is past the employee stage.
+  sswStatus?: string;
 };
 
 // ----- Persisted app state -----
 export type AppConfig = {
-  carlUsername: string;        // email
-  sswUsername: string;         // e.g. "Jsomers"
+  carlUsername: string;        // C.A.R.L. login email
+  sswUsername: string;         // SpreadsheetWeb username (not an email)
   pulledShows: PulledShow[];   // last refresh result
   pulledShowsAt: string | null;// ISO timestamp of last refresh
   profile: CarlProfile | null;
@@ -77,6 +91,12 @@ export type AppConfig = {
   // "Select an Application" step on subsequent ops.
   sswAppId: string | null;
   theme: Theme;
+  // When true, opening a new week auto-fills the days that fall within the
+  // selected show's scheduled date range. Unscheduled days are left blank.
+  autoApplySchedule: boolean;
+  // When true, the per-day "Meal break (start/end)" column is hidden in the
+  // Submit Hours table.
+  hideMealBreak: boolean;
 };
 
 // ----- Automation result types -----
@@ -89,11 +109,17 @@ export type SubmitResult =
   | { ok: false; error: string; screenshotPath?: string };
 
 export type LoadExistingResult =
-  | { ok: true; existing: { recordId: string; days: WeekEntry['days']; includePerDiem: boolean } | null }
+  | {
+      ok: true;
+      existing: { recordId: string; days: WeekEntry['days']; includePerDiem: boolean; status: string } | null;
+      // Set when no record matches {week, this show} but a record exists for the
+      // same week under a DIFFERENT show (one weekly timesheet can hold several).
+      weekRecordOtherShow?: { jobNumber: string; status: string } | null;
+    }
   | { ok: false; error: string };
 
 export type LoadMostRecentResult =
-  | { ok: true; record: { jobNumber: string; weekOfMonday: string; recordId: string; days: WeekEntry['days']; includePerDiem: boolean } | null }
+  | { ok: true; record: { jobNumber: string; weekOfMonday: string; recordId: string; days: WeekEntry['days']; includePerDiem: boolean; status: string } | null }
   | { ok: false; error: string };
 
 export function weekKey(jobNumber: string, weekOfMonday: string): string {
@@ -123,6 +149,11 @@ export type Api = {
   };
   carl: {
     refresh: () => Promise<RefreshResult>;
+  };
+  logo: {
+    // Resolve a show's company logo (via logo.dev, server-side) to a data URI,
+    // or null if none found. Cached per company for the session.
+    forShow: (jobName: string) => Promise<string | null>;
   };
   timesheet: {
     // Fills the timesheet on SpreadsheetWeb headlessly, clicks Save (employee

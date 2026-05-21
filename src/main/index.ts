@@ -1,10 +1,12 @@
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog } from 'electron';
 import { join } from 'node:path';
+import electronUpdater from 'electron-updater';
 import { readConfig, updateConfig } from './config';
 import { saveCredential, hasCredential, clearCredential, getCredential } from './credentials';
 import { scrapeCarl } from '../automation/scrapeCarl';
 import { fillTimesheet } from '../automation/submitTimesheet';
 import { loadExistingTimesheet, loadMostRecentTimesheet } from '../automation/loadExisting';
+import { getShowLogo } from '../automation/logodev';
 import { weekKey, type CredService, type ProgressOp, type SavedWeek, type WeekEntry } from '../shared/types';
 
 function makeReporter(op: ProgressOp) {
@@ -17,6 +19,35 @@ function makeReporter(op: ProgressOp) {
 }
 
 const isDev = !app.isPackaged;
+
+// Auto-update from GitHub Releases. Checks once on launch; downloads in the
+// background; prompts to restart when ready. No-ops in dev (unpackaged).
+function initAutoUpdater(): void {
+  if (isDev) return;
+  const { autoUpdater } = electronUpdater;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  autoUpdater.on('update-downloaded', async (info) => {
+    const { response } = await dialog.showMessageBox({
+      type: 'info',
+      buttons: ['Restart now', 'Later'],
+      defaultId: 0,
+      cancelId: 1,
+      message: 'A new version of AUTOcarl is ready',
+      detail: `Version ${info.version} has been downloaded. Restart to install it (otherwise it installs next time you quit).`,
+    });
+    if (response === 0) autoUpdater.quitAndInstall();
+  });
+
+  autoUpdater.on('error', (err) => {
+    console.log('[autocarl] auto-update error:', err == null ? 'unknown' : (err.stack || err).toString());
+  });
+
+  autoUpdater.checkForUpdates().catch((e) => {
+    console.log('[autocarl] checkForUpdates failed:', e instanceof Error ? e.message : e);
+  });
+}
 
 async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
@@ -54,6 +85,8 @@ function registerIpc(): void {
   ipcMain.handle('credentials:clear', (_e, service: CredService, username: string) =>
     clearCredential(service, username),
   );
+
+  ipcMain.handle('logo:forShow', (_e, jobName: string) => getShowLogo(jobName));
 
   ipcMain.handle('carl:refresh', async () => {
     const config = await readConfig();
@@ -126,8 +159,6 @@ function registerIpc(): void {
       sswUsername: config.sswUsername,
       sswPassword,
       sswAppId: config.sswAppId,
-      defaultStartTime: config.weeklyDefaults.startTime,
-      defaultEndTime: config.weeklyDefaults.endTime,
     }, makeReporter('ssw-load-most-recent'));
 
     if (result.ok && result.record) {
@@ -140,6 +171,7 @@ function registerIpc(): void {
         includePerDiem: result.record.includePerDiem,
         lastSavedAt: new Date().toISOString(),
         sswRecordId: result.record.recordId,
+        sswStatus: result.record.status,
       };
       const patch: Partial<typeof next> = { savedWeeks: next.savedWeeks };
       if (result.sswAppId && result.sswAppId !== config.sswAppId) patch.sswAppId = result.sswAppId;
@@ -167,8 +199,6 @@ function registerIpc(): void {
       jobNumber,
       weekOfMonday,
       sswAppId: config.sswAppId,
-      defaultStartTime: config.weeklyDefaults.startTime,
-      defaultEndTime: config.weeklyDefaults.endTime,
     }, makeReporter('ssw-load'));
 
     // Cache results: local week (if found) + app ID (if newly discovered).
@@ -184,6 +214,7 @@ function registerIpc(): void {
           includePerDiem: result.existing.includePerDiem,
           lastSavedAt: new Date().toISOString(),
           sswRecordId: result.existing.recordId,
+          sswStatus: result.existing.status,
         };
         next.savedWeeks[key] = saved;
         patch.savedWeeks = next.savedWeeks;
@@ -203,6 +234,7 @@ function registerIpc(): void {
 app.whenReady().then(async () => {
   registerIpc();
   await createWindow();
+  initAutoUpdater();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });

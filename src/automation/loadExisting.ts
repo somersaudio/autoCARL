@@ -58,18 +58,12 @@ export type LoadExistingInput = {
   jobNumber: string;
   weekOfMonday: string;
   sswAppId: string | null;
-  // User's default times to use for days that have no data on SSW (so the
-  // form shows the user's preferred times when they check an unfilled day).
-  defaultStartTime: string;
-  defaultEndTime: string;
 };
 
 export type LoadMostRecentInput = {
   sswUsername: string;
   sswPassword: string;
   sswAppId: string | null;
-  defaultStartTime: string;
-  defaultEndTime: string;
 };
 
 export type LoadExistingFullResult = LoadExistingResult & { sswAppId?: string };
@@ -160,25 +154,41 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
 
     const [year, mm, dd] = input.weekOfMonday.split('-').map(Number);
     const usDateNoPad = `${mm}/${dd}/${year}`;
-    const recordId = await p.evaluate(
+    // Scan all rows for this WEEK. Find the exact {week, job} match if present;
+    // also note any record for the same week under a DIFFERENT show, since one
+    // weekly timesheet on C.A.R.L. can hold multiple shows.
+    const found = await p.evaluate(
       ({ date, job }) => {
         const rows = document.querySelectorAll('#dataGrid tbody tr');
+        let exact: { recordId: string | null; status: string } | null = null;
+        let otherShow: { jobNumber: string; status: string } | null = null;
         for (const row of Array.from(rows)) {
           const cells = Array.from(row.querySelectorAll('td')).map((c) => (c.textContent || '').trim());
-          if ((cells[1] || '').startsWith(date) && (cells[6] || '') === job) {
-            const editLink = row.querySelector('a[href*="RecordID="]') as HTMLAnchorElement | null;
-            const href = editLink?.getAttribute('href') || '';
-            const m = href.match(/RecordID=([^&]+)/);
-            return m ? m[1] : null;
+          if (!(cells[1] || '').startsWith(date)) continue; // not this week
+          const editLink = row.querySelector('a[href*="RecordID="]') as HTMLAnchorElement | null;
+          const href = editLink?.getAttribute('href') || '';
+          const m = href.match(/RecordID=([^&]+)/);
+          const rowJob = cells[6] || '';
+          const status = cells[4] || '';
+          if (rowJob === job) {
+            exact = { recordId: m ? m[1] : null, status };
+          } else if (!otherShow && rowJob) {
+            otherShow = { jobNumber: rowJob, status };
           }
         }
-        return null;
+        return { exact, otherShow };
       },
       { date: usDateNoPad, job: input.jobNumber },
     );
+    const recordId = found.exact?.recordId || null;
+    const status = found.exact?.status || '';
 
     if (!recordId) {
       await browser.close();
+      if (found.otherShow) {
+        report(100, 'Week record exists for another show');
+        return { ok: true, existing: null, weekRecordOtherShow: found.otherShow, sswAppId: appId || undefined };
+      }
       report(100, 'No matching record found');
       return { ok: true, existing: null, sswAppId: appId || undefined };
     }
@@ -191,15 +201,17 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
     report(85, 'Reading your hours');
 
     const rawDays = await p.evaluate(() => {
-      const out: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string }> = [];
+      const out: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string; job: string }> = [];
       for (let n = 1; n <= 7; n++) {
         const v = (sel: string) => (document.querySelector(sel) as HTMLInputElement | null)?.value || '';
+        const job = (document.querySelector(`#cmbJob_${n}`) as HTMLSelectElement | null)?.value || '';
         out.push({
           st1: v(`input[name="txtST_${n}_1"]`),
           st2: v(`input[name="txtST_${n}_2"]`),
           et1: v(`input[name="txtET_${n}_1"]`),
           et2: v(`input[name="txtET_${n}_2"]`),
           pd: v(`input[name="txtPD_${n}_1"]`),
+          job,
         });
       }
       return out;
@@ -224,9 +236,12 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
       if (hasPd) includePerDiem = true;
       const day: DayHours = {
         worked,
-        startTime: startTime || input.defaultStartTime,
-        endTime: endTime || input.defaultEndTime,
+        // Mirror C.A.R.L. exactly — never fabricate a time it doesn't have.
+        // A worked day with no OUT time (e.g. still on the clock) stays blank.
+        startTime,
+        endTime,
         perDiem: hasPd ? pdVal : null,
+        jobNumber: r.job || '',
       };
       if (mealStart) day.mealStart = mealStart;
       if (mealEnd) day.mealEnd = mealEnd;
@@ -234,7 +249,7 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
     }) as unknown as WeekEntry['days'];
 
     report(100, 'Loaded');
-    return { ok: true, existing: { recordId, days, includePerDiem }, sswAppId: appId || undefined };
+    return { ok: true, existing: { recordId, days, includePerDiem, status }, sswAppId: appId || undefined };
   } catch (err) {
     await clearStorageState('ssw').catch(() => {});
     if (browser) {
@@ -280,6 +295,7 @@ export async function loadMostRecentTimesheet(input: LoadMostRecentInput, report
         return {
           weekOf: cells[1] || '',      // "5/18/2026 12:00:00 AM"
           lastUpdate: cells[3] || '',  // "5/20/2026 11:30:00 AM"
+          status: cells[4] || '',      // "Complete" / "Paid" / "" (editable)
           jobNumber: cells[6] || '',
           recordId: m ? m[1] : '',
         };
@@ -313,15 +329,17 @@ export async function loadMostRecentTimesheet(input: LoadMostRecentInput, report
     report(85, 'Reading your hours');
 
     const rawDays = await p.evaluate(() => {
-      const out: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string }> = [];
+      const out: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string; job: string }> = [];
       for (let n = 1; n <= 7; n++) {
         const v = (sel: string) => (document.querySelector(sel) as HTMLInputElement | null)?.value || '';
+        const job = (document.querySelector(`#cmbJob_${n}`) as HTMLSelectElement | null)?.value || '';
         out.push({
           st1: v(`input[name="txtST_${n}_1"]`),
           st2: v(`input[name="txtST_${n}_2"]`),
           et1: v(`input[name="txtET_${n}_1"]`),
           et2: v(`input[name="txtET_${n}_2"]`),
           pd: v(`input[name="txtPD_${n}_1"]`),
+          job,
         });
       }
       return out;
@@ -341,9 +359,12 @@ export async function loadMostRecentTimesheet(input: LoadMostRecentInput, report
       if (hasPd) includePerDiem = true;
       const day: DayHours = {
         worked,
-        startTime: startTime || input.defaultStartTime,
-        endTime: endTime || input.defaultEndTime,
+        // Mirror C.A.R.L. exactly — never fabricate a time it doesn't have.
+        // A worked day with no OUT time (e.g. still on the clock) stays blank.
+        startTime,
+        endTime,
         perDiem: hasPd ? pdVal : null,
+        jobNumber: r.job || '',
       };
       if (mealStart) day.mealStart = mealStart;
       if (mealEnd) day.mealEnd = mealEnd;
@@ -353,7 +374,7 @@ export async function loadMostRecentTimesheet(input: LoadMostRecentInput, report
     report(100, 'Loaded');
     return {
       ok: true,
-      record: { jobNumber: top.jobNumber, weekOfMonday, recordId: top.recordId, days, includePerDiem },
+      record: { jobNumber: top.jobNumber, weekOfMonday, recordId: top.recordId, days, includePerDiem, status: top.status },
       sswAppId: appId || undefined,
     };
   } catch (err) {

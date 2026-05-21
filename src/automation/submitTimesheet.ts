@@ -176,6 +176,30 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
       await p.goto(`${SSW_BASE}/Output.aspx?ApplicationID=${effectiveAppId}`, { waitUntil: 'domcontentloaded' });
     }
     await p.waitForTimeout(5000); // entry form is JS-heavy; lets jQuery + Select2 finish init
+
+    // Locked-record check: if the record has been submitted/paid, SSW serves
+    // an "authorization" page instead of the editable form. Detect that and
+    // bail with a friendly error before we try (and fail) to find #btnSave.
+    const lockedDetected = await p.evaluate(() => {
+      const text = (document.body.innerText || '').toLowerCase();
+      return text.includes('not authorized to view this page')
+        || text.includes('does not have the rights to create records')
+        || text.includes('view and edit this specific record');
+    });
+    if (lockedDetected) {
+      const screenshotPath = await screenshotOnError('locked-record');
+      await browser.close();
+      report(100, 'Locked on SpreadsheetWeb');
+      return {
+        ok: false,
+        error:
+          'This timesheet is locked on SpreadsheetWeb (already submitted or paid). ' +
+          'Contact your labor coordinator to unlock it before making changes, then ' +
+          'click "Reload from SpreadsheetWeb" to refresh its status.',
+        screenshotPath,
+      };
+    }
+
     report(55, 'Filling timesheet fields');
 
     // 4. Fill the form
@@ -267,18 +291,30 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
       const firstDayCell = p.locator('input[name="txtST_1_1"]');
       try {
         await firstDayCell.waitFor({ state: 'visible', timeout: 15000 });
-        // Now that per-day rows exist, fire the Job # Copy button via jQuery
-        // so its bound handler runs (native click doesn't trigger it here, same
-        // pattern as #btnSave).
-        const jobCopyResult = await p.evaluate(() => {
+        // Set each WORKED day's show on its own cmbJob_N select — never the
+        // copy-to-all-days shortcut (#btnCopyJob), which would clobber other
+        // shows on a multi-show weekly timesheet. Unworked days are left as-is.
+        const perDayJobs = input.entry.days.map((d) =>
+          d.worked ? (d.jobNumber || input.show.jobNumber) : null,
+        );
+        const jobSetResult = await p.evaluate((jobs: (string | null)[]) => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const $ = (window as any).jQuery || (window as any).$;
-          if ($ && $('#btnCopyJob').length) { $('#btnCopyJob').trigger('click'); return 'jquery'; }
-          const el = document.getElementById('btnCopyJob');
-          if (el) { el.click(); return 'native'; }
-          return 'not-found';
-        });
-        console.log('[autocarl] btnCopyJob click:', jobCopyResult);
+          const results: string[] = [];
+          jobs.forEach((job, idx) => {
+            if (!job) return;
+            const N = idx + 1;
+            const el = document.querySelector(`#cmbJob_${N}`) as HTMLSelectElement | null;
+            if (!el) { results.push(`${N}:no-el`); return; }
+            const opt = Array.from(el.options).find((o) => o.value === job || o.textContent?.trim() === job);
+            if (!opt) { results.push(`${N}:no-opt(${job})`); return; }
+            if ($) { $(`#cmbJob_${N}`).val(opt.value).trigger('change'); }
+            else { el.value = opt.value; el.dispatchEvent(new Event('change', { bubbles: true })); }
+            results.push(`${N}:${opt.value}`);
+          });
+          return results.join(', ');
+        }, perDayJobs);
+        console.log('[autocarl] per-day cmbJob set:', jobSetResult);
         await p.waitForTimeout(800);
       } catch {
         // Fallback: try the UI flow — click the calendar icon, navigate, click the day

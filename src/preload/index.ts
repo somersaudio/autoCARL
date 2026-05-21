@@ -17,6 +17,9 @@ const api: Api = {
   carl: {
     refresh: () => ipcRenderer.invoke('carl:refresh') as Promise<RefreshResult>,
   },
+  logo: {
+    forShow: (jobName: string) => ipcRenderer.invoke('logo:forShow', jobName) as Promise<string | null>,
+  },
   timesheet: {
     fill: (entry: WeekEntry) =>
       ipcRenderer.invoke('timesheet:fill', entry) as Promise<SubmitResult>,

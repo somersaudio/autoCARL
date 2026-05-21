@@ -44,6 +44,10 @@ export async function scrapeCarl(input: ScrapeCarlInput): Promise<RefreshResult>
     const page = await ctx.newPage();
 
     let profile: CarlProfile | null = null;
+    // Booking records keyed by their id (which is also the URL slug used in
+    // /crewcalendar/booking-details-1/<id>). Each record carries the show
+    // date fields (field_145, field_146, field_222).
+    const bookingRecords = new Map<string, Record<string, unknown>>();
     page.on('response', async (res) => {
       const ct = (res.headers()['content-type'] || '').toLowerCase();
       if (!ct.includes('json')) return;
@@ -60,6 +64,12 @@ export async function scrapeCarl(input: ScrapeCarlInput): Promise<RefreshResult>
             phone: String(item.field_170 || ''),
             email: String(item.email),
           };
+        }
+        // Booking record: response has a `record` object whose `id` matches
+        // a booking detail URL slug, with date fields field_145/146/222.
+        const rec = parsed?.record;
+        if (rec && typeof rec === 'object' && typeof rec.id === 'string' && (rec.field_145 || rec.field_146 || rec.field_222)) {
+          bookingRecords.set(rec.id, rec as Record<string, unknown>);
         }
       } catch {
         /* ignore non-JSON */
@@ -88,7 +98,17 @@ export async function scrapeCarl(input: ScrapeCarlInput): Promise<RefreshResult>
       await saveStorageState(ctx, 'carl');
     };
 
-    await page.goto(CARL_CALENDAR_URL, { waitUntil: 'domcontentloaded' });
+    // Initial nav can be slow on the first request of a day — CARL has cold-
+    // start delays. Bump to 60s and retry once on timeout before giving up.
+    const navigate = async (timeout: number) => {
+      await page.goto(CARL_CALENDAR_URL, { waitUntil: 'domcontentloaded', timeout });
+    };
+    try {
+      await navigate(60000);
+    } catch (firstErr) {
+      console.log('[autocarl] CARL initial nav timed out, retrying:', firstErr instanceof Error ? firstErr.message : firstErr);
+      await navigate(60000);
+    }
 
     // Race: login form vs. bookings table. Whichever wins tells us what state
     // we're really in (SPA may still be deciding).
@@ -186,6 +206,11 @@ export async function scrapeCarl(input: ScrapeCarlInput): Promise<RefreshResult>
           projectManager: get(cells, 'Project Manager'),
           position: '',
           perDiem: null,
+          perDiemIncluded: false,
+          city: '',
+          state: '',
+          scheduledStart: null,
+          scheduledEnd: null,
           bookingId,
         });
       }
@@ -222,20 +247,69 @@ export async function scrapeCarl(input: ScrapeCarlInput): Promise<RefreshResult>
           row.position = positionText.replace(/^[A-Za-z0-9]+\s*-\s*/, '');
         }
 
-        // Per diem (field_348). Only present if travelRequired includes "Per Diem".
-        // Wait briefly — the field is conditionally rendered after the data load.
+        // Per-diem amount: find a leaf element with text "$XX" whose preceding
+        // sibling (within 5 ancestors) has text "Per diem rate". The DOM doesn't
+        // render field_348 as a labeled <af-data-table-field column="…field_348">
+        // — it renders as a generic table cell, so we anchor on the label text.
         try {
           await page.waitForTimeout(500);
-          const perDiemText = await page
-            .locator('af-data-table-field[column*="field_348"] span')
-            .first()
-            .textContent({ timeout: 3000 })
-            .catch(() => '');
-          if (perDiemText) {
-            const num = parseFloat(perDiemText.replace(/[^0-9.]/g, ''));
-            if (!isNaN(num) && num > 0) row.perDiem = num;
-          }
-        } catch { /* show has no per diem — leave null */ }
+          const amount = await page.evaluate(() => {
+            const all = document.querySelectorAll('*');
+            for (const el of Array.from(all)) {
+              if (el.children.length > 0) continue;
+              const t = (el.textContent || '').trim();
+              const m = t.match(/^\$\s?(\d+(?:\.\d+)?)$/);
+              if (!m) continue;
+              let walker: Element | null = el;
+              for (let i = 0; i < 5 && walker; i++) {
+                const prev = walker.previousElementSibling;
+                if (prev && /per\s*diem\s*rate/i.test((prev.textContent || ''))) {
+                  return parseFloat(m[1]);
+                }
+                walker = walker.parentElement;
+              }
+            }
+            return null;
+          });
+          if (amount != null && amount > 0) row.perDiem = amount;
+        } catch { /* leave null */ }
+
+        // --- Scheduled dates: field_145 (show start) → field_222 (travel return) ---
+        // The detail page's API response landed in bookingRecords as a side
+        // effect of the navigation; look it up by the booking id slug.
+        const rec = bookingRecords.get(row.bookingId);
+        if (rec) {
+          const start = typeof rec.field_145 === 'string' ? rec.field_145 : null;
+          // Prefer travel-return day; fall back to show-end if travel isn't set.
+          const end = typeof rec.field_222 === 'string' && rec.field_222
+            ? rec.field_222
+            : typeof rec.field_146 === 'string' ? rec.field_146 : null;
+          row.scheduledStart = start;
+          row.scheduledEnd = end;
+        }
+
+        // --- City/state from header + "Per Diem" indicator from travel requirements ---
+        // Header pattern: "<jobNumber> - <City>, <ST>" appears as text somewhere
+        // near the top of the detail page.
+        try {
+          const extracted = await page.evaluate((jobNumber: string) => {
+            const bodyText = document.body.innerText || '';
+            // Look for the exact "<jobNumber> - City, ST" pattern.
+            const escaped = jobNumber.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const re = new RegExp(`${escaped}\\s*-\\s*([^,\\n]+?),\\s*([A-Z]{2})\\b`);
+            const m = bodyText.match(re);
+            const city = m ? m[1].trim() : '';
+            const state = m ? m[2].trim() : '';
+            // Per-diem inclusion: any text matching "Per Diem" inside a Travel-
+            // or Requirements-labeled section. Fall back to whole-page text scan.
+            const perDiemIncluded = /\bper\s*diem\b/i.test(bodyText);
+            return { city, state, perDiemIncluded };
+          }, row.jobNumber);
+          row.city = extracted.city;
+          row.state = extracted.state;
+          row.perDiemIncluded = extracted.perDiemIncluded;
+        } catch { /* leave defaults */ }
+
       } catch {
         /* leave row.position empty on error */
       }

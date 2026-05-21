@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AppConfig, ProgressEvent } from '../shared/types';
 import Settings from './Settings';
 import SubmitHours from './SubmitHours';
-import ProgressDial from './ProgressDial';
+import logoCT from './assets/logoCT.png';
 
 type Tab = 'hours' | 'settings';
 
@@ -48,7 +48,7 @@ export default function App() {
       if (cfg.sswUsername) {
         const hasSswPass = await window.api.credentials.has('ssw', cfg.sswUsername);
         if (hasSswPass && !cancelled) {
-          setAutoStatus('Loading your most recent timesheet from SpreadsheetWeb…');
+          setAutoStatus('Loading your most recent timesheet from C.A.R.L.…');
           console.log('[autocarl] PHASE 1: SSW load-most-recent starting');
           try {
             const r = await window.api.timesheet.loadMostRecent();
@@ -106,23 +106,15 @@ export default function App() {
 
   return (
     <div className="app">
-      <h1>AUTOcarl</h1>
-      <p className="subtle">Hours and expenses, the easy way.</p>
-
-      <div className="tabs">
-        <button className={`tab ${tab === 'hours' ? 'active' : ''}`} onClick={() => setTab('hours')}>
-          Submit Hours
-        </button>
-        <button className={`tab ${tab === 'settings' ? 'active' : ''}`} onClick={() => setTab('settings')}>
-          Settings
-        </button>
+      <div className="app-header">
+        <img src={logoCT} alt="Creative Technology" className="ct-logo" />
+        {config.profile && (
+          <div className="app-profile">
+            <div className="app-profile-name">{config.profile.name}</div>
+            <div className="app-profile-id">User ID {config.profile.userId}</div>
+          </div>
+        )}
       </div>
-
-      {progress && !progress.done && (
-        <div className="banner info" style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-          <ProgressDial percent={progress.percent} label={progress.label} size={60} />
-        </div>
-      )}
 
       {autoStatus && !progress && (
         <div className="banner info">{autoStatus}</div>
@@ -142,10 +134,19 @@ export default function App() {
       )}
 
       {tab === 'hours' ? (
-        <SubmitHours config={config} disabled={!setupComplete} onChange={refresh} />
+        <SubmitHours config={config} disabled={!setupComplete} onChange={refresh} progress={progress && !progress.done ? progress : null} />
       ) : (
         <Settings config={config} onChange={refresh} />
       )}
+
+      <button
+        className="settings-fab"
+        onClick={() => setTab(tab === 'hours' ? 'settings' : 'hours')}
+        title={tab === 'hours' ? 'Settings' : 'Back to hours'}
+        aria-label={tab === 'hours' ? 'Settings' : 'Back to hours'}
+      >
+        {tab === 'hours' ? '⚙' : '✕'}
+      </button>
     </div>
   );
 }

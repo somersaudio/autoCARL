@@ -115,7 +115,7 @@ export default function Settings({ config, onChange }: Props) {
         <div className="row">
           <div>
             <label>Username</label>
-            <input type="text" value={sswUser} onChange={(e) => setSswUser(e.target.value)} placeholder="e.g. Jsomers" />
+            <input type="text" value={sswUser} onChange={(e) => setSswUser(e.target.value)} placeholder="Your SpreadsheetWeb username" />
           </div>
           <div>
             <label>Password {hasSswPass && <span className="subtle">(saved)</span>}</label>
@@ -136,28 +136,42 @@ export default function Settings({ config, onChange }: Props) {
       </div>
 
       <div className="card">
-        <h2>Weekly defaults</h2>
-        <p className="subtle">Pre-fills the Submit Hours form. You can still edit per day.</p>
-        <div className="row">
-          <div>
-            <label>Default start time</label>
-            <input type="time" value={defaults.startTime} onChange={(e) => setDefaults({ ...defaults, startTime: e.target.value })} />
-          </div>
-          <div>
-            <label>Default end time</label>
-            <input type="time" value={defaults.endTime} onChange={(e) => setDefaults({ ...defaults, endTime: e.target.value })} />
-          </div>
+        <h2>Submit Hours</h2>
+        <p className="subtle">
+          Scheduled days from C.A.R.L. (show start through travel return) get pre-filled
+          with 8:00 AM – 6:00 PM and per-diem (when the show has it). Unscheduled days
+          stay blank.
+        </p>
+        <div className="field">
+          <label>
+            <input
+              type="checkbox"
+              checked={config.autoApplySchedule}
+              onChange={async (e) => {
+                await window.api.config.update({ autoApplySchedule: e.target.checked });
+                await onChange();
+              }}
+            />{' '}
+            Auto-fill scheduled days from C.A.R.L.
+          </label>
         </div>
         <div className="field">
           <label>
             <input
               type="checkbox"
-              checked={defaults.workMonFri}
-              onChange={(e) => setDefaults({ ...defaults, workMonFri: e.target.checked })}
+              checked={config.hideMealBreak}
+              onChange={async (e) => {
+                await window.api.config.update({ hideMealBreak: e.target.checked });
+                await onChange();
+              }}
             />{' '}
-            Pre-check Mon–Fri, leave Sat/Sun unchecked
+            Hide meal break fields
           </label>
         </div>
+      </div>
+
+      <div className="card">
+        <h2>Pay</h2>
         <div className="field">
           <label>Daily rate ($)</label>
           <input
@@ -174,7 +188,7 @@ export default function Settings({ config, onChange }: Props) {
             Filled into the timesheet's Daily Rate field. Leave blank to skip.
           </p>
         </div>
-        <button className="primary" onClick={saveDefaults}>Save defaults</button>
+        <button className="primary" onClick={saveDefaults}>Save</button>
       </div>
     </>
   );
