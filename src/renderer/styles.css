@@ -143,6 +143,9 @@ body {
   margin-bottom: 16px;
   box-shadow: var(--shadow);
 }
+/* No trailing space below the last card — avoids a phantom scrollbar when
+   content already fits the viewport. */
+.app > .card:last-of-type { margin-bottom: 0; }
 
 h1 { font-size: 24px; margin: 0 0 4px; color: var(--text); }
 h2 { font-size: 16px; margin: 0 0 16px; color: var(--text); }
@@ -247,7 +250,7 @@ button.danger {
 }
 
 .day-table {
-  width: 100%;
+  width: auto;
   border-collapse: collapse;
   margin-top: 12px;
 }
@@ -259,8 +262,20 @@ button.danger {
   vertical-align: middle;
   color: var(--text);
 }
-.day-table td input[type="time"], .day-table td input[type="number"] {
+.day-table td input[type="time"] {
   padding: 3px 6px;
+  width: 110px;
+}
+.day-table td input[type="number"] {
+  padding: 3px 6px;
+}
+/* Condense the left columns (date, work, show) to their content so they sit
+   close together; the slack goes to Start/End/Meal on the right. */
+.day-table th:nth-child(1), .day-table td:nth-child(1),
+.day-table th:nth-child(2), .day-table td:nth-child(2),
+.day-table th:nth-child(3), .day-table td:nth-child(3) {
+  width: 1%;
+  white-space: nowrap;
 }
 /* Date column: centered date with the weekday subtly underneath. */
 .day-date-cell { text-align: center; }

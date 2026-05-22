@@ -142,8 +142,27 @@ function registerIpc(): void {
 
     const result = await scrapeCarl({ username: config.carlUsername, password });
     if (result.ok) {
+      // The per-show detail scrape (position, per-diem, dates) can intermittently
+      // time out and come back empty. Don't clobber last-known-good values:
+      // for each refreshed show, fall back to the previously stored value when
+      // the new scrape returned blank.
+      const prevByJob = new Map(config.pulledShows.map((s) => [s.jobNumber, s]));
+      const mergedShows = result.shows.map((s) => {
+        const prev = prevByJob.get(s.jobNumber);
+        if (!prev) return s;
+        return {
+          ...s,
+          position: s.position || prev.position,
+          perDiem: s.perDiem ?? prev.perDiem,
+          perDiemIncluded: s.perDiemIncluded || prev.perDiemIncluded,
+          city: s.city || prev.city,
+          state: s.state || prev.state,
+          scheduledStart: s.scheduledStart ?? prev.scheduledStart,
+          scheduledEnd: s.scheduledEnd ?? prev.scheduledEnd,
+        };
+      });
       await updateConfig({
-        pulledShows: result.shows,
+        pulledShows: mergedShows,
         pulledShowsAt: new Date().toISOString(),
         profile: result.profile,
       });

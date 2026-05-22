@@ -116,10 +116,6 @@ export default function App() {
         )}
       </div>
 
-      {autoStatus && !progress && (
-        <div className="banner info">{autoStatus}</div>
-      )}
-
       {startupError && !autoStatus && (
         <div className="banner error" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
           <span>{startupError}</span>
@@ -134,7 +130,7 @@ export default function App() {
       )}
 
       {tab === 'hours' ? (
-        <SubmitHours config={config} disabled={!setupComplete} onChange={refresh} progress={progress && !progress.done ? progress : null} />
+        <SubmitHours config={config} disabled={!setupComplete} onChange={refresh} progress={progress && !progress.done ? progress : null} autoStatus={autoStatus} />
       ) : (
         <Settings config={config} onChange={refresh} />
       )}

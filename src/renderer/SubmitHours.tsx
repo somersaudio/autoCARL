@@ -9,6 +9,7 @@ type Props = {
   disabled: boolean;
   onChange: () => Promise<void>;
   progress: ProgressEvent | null;
+  autoStatus: string | null;
 };
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
@@ -169,7 +170,7 @@ function mergePreviewIntoSaved(
   }) as unknown as WeekEntry['days'];
 }
 
-export default function SubmitHours({ config, disabled, onChange, progress }: Props) {
+export default function SubmitHours({ config, disabled, onChange, progress, autoStatus }: Props) {
   // On first render, default to the currently active show (today is in its
   // date range) and the current calendar week's Monday. When two shows overlap
   // on today, pick the newest (latest start date); the user can still switch
@@ -466,7 +467,7 @@ export default function SubmitHours({ config, disabled, onChange, progress }: Pr
 
         {needsPosition && (
           <div className="banner info">
-            C.A.R.L. didn't return a Position for {selectedShow!.jobNumber}. Try Refresh below.
+            C.A.R.L. didn't return a Position for {selectedShow!.jobNumber}. Reopen the app to pull it again.
           </div>
         )}
 
@@ -657,13 +658,15 @@ export default function SubmitHours({ config, disabled, onChange, progress }: Pr
             {loadingExisting ? 'Reloading…' : 'Reload from C.A.R.L.'}
           </button>
         </div>
-        <p className="subtle" style={{ marginTop: 8 }}>
-          Logs into C.A.R.L. in the background, fills the timesheet, and saves the record. Open the C.A.R.L. site to review and submit it for payroll.
-        </p>
       </div>
 
       <div className="card">
-        <h2 style={{ margin: '0 0 12px' }}>Your shows</h2>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0 0 12px', gap: 12 }}>
+          <h2 style={{ margin: 0 }}>Your shows</h2>
+          {autoStatus && autoStatus.toLowerCase().includes('shows') && (
+            <span className="subtle" style={{ margin: 0 }}>{autoStatus}</span>
+          )}
+        </div>
         {config.pulledShows.length === 0 ? (
           <p className="subtle">No shows yet. Save your C.A.R.L. credentials in Settings, then restart the app.</p>
         ) : (
