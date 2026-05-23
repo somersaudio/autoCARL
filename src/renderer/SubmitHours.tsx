@@ -246,6 +246,10 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
   // Step 2 is the "I have a draft already on SSW that I want to add days to" path.
   useEffect(() => {
     if (!jobNumber) return;
+    // While a save is in flight, don't let the load effect touch the day state
+    // — the user is mid-save and seeing the times re-set, even to the same
+    // values, can look like the data is being wiped.
+    if (submitting) return;
     const key = weekKey(jobNumber, weekOfMonday);
     const saved = config.savedWeeks[key];
 
@@ -347,7 +351,7 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
         });
       return () => { cancelled = true; };
     }
-  }, [jobNumber, weekOfMonday, config.savedWeeks, config.weeklyDefaults, config.pulledShows, config.autoApplySchedule, disabled]);
+  }, [jobNumber, weekOfMonday, config.savedWeeks, config.weeklyDefaults, config.pulledShows, config.autoApplySchedule, disabled, submitting]);
 
   const updateDay = (i: number, patch: Partial<DayHours>) => {
     setDays((prev) => {

@@ -291,31 +291,49 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
       const firstDayCell = p.locator('input[name="txtST_1_1"]');
       try {
         await firstDayCell.waitFor({ state: 'visible', timeout: 15000 });
-        // Set each WORKED day's show on its own cmbJob_N select — never the
-        // copy-to-all-days shortcut (#btnCopyJob), which would clobber other
-        // shows on a multi-show weekly timesheet. Unworked days are left as-is.
-        const perDayJobs = input.entry.days.map((d) =>
-          d.worked ? (d.jobNumber || input.show.jobNumber) : null,
-        );
-        const jobSetResult = await p.evaluate((jobs: (string | null)[]) => {
+
+        // Job# strategy: click #btnCopyJob to set the primary show on all 7
+        // days (fast — one server-side action), THEN override only the days
+        // that actually differ via cmbJob_N. Triggering 'change' on 7 Select2-
+        // wrapped selects with 10k+ options each (as a copy-replacement) hangs
+        // the page, so we minimize those events to the truly-mixed days only.
+        const jobCopyResult = await p.evaluate(() => {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const $ = (window as any).jQuery || (window as any).$;
-          const results: string[] = [];
-          jobs.forEach((job, idx) => {
-            if (!job) return;
-            const N = idx + 1;
-            const el = document.querySelector(`#cmbJob_${N}`) as HTMLSelectElement | null;
-            if (!el) { results.push(`${N}:no-el`); return; }
-            const opt = Array.from(el.options).find((o) => o.value === job || o.textContent?.trim() === job);
-            if (!opt) { results.push(`${N}:no-opt(${job})`); return; }
-            if ($) { $(`#cmbJob_${N}`).val(opt.value).trigger('change'); }
-            else { el.value = opt.value; el.dispatchEvent(new Event('change', { bubbles: true })); }
-            results.push(`${N}:${opt.value}`);
-          });
-          return results.join(', ');
-        }, perDayJobs);
-        console.log('[autocarl] per-day cmbJob set:', jobSetResult);
+          if ($ && $('#btnCopyJob').length) { $('#btnCopyJob').trigger('click'); return 'jquery'; }
+          const el = document.getElementById('btnCopyJob');
+          if (el) { el.click(); return 'native'; }
+          return 'not-found';
+        });
+        console.log('[autocarl] btnCopyJob click:', jobCopyResult);
         await p.waitForTimeout(800);
+
+        // Override only the days whose show differs from the primary.
+        const primaryJob = input.show.jobNumber;
+        const overrides = input.entry.days.map((d) =>
+          d.worked && d.jobNumber && d.jobNumber !== primaryJob ? d.jobNumber : null,
+        );
+        if (overrides.some(Boolean)) {
+          const overrideResult = await p.evaluate((jobs: (string | null)[]) => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const $ = (window as any).jQuery || (window as any).$;
+            const results: string[] = [];
+            jobs.forEach((job, idx) => {
+              if (!job) return;
+              const N = idx + 1;
+              const el = document.querySelector(`#cmbJob_${N}`) as HTMLSelectElement | null;
+              if (!el) { results.push(`${N}:no-el`); return; }
+              const opt = Array.from(el.options).find((o) => o.value === job || o.textContent?.trim() === job);
+              if (!opt) { results.push(`${N}:no-opt(${job})`); return; }
+              if ($) { $(`#cmbJob_${N}`).val(opt.value).trigger('change'); }
+              else { el.value = opt.value; el.dispatchEvent(new Event('change', { bubbles: true })); }
+              results.push(`${N}:${opt.value}`);
+            });
+            return results.join(', ');
+          }, overrides);
+          console.log('[autocarl] per-day cmbJob overrides:', overrideResult);
+          await p.waitForTimeout(500);
+        }
       } catch {
         // Fallback: try the UI flow — click the calendar icon, navigate, click the day
         console.log('[autocarl] rows still hidden — trying calendar UI click');

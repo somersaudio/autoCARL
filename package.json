@@ -1,6 +1,6 @@
 {
   "name": "autocarl",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "description": "Automates crew-site timecard entry and expense-report PDF filling",
   "main": "out/main/index.js",
   "author": "Creative Technology Crew",
