@@ -1,0 +1,995 @@
+:root {
+  --ct-gold: #fdb827;
+  --bg: #0f1115;
+  --panel: #181a20;
+  --panel-2: #1f222a;
+  --border: #2a2e38;
+  --text: #e8eaed;
+  --text-subtle: #9aa0a6;
+  --danger: #ef4444;
+  --danger-bg: #2a1414;
+  --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
+    Ubuntu, Cantarell, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 24px 20px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: relative;
+  z-index: 1;  /* sit above the MatrixRain canvas (z-index 0) when active */
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 8px;
+}
+
+.ct-logo {
+  height: 28px;
+  width: auto;
+}
+
+.app-subtitle {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-subtle);
+}
+
+.app-tabs {
+  margin-left: auto;
+  display: flex;
+  gap: 4px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.app-user {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.2;
+  margin-left: 12px;
+}
+
+.app-user-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.app-user-id {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.app-version {
+  position: fixed;
+  left: 12px;
+  bottom: 8px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.45;
+  pointer-events: none;
+  letter-spacing: 0.04em;
+}
+
+.settings-gear {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--panel-2);
+  color: var(--text-subtle);
+  border: 1px solid var(--border);
+  font-size: 18px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s, transform 0.2s;
+  z-index: 50;
+}
+
+.settings-gear:hover {
+  color: var(--ct-gold);
+  border-color: var(--ct-gold);
+  transform: rotate(45deg);
+}
+
+/* ----- Modal ----- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.modal-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 22px 20px;
+  width: min(420px, calc(100vw - 32px));
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+}
+
+.modal-card h3 {
+  font-size: 13px;
+  margin: 0 0 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+}
+
+/* ----- Auto-update overlay ----- */
+
+.update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.update-card {
+  width: 320px;
+  max-width: 80vw;
+  padding: 22px 24px;
+  border-radius: var(--radius);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+  text-align: center;
+}
+
+.update-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 14px;
+}
+
+.update-bar {
+  height: 8px;
+  border-radius: 999px;
+  background: var(--panel-2);
+  overflow: hidden;
+}
+
+.update-bar-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--ct-gold);
+  transition: width 0.2s ease;
+}
+
+.update-bar-fill.is-indeterminate {
+  width: 40%;
+  animation: update-indeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes update-indeterminate {
+  0% { margin-left: -40%; }
+  100% { margin-left: 100%; }
+}
+
+.update-pct {
+  margin-top: 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ----- Timesheet bottom note ----- */
+
+.timesheet-note {
+  font-size: 12px;
+  text-align: center;
+  margin-top: 8px;
+  padding: 0 12px;
+}
+
+.timesheet-note .link {
+  color: var(--ct-gold);
+}
+
+.app-tabs .tab {
+  background: transparent;
+  color: var(--text-subtle);
+  border: none;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.app-tabs .tab:hover:not(.is-active) {
+  color: var(--text);
+}
+
+.app-tabs .tab.is-active {
+  background: var(--ct-gold);
+  color: #1a1408;
+}
+
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 18px;
+}
+
+.card h2 { font-size: 18px; margin: 0 0 8px; }
+.card h3 { font-size: 14px; margin: 0 0 10px; color: var(--text-subtle); text-transform: uppercase; letter-spacing: 0.06em; }
+
+.subtle { color: var(--text-subtle); }
+
+.row-between {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 10px 0;
+}
+
+.field label {
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.field input {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  outline: none;
+}
+
+.field input:focus {
+  border-color: var(--ct-gold);
+}
+
+.password-input {
+  position: relative;
+}
+
+.password-input input {
+  width: 100%;
+  padding-right: 64px;  /* leave room for the Show/Hide button */
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  padding-left: 10px;
+  font: inherit;
+  outline: none;
+}
+
+.password-input input:focus {
+  border-color: var(--ct-gold);
+}
+
+.password-toggle {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: transparent;
+  border: 0;
+  color: var(--text-subtle);
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.password-toggle:hover {
+  color: var(--text);
+  background: var(--panel);
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+button.primary {
+  background: var(--ct-gold);
+  color: #1a1408;
+  border-color: var(--ct-gold);
+  font-weight: 600;
+}
+
+button.primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+button.secondary {
+  background: var(--panel-2);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+button.secondary:hover:not(:disabled) {
+  border-color: var(--ct-gold);
+}
+
+button.link {
+  background: transparent;
+  color: var(--text-subtle);
+  border-color: transparent;
+  padding: 6px 8px;
+}
+
+button.link:hover:not(:disabled) {
+  color: var(--ct-gold);
+}
+
+.banner {
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 13px;
+}
+
+.banner.error {
+  background: var(--danger-bg);
+  border: 1px solid var(--danger);
+  color: #fecaca;
+}
+
+.booking {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.booking:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.booking-logo {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  border-radius: 4px;
+  background: #fff;
+  padding: 2px;
+}
+
+.booking-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.booking-line1 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.show-num {
+  color: var(--ct-gold);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.booking-name {
+  font-weight: 500;
+}
+
+.booking-status {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-subtle);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.booking-line2 {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.booking-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.booking-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+/* ----- Featured (next/current) booking ----- */
+
+.featured-booking {
+  padding: 20px 22px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.03));
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  backdrop-filter: blur(20px) saturate(160%);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 6px 24px rgba(0, 0, 0, 0.25);
+}
+
+.featured-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.featured-logo {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  border-radius: 8px;
+  background: #fff;
+  padding: 4px;
+  flex-shrink: 0;
+}
+
+.featured-headline {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.featured-jobnum {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.featured-name {
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.featured-when {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+.featured-when-tag {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.featured-venue {
+  font-size: 12px;
+  margin-top: 14px;
+  padding-bottom: 2px;
+}
+
+.featured-venue-name {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.featured-grid {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px 20px;
+}
+
+.featured-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.featured-field-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.featured-field-value {
+  font-size: 14px;
+}
+
+.featured-field-email {
+  font-size: 11px;
+  color: var(--ct-gold);
+  text-decoration: none;
+  font-variant-numeric: tabular-nums;
+  word-break: break-all;
+}
+
+.featured-field-email:hover {
+  text-decoration: underline;
+}
+
+/* Per-PDF flight block (summary line + button) on the featured card. */
+.featured-flights {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-shrink: 0;
+  align-items: flex-end;
+  max-width: 280px;
+}
+
+.featured-flight {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.featured-flight-header {
+  font-size: 11px;
+  text-align: right;
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: baseline;
+}
+
+.featured-flight-vendor {
+  color: var(--text);
+  font-weight: 500;
+}
+
+.flight-leg {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0;
+  margin-top: 6px;
+}
+
+.flight-leg-date {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.2;
+}
+
+.flight-leg-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.flight-station {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.flight-arrow {
+  color: var(--ct-gold);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.featured-flights button {
+  padding: 6px 10px;
+  font-size: 12px;
+}
+
+.booking-clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  margin: 0 -6px;
+  padding-left: 6px;
+  padding-right: 6px;
+  transition: background 0.12s;
+}
+
+/* Mask the bottom of the visible past rows so they fade into nothing,
+ * hinting that more shows are available below. */
+.past-fading {
+  -webkit-mask-image: linear-gradient(180deg, black 30%, rgba(0, 0, 0, 0.15) 100%);
+  mask-image: linear-gradient(180deg, black 30%, rgba(0, 0, 0, 0.15) 100%);
+}
+
+.booking-clickable:hover {
+  background: rgba(253, 184, 39, 0.06);
+}
+
+/* ----- WeekPicker ----- */
+
+.week-picker {
+  position: relative;
+}
+
+.week-picker-trigger {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+}
+
+.week-picker-trigger:hover {
+  border-color: var(--ct-gold);
+}
+
+.week-picker-pop {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 30;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.4);
+  min-width: 252px;
+}
+
+.week-picker-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.week-picker-nav {
+  background: transparent;
+  color: var(--text-subtle);
+  border: 1px solid transparent;
+  padding: 2px 8px;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.week-picker-nav:hover {
+  color: var(--ct-gold);
+}
+
+.week-picker-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+
+.week-picker-dow {
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-subtle);
+  padding: 4px 0;
+  text-transform: uppercase;
+}
+
+.week-picker-day {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 6px 0;
+  font-size: 12px;
+  min-width: 32px;
+}
+
+.week-picker-day.is-out-of-month {
+  color: var(--text-subtle);
+  opacity: 0.45;
+}
+
+.week-picker-day.is-monday {
+  font-weight: 600;
+}
+
+.week-picker-day.is-row-hover {
+  background: rgba(253, 184, 39, 0.10);
+}
+
+.week-picker-day.is-selected {
+  background: rgba(253, 184, 39, 0.20);
+  border-color: rgba(253, 184, 39, 0.45);
+}
+
+.week-picker-day.is-selected.is-monday {
+  background: var(--ct-gold);
+  color: #1a1408;
+  border-color: var(--ct-gold);
+}
+
+/* ----- Week editor ----- */
+
+.week-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.day-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 56px minmax(160px, 1.5fr) repeat(4, minmax(70px, 90px)) auto minmax(140px, 1fr);
+  gap: 8px;
+  align-items: center;
+  padding: 8px 4px;
+  border-top: 1px solid var(--border);
+}
+
+/* Glowing CT-gold orb on today's row. Sits in the card's left padding so it
+ * appears OUTSIDE the row content (no text shift on any other day). */
+.day-row-today::before {
+  content: '';
+  position: absolute;
+  left: -12px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  margin-top: -4px;
+  border-radius: 50%;
+  background: var(--ct-gold);
+  box-shadow:
+    0 0 4px 1px rgba(253, 184, 39, 0.95),
+    0 0 10px 3px rgba(253, 184, 39, 0.55),
+    0 0 18px 6px rgba(253, 184, 39, 0.25);
+  animation: orb-pulse 2.4s ease-in-out infinite;
+}
+
+@keyframes orb-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.15); }
+}
+
+.day-row:first-of-type {
+  border-top: none;
+}
+
+.day-row-future {
+  opacity: 0.55;
+}
+
+.day-row-worked .day-name {
+  color: var(--ct-gold);
+}
+
+.day-label {
+  display: flex;
+  flex-direction: column;
+}
+
+.day-name {
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.day-date {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.day-show {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.day-show:focus {
+  outline: none;
+  border-color: var(--ct-gold);
+}
+
+.day-time {
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  width: 100%;
+  text-align: center;
+}
+
+.day-time:focus {
+  outline: none;
+  border-color: var(--ct-gold);
+}
+
+.day-perdiem {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-subtle);
+  user-select: none;
+}
+
+.day-perdiem-label {
+  white-space: nowrap;
+}
+
+.day-perdiem-input {
+  width: 52px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 12px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  -moz-appearance: textfield;
+}
+
+.day-perdiem-input::-webkit-inner-spin-button,
+.day-perdiem-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.day-perdiem-input:focus {
+  outline: none;
+  border-color: var(--ct-gold);
+}
+
+.day-perdiem-input::placeholder {
+  color: var(--text-subtle);
+  opacity: 0.6;
+}
+
+.day-hours {
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.week-totals {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.identity-panel {
+  margin-top: 14px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.identity-panel-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.identity-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 24px;
+}
+
+.identity-row {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.identity-key {
+  flex: 0 0 auto;
+  opacity: 0.6;
+}
+
+.identity-val {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.banner-inline {
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.banner-inline.success {
+  background: rgba(80, 200, 120, 0.15);
+  color: #7cd9a0;
+  border: 1px solid rgba(80, 200, 120, 0.35);
+}

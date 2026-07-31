@@ -1,0 +1,72 @@
+{
+  "name": "autocarl",
+  "version": "0.9.26",
+  "description": "AUTOcarl — instant schedule via iCal, direct-POST timesheet writes",
+  "main": "out/main/index.js",
+  "author": "Creative Technology Crew",
+  "private": true,
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "dist": "electron-vite build && electron-builder -mw",
+    "dist:mac": "electron-vite build && electron-builder --mac --arm64 --x64",
+    "dist:win": "electron-vite build && electron-builder --win --x64",
+    "release": "electron-vite build && electron-builder --publish always",
+    "postrelease": "electron-rebuild -f -w keytar --arch arm64",
+    "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "postinstall": "electron-builder install-app-deps"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.3",
+    "keytar": "^7.9.0",
+    "pdfjs-dist": "^4.7.76",
+    "playwright": "^1.48.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.4",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.0",
+    "@vitejs/plugin-react": "^4.3.2",
+    "electron": "^32.1.2",
+    "electron-builder": "^25.0.5",
+    "electron-vite": "^2.3.0",
+    "typescript": "^5.6.2",
+    "vite": "^5.4.8"
+  },
+  "build": {
+    "appId": "com.teamsomo.autocarl",
+    "productName": "AUTOcarl",
+    "directories": { "output": "release/${version}" },
+    "files": [
+      "out/**/*",
+      "!**/{.eslintrc.cjs,.prettierrc,.gitignore}"
+    ],
+    "publish": {
+      "provider": "github",
+      "owner": "somersaudio",
+      "repo": "autoCARL"
+    },
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "category": "public.app-category.productivity",
+      "artifactName": "${productName}-${arch}.${ext}"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] }
+      ],
+      "artifactName": "${productName}-setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false
+    }
+  }
+}
