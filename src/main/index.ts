@@ -170,7 +170,7 @@ function registerIpc(): void {
     return result;
   });
 
-  ipcMain.handle('timesheet:fill', async (_e, entry: WeekEntry) => {
+  ipcMain.handle('timesheet:fill', async (_e, entry: WeekEntry, overrideRecordId: string | null) => {
     const config = await readConfig();
     const show = config.pulledShows.find((s) => s.jobNumber === entry.jobNumber);
     if (!show) return { ok: false, error: 'Selected show not found in pulled shows. Refresh from C.A.R.L. first.' };
@@ -182,6 +182,11 @@ function registerIpc(): void {
     const key = weekKey(entry.jobNumber, entry.weekOfMonday);
     const existing = config.savedWeeks[key];
 
+    // overrideRecordId wins (used when editing a weekly record that's on the
+    // SSW grid under a DIFFERENT show — we route the save to that record so
+    // we don't create a duplicate weekly entry).
+    const effectiveRecordId = overrideRecordId || existing?.sswRecordId || null;
+
     const result = await fillTimesheet({
       sswUsername: config.sswUsername,
       sswPassword,
@@ -189,8 +194,9 @@ function registerIpc(): void {
       profile: config.profile,
       entry,
       dailyRate: config.weeklyDefaults.dailyRate,
-      existingRecordId: existing?.sswRecordId ?? null,
+      existingRecordId: effectiveRecordId,
       sswAppId: config.sswAppId,
+      mode: overrideRecordId ? 'merge-into-existing' : 'normal',
     }, makeReporter('ssw-fill'));
 
     if (result.ok) {

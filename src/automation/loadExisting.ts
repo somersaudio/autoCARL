@@ -73,6 +73,55 @@ const SSW_BASE = 'https://ctts.ctus.com/SpreadsheetWeb';
 const SSW_LOGIN_URL = `${SSW_BASE}/Default.aspx`;
 const APP_NAME = 'Temp Tech Timesheet-App';
 
+// Read all 7 per-day cells from the currently-open Edit page (Start/End/Meal/
+// Per-Diem inputs + the cmbJob_N show select for each row).
+async function readRawDays(page: Page): Promise<Array<{ st1: string; st2: string; et1: string; et2: string; pd: string; job: string }>> {
+  return page.evaluate(() => {
+    const out: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string; job: string }> = [];
+    for (let n = 1; n <= 7; n++) {
+      const v = (sel: string) => (document.querySelector(sel) as HTMLInputElement | null)?.value || '';
+      const job = (document.querySelector(`#cmbJob_${n}`) as HTMLSelectElement | null)?.value || '';
+      out.push({
+        st1: v(`input[name="txtST_${n}_1"]`),
+        st2: v(`input[name="txtST_${n}_2"]`),
+        et1: v(`input[name="txtET_${n}_1"]`),
+        et2: v(`input[name="txtET_${n}_2"]`),
+        pd: v(`input[name="txtPD_${n}_1"]`),
+        job,
+      });
+    }
+    return out;
+  });
+}
+
+// Convert the raw per-day values to typed DayHours[]. Returns { days, includePerDiem }.
+function parseRawDays(
+  rawDays: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string; job: string }>,
+): { days: WeekEntry['days']; includePerDiem: boolean } {
+  let includePerDiem = false;
+  const days = rawDays.map((r) => {
+    const startTime = parseTime(r.st1);
+    const endTime = parseTime(r.et2);
+    const mealStart = parseTime(r.st2);
+    const mealEnd = parseTime(r.et1);
+    const worked = !!(startTime || endTime || mealStart || mealEnd);
+    const pdVal = parseFloat((r.pd || '').replace(/[^0-9.]/g, ''));
+    const hasPd = !isNaN(pdVal) && pdVal > 0;
+    if (hasPd) includePerDiem = true;
+    const day: DayHours = {
+      worked,
+      startTime,
+      endTime,
+      perDiem: hasPd ? pdVal : null,
+      jobNumber: r.job || '',
+    };
+    if (mealStart) day.mealStart = mealStart;
+    if (mealEnd) day.mealEnd = mealEnd;
+    return day;
+  }) as unknown as WeekEntry['days'];
+  return { days, includePerDiem };
+}
+
 /** "8:00 AM" -> "08:00", "5:00 PM" -> "17:00", "" -> "". */
 function parseTime(s: string): string {
   const t = (s || '').trim();
@@ -145,12 +194,15 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
         await p.goto(`${SSW_BASE}/UI/Pages/Data.aspx?ApplicationID=${appId}`, { waitUntil: 'domcontentloaded' });
       }
     }
-    await p.waitForTimeout(1500);
+    await p.waitForTimeout(500);
 
     // Find record
-    report(40, 'Searching your records');
+    report(35, 'Loading your records list');
+    // Set page size to "All" so we don't miss rows in pagination, then wait
+    // for the grid to settle. Cap the settle wait — selectOption is best-effort.
     await p.locator('select[name="dataGrid_length"]').selectOption('-1').catch(() => {});
-    await p.waitForTimeout(1500);
+    await p.waitForTimeout(800);
+    report(45, 'Searching for this week');
 
     const [year, mm, dd] = input.weekOfMonday.split('-').map(Number);
     const usDateNoPad = `${mm}/${dd}/${year}`;
@@ -161,7 +213,7 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
       ({ date, job }) => {
         const rows = document.querySelectorAll('#dataGrid tbody tr');
         let exact: { recordId: string | null; status: string } | null = null;
-        let otherShow: { jobNumber: string; status: string } | null = null;
+        let otherShow: { jobNumber: string; status: string; recordId: string } | null = null;
         for (const row of Array.from(rows)) {
           const cells = Array.from(row.querySelectorAll('td')).map((c) => (c.textContent || '').trim());
           if (!(cells[1] || '').startsWith(date)) continue; // not this week
@@ -172,8 +224,8 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
           const status = cells[4] || '';
           if (rowJob === job) {
             exact = { recordId: m ? m[1] : null, status };
-          } else if (!otherShow && rowJob) {
-            otherShow = { jobNumber: rowJob, status };
+          } else if (!otherShow && rowJob && m) {
+            otherShow = { jobNumber: rowJob, status, recordId: m[1] };
           }
         }
         return { exact, otherShow };
@@ -184,11 +236,70 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
     const status = found.exact?.status || '';
 
     if (!recordId) {
-      await browser.close();
       if (found.otherShow) {
+        // Open the other show's record and read its per-day data so the UI
+        // can show the locked days with the right show + times.
+        report(70, "Reading other show's days");
+        const effAppIdForOther = appId || new URL(p.url()).searchParams.get('ApplicationID');
+        await p.goto(`${SSW_BASE}/Output.aspx?ApplicationID=${effAppIdForOther}&RecordID=${found.otherShow.recordId}&Act=Edit`, { waitUntil: 'domcontentloaded' });
+        // Mirror the main path: blind 5s wait so SSW's JS-heavy form finishes
+        // rendering, then attempt the read. readRawDays just queries the DOM
+        // and returns empty strings if the form isn't there, so this is safe
+        // for the locked-record case too.
+        await p.waitForTimeout(5000);
+        const authWall = await p.evaluate(() => /not authorized to view this page/i.test(document.body.innerText || '')).catch(() => false);
+        let otherDays: WeekEntry['days'] | null = null;
+        if (authWall) {
+          console.log('[autocarl-load] other-show record is locked (auth wall) — UI will show all 7 days under that show #');
+        } else {
+          report(85, "Reading other show's hours");
+          try {
+            const otherRaw = await readRawDays(p);
+            const parsed = parseRawDays(otherRaw);
+            // Only trust the read if SOMETHING came through (times or a
+            // job# on at least one row). All-empty means the form wasn't
+            // actually rendered and we should fall back.
+            const hasAnyData = parsed.days.some(
+              (d) => d.startTime || d.endTime || (d.jobNumber && d.jobNumber !== ''),
+            );
+            if (hasAnyData) {
+              otherDays = parsed.days;
+            } else {
+              // Debug: dump a screenshot so we can see what SSW actually served
+              // for this record (auth wall variant? slow render? unknown).
+              const ts = new Date().toISOString().replace(/[:.]/g, '-');
+              const shotPath = `/tmp/autocarl-other-show-empty-${ts}.png`;
+              await p.screenshot({ path: shotPath, fullPage: true }).catch(() => {});
+              console.log('[autocarl-load] other-show form returned all-empty values; screenshot:', shotPath);
+            }
+          } catch (e) {
+            console.log('[autocarl-load] failed to read other-show days:', e instanceof Error ? e.message : e);
+          }
+        }
+        await browser.close();
         report(100, 'Week record exists for another show');
-        return { ok: true, existing: null, weekRecordOtherShow: found.otherShow, sswAppId: appId || undefined };
+        // Fallback when we can't read the form: blank days but stamp
+        // jobNumber on each so the renderer treats them as "owned by other
+        // show" and locks/greys the whole row instead of leaving it editable.
+        const lockedBlank: DayHours = {
+          worked: false,
+          startTime: '',
+          endTime: '',
+          jobNumber: found.otherShow.jobNumber,
+        };
+        return {
+          ok: true,
+          existing: null,
+          weekRecordOtherShow: {
+            ...found.otherShow,
+            days: otherDays ?? ([
+              lockedBlank, lockedBlank, lockedBlank, lockedBlank, lockedBlank, lockedBlank, lockedBlank,
+            ] as unknown as WeekEntry['days']),
+          },
+          sswAppId: appId || undefined,
+        };
       }
+      await browser.close();
       report(100, 'No matching record found');
       return { ok: true, existing: null, sswAppId: appId || undefined };
     }
@@ -200,22 +311,7 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
     await p.waitForTimeout(5000); // form is JS-heavy
     report(85, 'Reading your hours');
 
-    const rawDays = await p.evaluate(() => {
-      const out: Array<{ st1: string; st2: string; et1: string; et2: string; pd: string; job: string }> = [];
-      for (let n = 1; n <= 7; n++) {
-        const v = (sel: string) => (document.querySelector(sel) as HTMLInputElement | null)?.value || '';
-        const job = (document.querySelector(`#cmbJob_${n}`) as HTMLSelectElement | null)?.value || '';
-        out.push({
-          st1: v(`input[name="txtST_${n}_1"]`),
-          st2: v(`input[name="txtST_${n}_2"]`),
-          et1: v(`input[name="txtET_${n}_1"]`),
-          et2: v(`input[name="txtET_${n}_2"]`),
-          pd: v(`input[name="txtPD_${n}_1"]`),
-          job,
-        });
-      }
-      return out;
-    });
+    const rawDays = await readRawDays(p);
     console.log('[autocarl-load] raw SSW values per day (col1=IN/st1, col2=LunchOut/st2, col3=LunchIn/et1, col4=OUT/et2):');
     rawDays.forEach((r, i) => {
       const dayName = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][i];
@@ -224,29 +320,7 @@ export async function loadExistingTimesheet(input: LoadExistingInput, report: Pr
 
     await browser.close();
 
-    let includePerDiem = false;
-    const days = rawDays.map((r) => {
-      const startTime = parseTime(r.st1);
-      const endTime = parseTime(r.et2);
-      const mealStart = parseTime(r.st2);
-      const mealEnd = parseTime(r.et1);
-      const worked = !!(startTime || endTime || mealStart || mealEnd);
-      const pdVal = parseFloat((r.pd || '').replace(/[^0-9.]/g, ''));
-      const hasPd = !isNaN(pdVal) && pdVal > 0;
-      if (hasPd) includePerDiem = true;
-      const day: DayHours = {
-        worked,
-        // Mirror C.A.R.L. exactly — never fabricate a time it doesn't have.
-        // A worked day with no OUT time (e.g. still on the clock) stays blank.
-        startTime,
-        endTime,
-        perDiem: hasPd ? pdVal : null,
-        jobNumber: r.job || '',
-      };
-      if (mealStart) day.mealStart = mealStart;
-      if (mealEnd) day.mealEnd = mealEnd;
-      return day;
-    }) as unknown as WeekEntry['days'];
+    const { days, includePerDiem } = parseRawDays(rawDays);
 
     report(100, 'Loaded');
     return { ok: true, existing: { recordId, days, includePerDiem, status }, sswAppId: appId || undefined };

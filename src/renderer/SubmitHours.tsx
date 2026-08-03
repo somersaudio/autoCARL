@@ -204,7 +204,7 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
   // When the week already has a record under a DIFFERENT show. Multi-show
   // weekly timesheets aren't supported for writing yet, so we warn + block Save
   // to avoid overwriting the other show's days.
-  const [weekConflict, setWeekConflict] = useState<{ key: string; jobNumber: string } | null>(null);
+  const [weekConflict, setWeekConflict] = useState<{ key: string; jobNumber: string; recordId: string } | null>(null);
   // Tracks which {job, week} key is currently being loaded from SSW, so a re-fire
   // of the load effect doesn't launch a duplicate headless browser.
   const inFlightLoadKey = useRef<string | null>(null);
@@ -216,7 +216,7 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
   // already loaded (or edited) this session skips the slow C.A.R.L. lookup and
   // preserves in-progress edits. Not persisted — cleared on app restart. The
   // disk cache (config.savedWeeks) still takes precedence for saved records.
-  const sessionCacheRef = useRef<Map<string, { days: WeekEntry['days']; includePerDiem: boolean; noRecord: boolean; otherShow: string | null }>>(new Map());
+  const sessionCacheRef = useRef<Map<string, { days: WeekEntry['days']; includePerDiem: boolean; noRecord: boolean; otherShow: { jobNumber: string; recordId: string } | null }>>(new Map());
 
   // "Loaded successfully" message — only flashed after a FRESH C.A.R.L. fetch
   // (not on instant cache/disk restores, which would be misleading). Auto-
@@ -287,7 +287,7 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
       setIncludePerDiem(cached.includePerDiem);
       setLoadedFromSave(null);
       setNewTimesheetKey(cached.noRecord && !cached.otherShow ? key : null);
-      setWeekConflict(cached.otherShow ? { key, jobNumber: cached.otherShow } : null);
+      setWeekConflict(cached.otherShow ? { key, ...cached.otherShow } : null);
       return;
     }
 
@@ -318,17 +318,19 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
             flashLoaded();
             onChangeRef.current();
           } else if (r.weekRecordOtherShow) {
-            // A record exists for this week under another show. Warn + block Save.
+            // A record exists for this week under another show. Load that
+            // record's days into the table so the user can SEE which days
+            // are taken. Save routes to merge-into-existing on that record.
+            const os = r.weekRecordOtherShow;
             setNewTimesheetKey(null);
-            setWeekConflict({ key, jobNumber: r.weekRecordOtherShow.jobNumber });
-            setDays((cur) => {
-              sessionCacheRef.current.set(key, {
-                days: cur,
-                includePerDiem: selectedShow?.perDiem != null,
-                noRecord: false,
-                otherShow: r.weekRecordOtherShow!.jobNumber,
-              });
-              return cur;
+            setWeekConflict({ key, jobNumber: os.jobNumber, recordId: os.recordId });
+            setDays(os.days);
+            setIncludePerDiem(false);
+            sessionCacheRef.current.set(key, {
+              days: os.days,
+              includePerDiem: false,
+              noRecord: false,
+              otherShow: { jobNumber: os.jobNumber, recordId: os.recordId },
             });
           } else {
             setNewTimesheetKey(key);
@@ -380,10 +382,20 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
       const today = startOfToday();
       const safeDays = days.map((d, i) => {
         const date = dateForDayIndex(weekOfMonday, i);
-        return date > today ? { ...d, worked: false } : d;
+        // Future days: never submit.
+        if (date > today) return { ...d, worked: false };
+        // Days belonging to a different show on a merged record: leave them
+        // alone (don't re-write existing cells with the same values).
+        if (d.jobNumber && d.jobNumber !== jobNumber) return { ...d, worked: false };
+        return d;
       }) as unknown as WeekEntry['days'];
       const entry: WeekEntry = { jobNumber, weekOfMonday, includePerDiem, days: safeDays };
-      const r = await window.api.timesheet.fill(entry);
+      // If this week already has a record under a different show, route the
+      // save to that record (merge-into-existing) instead of creating a
+      // duplicate.
+      const conflictKey = weekKey(jobNumber, weekOfMonday);
+      const overrideRecordId = weekConflict && weekConflict.key === conflictKey ? weekConflict.recordId : null;
+      const r = await window.api.timesheet.fill(entry, overrideRecordId);
       setResult(r);
       if (r.ok) await onChange(); // refresh config so savedWeeks updates and loadedFromSave reflects
     } finally {
@@ -404,7 +416,8 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
         flashLoaded();
         await onChange(); // brings the new cached data through the useEffect
       } else if (r.weekRecordOtherShow) {
-        setWeekConflict({ key, jobNumber: r.weekRecordOtherShow.jobNumber });
+        const os = r.weekRecordOtherShow;
+        setWeekConflict({ key, jobNumber: os.jobNumber, recordId: os.recordId });
         setNewTimesheetKey(null);
       } else {
         setNewTimesheetKey(key);
@@ -485,10 +498,10 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
           <div className="banner info">New timesheet — no existing draft on C.A.R.L. for this week. Save will create one.</div>
         )}
         {hasWeekConflict && !loadingExisting && (
-          <div className="banner error">
-            A timesheet for this week already exists on C.A.R.L. under show <strong>{weekConflict!.jobNumber}</strong>.
-            Adding a second show to an existing weekly timesheet isn't supported yet, so Save is disabled to avoid
-            overwriting the other show's days. Open the C.A.R.L. site to add this show's hours manually.
+          <div className="banner info">
+            This week already has a timesheet on C.A.R.L. under show <strong>{weekConflict!.jobNumber}</strong>.
+            Save will <strong>edit that existing record</strong> and set only the days you fill here to{' '}
+            <strong>{jobNumber}</strong> — the other show's days are left untouched.
           </div>
         )}
 
@@ -512,10 +525,13 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
               const isFuture = dayDate > startOfToday();
               const isToday = dayDate.getTime() === startOfToday().getTime();
               const hasPreview = !!(d.startTime || d.endTime || d.perDiem != null);
-              const locked = isFuture;
+              // Day already assigned to a different show on the existing
+              // record — read-only here. The Save will leave its cells alone.
+              const isOtherShowDay = !!(d.jobNumber && d.jobNumber !== jobNumber);
+              const locked = isFuture || isOtherShowDay;
               const dayShow = config.pulledShows.find((s) => s.jobNumber === d.jobNumber);
               return (
-                <tr key={label} className={isFuture ? 'is-future' : ''}>
+                <tr key={label} className={`${isFuture ? 'is-future' : ''} ${isOtherShowDay ? 'is-other-show' : ''}`.trim()}>
                   <td className="day-date-cell">
                     <span className="day-date-line">
                       {isToday && <span className="today-dot" title="Today" />}
@@ -576,7 +592,20 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
                     <input
                       type="time"
                       value={d.endTime}
-                      onChange={(e) => updateDay(i, { endTime: e.target.value })}
+                      onChange={(e) => {
+                        let v = e.target.value;
+                        // Default OUT to PM: when the end time was blank and
+                        // the user enters an AM value (1–11), flip to PM. Past
+                        // days (pre-filled 18:00) and explicit later edits are
+                        // untouched.
+                        if (!d.endTime && v) {
+                          const [hh, mm] = v.split(':').map((n) => parseInt(n, 10));
+                          if (hh >= 1 && hh < 12) {
+                            v = `${String(hh + 12).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+                          }
+                        }
+                        updateDay(i, { endTime: v });
+                      }}
                       disabled={locked || !d.worked}
                     />
                   </td>
@@ -644,10 +673,10 @@ export default function SubmitHours({ config, disabled, onChange, progress, auto
           <button
             className="primary"
             onClick={fill}
-            disabled={disabled || submitting || loadingExisting || !jobNumber || needsPosition || timesheetLocked || hasWeekConflict}
+            disabled={disabled || submitting || loadingExisting || !jobNumber || needsPosition || timesheetLocked}
             title={
               timesheetLocked ? `Timesheet is ${lockStatusLabel} — contact your labor coordinator to unlock.`
-              : hasWeekConflict ? `This week already has a timesheet under ${weekConflict!.jobNumber}; multi-show weeks aren't supported yet.`
+              : hasWeekConflict ? `Save will edit the existing weekly record on C.A.R.L. (currently under ${weekConflict!.jobNumber}).`
               : undefined
             }
           >

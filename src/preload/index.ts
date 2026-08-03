@@ -21,8 +21,8 @@ const api: Api = {
     forShow: (jobName: string) => ipcRenderer.invoke('logo:forShow', jobName) as Promise<string | null>,
   },
   timesheet: {
-    fill: (entry: WeekEntry) =>
-      ipcRenderer.invoke('timesheet:fill', entry) as Promise<SubmitResult>,
+    fill: (entry: WeekEntry, overrideRecordId?: string | null) =>
+      ipcRenderer.invoke('timesheet:fill', entry, overrideRecordId ?? null) as Promise<SubmitResult>,
     loadExisting: (jobNumber: string, weekOfMonday: string) =>
       ipcRenderer.invoke('timesheet:loadExisting', jobNumber, weekOfMonday) as Promise<LoadExistingResult>,
     loadMostRecent: () =>

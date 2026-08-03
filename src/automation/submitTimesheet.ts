@@ -20,6 +20,12 @@ export type FillTimesheetInput = {
   // Cached SSW Application ID. If set + session valid, we skip the
   // login → select-application step and navigate directly.
   sswAppId: string | null;
+  // 'normal' (default): single-show week, use #btnCopyJob to assign the show
+  // to all 7 days at once.
+  // 'merge-into-existing': editing a weekly record that already has other
+  // shows on other days. Skip #btnCopyJob (it would clobber those days) and
+  // set cmbJob_N only on the worked days we're filling.
+  mode?: 'normal' | 'merge-into-existing';
 };
 
 export type FillTimesheetResult = SubmitResult & { sswAppId?: string };
@@ -292,29 +298,46 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
       try {
         await firstDayCell.waitFor({ state: 'visible', timeout: 15000 });
 
-        // Job# strategy: click #btnCopyJob to set the primary show on all 7
-        // days (fast — one server-side action), THEN override only the days
-        // that actually differ via cmbJob_N. Triggering 'change' on 7 Select2-
-        // wrapped selects with 10k+ options each (as a copy-replacement) hangs
-        // the page, so we minimize those events to the truly-mixed days only.
-        const jobCopyResult = await p.evaluate(() => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const $ = (window as any).jQuery || (window as any).$;
-          if ($ && $('#btnCopyJob').length) { $('#btnCopyJob').trigger('click'); return 'jquery'; }
-          const el = document.getElementById('btnCopyJob');
-          if (el) { el.click(); return 'native'; }
-          return 'not-found';
-        });
-        console.log('[autocarl] btnCopyJob click:', jobCopyResult);
-        await p.waitForTimeout(800);
+        // Job# strategy depends on mode:
+        //   • 'normal'             — fresh save / single-show week. Click
+        //     #btnCopyJob to fan the primary show across all 7 days (one
+        //     server-side action). Optionally override per-day for mixed weeks.
+        //   • 'merge-into-existing' — we're editing a weekly record that
+        //     already has other shows on other days. Clicking #btnCopyJob
+        //     would clobber those days. So we set cmbJob_N ONLY on the worked
+        //     days we're filling and leave the other days' show assignments
+        //     untouched.
+        const mergeMode = input.mode === 'merge-into-existing';
+        if (!mergeMode) {
+          const jobCopyResult = await p.evaluate(() => {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const $ = (window as any).jQuery || (window as any).$;
+            if ($ && $('#btnCopyJob').length) { $('#btnCopyJob').trigger('click'); return 'jquery'; }
+            const el = document.getElementById('btnCopyJob');
+            if (el) { el.click(); return 'native'; }
+            return 'not-found';
+          });
+          console.log('[autocarl] btnCopyJob click:', jobCopyResult);
+          await p.waitForTimeout(400);
+          report(60, 'Show set on each day');
+        } else {
+          console.log('[autocarl] merge-into-existing: skipping btnCopyJob to preserve other shows');
+          report(60, 'Merging with existing weekly record');
+        }
 
-        // Override only the days whose show differs from the primary.
+        // Set cmbJob_N per worked day:
+        //   • merge mode: ALL worked days (the only days we touch).
+        //   • normal mode: only days whose show differs from the primary
+        //     (btnCopyJob already set the primary on every day).
         const primaryJob = input.show.jobNumber;
-        const overrides = input.entry.days.map((d) =>
-          d.worked && d.jobNumber && d.jobNumber !== primaryJob ? d.jobNumber : null,
-        );
-        if (overrides.some(Boolean)) {
-          const overrideResult = await p.evaluate((jobs: (string | null)[]) => {
+        const perDayJobs = input.entry.days.map((d) => {
+          if (!d.worked) return null;
+          const job = d.jobNumber || primaryJob;
+          if (!mergeMode && job === primaryJob) return null; // btnCopyJob already handled it
+          return job;
+        });
+        if (perDayJobs.some(Boolean)) {
+          const setResult = await p.evaluate((jobs: (string | null)[]) => {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const $ = (window as any).jQuery || (window as any).$;
             const results: string[] = [];
@@ -330,8 +353,8 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
               results.push(`${N}:${opt.value}`);
             });
             return results.join(', ');
-          }, overrides);
-          console.log('[autocarl] per-day cmbJob overrides:', overrideResult);
+          }, perDayJobs);
+          console.log('[autocarl] per-day cmbJob set:', setResult);
           await p.waitForTimeout(500);
         }
       } catch {
@@ -373,41 +396,74 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
       }
     }
 
+    report(65, 'Filling per-day hours');
+
     // Per-day fields. Column mapping (confirmed from form HTML):
     //   txtST_N_1 = IN          (column 1)
     //   txtST_N_2 = Lunch out   (column 2)
     //   txtET_N_1 = Lunch in    (column 3)
     //   txtET_N_2 = OUT         (column 4)
     //   txtPD_N_1 = Per Diem    (top box in Per Diem column)
-    for (let i = 0; i < 7; i++) {
-      const day = input.entry.days[i];
-      const N = i + 1;
-      if (!day.worked) continue;
+    //
+    // BATCHED FILL: one JS evaluate that uses jQuery to set + change-event
+    // every cell synchronously. Playwright's `.fill()` is correctness-first
+    // (focus/select/type/blur per call, ~200ms each) and awaits each — that
+    // serializes SSW's Calculate (~500ms server round-trip per change) and
+    // makes a full-week save take 10–15s on its own. Doing the changes in one
+    // synchronous burst lets SSW's own debouncer collapse the cascade.
+    const perDayFills = input.entry.days.map((d, i) => {
+      if (!d.worked) return null;
+      return {
+        N: i + 1,
+        st1: d.startTime,
+        et2: d.endTime,
+        st2: d.mealStart || '',
+        et1: d.mealEnd || '',
+        pd: d.perDiem != null && d.perDiem > 0 ? String(d.perDiem) : '',
+        hasLunch: !!(d.mealStart || d.mealEnd),
+      };
+    }).filter((x): x is NonNullable<typeof x> => x !== null);
 
-      const inField = p.locator(`input[name="txtST_${N}_1"]`);
-      const outField = p.locator(`input[name="txtET_${N}_2"]`);
-      const lunchOut = p.locator(`input[name="txtST_${N}_2"]`); // column 2
-      const lunchIn = p.locator(`input[name="txtET_${N}_1"]`);  // column 3
-      if ((await inField.count()) === 0 || (await outField.count()) === 0) continue;
-
-      await inField.fill(day.startTime);
-      await outField.fill(day.endTime);
-
-      // Always set lunch fields (fill or clear) — clearing wipes stale data
-      // from earlier buggy fills that may have written OUT into the Lunch column.
-      const ms = day.mealStart || '';
-      const me = day.mealEnd || '';
-      if (await lunchOut.count()) await lunchOut.fill(ms);
-      if (await lunchIn.count()) await lunchIn.fill(me);
-
-      // Per-diem: fill if set, clear if null/undefined. Clearing wipes any
-      // stale amount left over from a previous fill on this row.
-      const pd = p.locator(`input[name="txtPD_${N}_1"]`);
-      if (await pd.count()) {
-        const amount = day.perDiem;
-        await pd.fill(amount != null && amount > 0 ? String(amount) : '');
+    const batchResult = await p.evaluate((fills) => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const $ = (window as any).jQuery || (window as any).$;
+      const touched: string[] = [];
+      // SILENT set — no change event, so SSW's Calculate isn't fired per-cell.
+      const setSilent = (name: string, val: string) => {
+        const el = document.querySelector(`input[name="${name}"]`) as HTMLInputElement | null;
+        if (!el) return;
+        if ($) $(el).val(val);
+        else el.value = val;
+        touched.push(name);
+      };
+      for (const f of fills) {
+        setSilent(`txtST_${f.N}_1`, f.st1);
+        setSilent(`txtET_${f.N}_2`, f.et2);
+        if (f.hasLunch) {
+          setSilent(`txtST_${f.N}_2`, f.st2);
+          setSilent(`txtET_${f.N}_1`, f.et1);
+        }
+        setSilent(`txtPD_${f.N}_1`, f.pd);
       }
-    }
+      // Fire change ONCE on the last cell we set — SSW's Calculate reads all
+      // DOM values, so a single round-trip covers all 15 fields.
+      if (fills.length) {
+        const last = fills[fills.length - 1];
+        const lastSel = `input[name="txtPD_${last.N}_1"]`;
+        const el = document.querySelector(lastSel) as HTMLInputElement | null;
+        if (el) {
+          if ($) $(el).trigger('change');
+          else el.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+      return touched.length;
+    }, perDayFills);
+    console.log('[autocarl] batched per-day fills (one Calculate):', batchResult, 'cells');
+
+    // Let SSW's Calculate cascade finish before we move on (debounced/queued).
+    await p.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+
+    report(72, 'Setting daily rate');
 
     // Daily Rate — fill the top input, then fire the Copy button via jQuery
     // (same as Job # Copy and Save — native click doesn't reach the handler).
@@ -433,10 +489,11 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
         return `native-click:${inp.value}`;
       }, input.dailyRate);
       console.log('[autocarl] btnDailyRate:', drResult);
-      await p.waitForTimeout(1000);
+      await p.waitForTimeout(500);
     }
 
-    await p.waitForTimeout(1000); // settle onChange handlers
+    await p.waitForTimeout(500); // settle onChange handlers
+    report(78, 'Ready to save');
 
     // 5. Reveal the buttons row if still hidden, take a BEFORE screenshot,
     // then click Save. Inspect the result heavily.
@@ -509,8 +566,9 @@ export async function fillTimesheet(input: FillTimesheetInput, report: ProgressR
       console.log('[autocarl] NO save endpoint was hit within 45s after click');
     }
 
-    await p.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
-    await p.waitForTimeout(2000);
+    report(90, 'Waiting for C.A.R.L. to confirm');
+    await p.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
+    await p.waitForTimeout(1000);
 
     // Check for a visible error message
     const errorText = await p.evaluate(() => {

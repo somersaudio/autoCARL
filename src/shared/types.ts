@@ -114,7 +114,14 @@ export type LoadExistingResult =
       existing: { recordId: string; days: WeekEntry['days']; includePerDiem: boolean; status: string } | null;
       // Set when no record matches {week, this show} but a record exists for the
       // same week under a DIFFERENT show (one weekly timesheet can hold several).
-      weekRecordOtherShow?: { jobNumber: string; status: string } | null;
+      weekRecordOtherShow?: {
+        jobNumber: string;
+        status: string;
+        recordId: string;
+        // Per-day contents of the existing record, so the renderer can show
+        // the other show's days as locked/grey instead of leaving them blank.
+        days: WeekEntry['days'];
+      } | null;
     }
   | { ok: false; error: string };
 
@@ -159,7 +166,7 @@ export type Api = {
     // Fills the timesheet on SpreadsheetWeb headlessly, clicks Save (employee
     // stage — never the workflow-advance Submit). If a record already exists
     // for {jobNumber, weekOfMonday} on SSW, updates it instead of creating new.
-    fill: (entry: WeekEntry) => Promise<SubmitResult>;
+    fill: (entry: WeekEntry, overrideRecordId?: string | null) => Promise<SubmitResult>;
     // Looks for an existing record on SSW for {jobNumber, weekOfMonday} and
     // returns its contents so the UI can preload them. Null existing = no
     // record found.
