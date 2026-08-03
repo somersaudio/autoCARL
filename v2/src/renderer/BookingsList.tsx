@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import type {
-  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache,
+  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, UserSettings,
 } from '../shared/types';
+import { estimateEarnings, money } from '../shared/earnings';
 
 type Props = {
   bookings: Booking[];
@@ -10,6 +11,7 @@ type Props = {
   error: string | null;
   flights: FlightsCache;
   contacts: BookingContactsCache;
+  settings: UserSettings;
   onRefresh: () => void | Promise<void>;
   onResetSetup: () => void;
 };
@@ -17,7 +19,7 @@ type Props = {
 const NO_CONTACTS: BookingContacts = { pmEmail: '', lcEmail: '' };
 
 export default function BookingsList({
-  bookings, fetchedAt, refreshing, error, flights, contacts, onRefresh, onResetSetup,
+  bookings, fetchedAt, refreshing, error, flights, contacts, settings, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -54,12 +56,19 @@ export default function BookingsList({
             booking={upcoming[0]}
             pdfs={flights[upcoming[0].bookingId] || []}
             contacts={contacts[upcoming[0].bookingId] || NO_CONTACTS}
+            settings={settings}
           />
           {upcoming.length > 1 && (
             <div className="card">
               <h3>Upcoming</h3>
               {upcoming.slice(1).map((b) => (
-                <BookingCard key={b.bookingId} booking={b} pdfs={flights[b.bookingId] || []} />
+                <BookingCard
+                  key={b.bookingId}
+                  booking={b}
+                  pdfs={flights[b.bookingId] || []}
+                  contacts={contacts[b.bookingId] || NO_CONTACTS}
+                  settings={settings}
+                />
               ))}
             </div>
           )}
@@ -107,9 +116,13 @@ export default function BookingsList({
 type BookingCardProps = {
   booking: Booking;
   pdfs: FlightPdf[];
+  // Supplied for upcoming bookings only — past gigs are already paid, so an
+  // estimate there would be noise. Both must be present to show earnings.
+  contacts?: BookingContacts;
+  settings?: UserSettings;
 };
 
-function BookingCard({ booking, pdfs }: BookingCardProps) {
+function BookingCard({ booking, pdfs, contacts, settings }: BookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -134,6 +147,9 @@ function BookingCard({ booking, pdfs }: BookingCardProps) {
           {booking.laborCoordinator && <span>· LC: {booking.laborCoordinator}</span>}
         </div>
       </div>
+      {contacts && settings && (
+        <EarningsSummary booking={booking} contacts={contacts} settings={settings} />
+      )}
       {pdfs.length > 0 && (
         <div className="booking-actions">
           {pdfs.map((p) => (
@@ -187,9 +203,12 @@ function relativeWhen(start: string, end: string): string {
   return `Day ${dayIdx} of ${totalDays}`;
 }
 
-type FeaturedBookingCardProps = BookingCardProps & { contacts: BookingContacts };
+type FeaturedBookingCardProps = BookingCardProps & {
+  contacts: BookingContacts;
+  settings: UserSettings;
+};
 
-function FeaturedBookingCard({ booking, pdfs, contacts }: FeaturedBookingCardProps) {
+function FeaturedBookingCard({ booking, pdfs, contacts, settings }: FeaturedBookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -261,6 +280,55 @@ function FeaturedBookingCard({ booking, pdfs, contacts }: FeaturedBookingCardPro
           />
         )}
       </div>
+      <div className="featured-foot">
+        <EarningsSummary booking={booking} contacts={contacts} settings={settings} />
+      </div>
+    </div>
+  );
+}
+
+// Projected pay for a booking, as two numbers: what lands in the bank, and
+// per diem on its own line. Renders nothing until a base day rate is set in
+// Settings, so cards are unchanged for anyone who hasn't opted in.
+//
+// The full breakdown (days, rate, 401k, tax) lives in the hover tooltip rather
+// than on the card — the cards stay scannable, the detail is one hover away.
+function EarningsSummary({
+  booking, contacts, settings,
+}: { booking: Booking; contacts: BookingContacts; settings: UserSettings }) {
+  // GSA's zip lookup is the better number; CARL's stored rate is the fallback
+  // for bookings whose venue zip we couldn't resolve.
+  const perDiemRate = contacts.gsaPerDiem || contacts.perDiem || 0;
+  const est = estimateEarnings(booking.startDate, booking.endDate, settings, perDiemRate);
+  if (!est) return null;
+
+  // The cards show bare numbers, so the tooltip carries what they mean —
+  // including whether the top figure is take-home or gross, which depends on
+  // the Subtract-taxes setting.
+  const tooltip = [
+    `${est.days} ${est.days === 1 ? 'day' : 'days'} @ ${money(est.dayRate)} = ${money(est.grossWages)} gross`,
+    est.retirement > 0 ? `401k (${settings.retirementPct}%): −${money(est.retirement)}` : null,
+    est.federalTax > 0 ? `Federal: −${money(est.federalTax)}` : null,
+    est.socialSecurity > 0 ? `Social Security: −${money(est.socialSecurity)}` : null,
+    est.medicare > 0 ? `Medicare: −${money(est.medicare)}` : null,
+    est.stateTax > 0 ? `State: −${money(est.stateTax)}` : null,
+    `${money(est.netWages)} ${est.hasDeductions ? 'take-home' : 'gross'}`
+      + (est.taxes > 0 ? ` (${(est.effectiveRate * 100).toFixed(1)}% tax)` : ''),
+    est.perDiem > 0
+      ? `+${money(est.perDiem)} per diem (${est.days} × ${money(est.perDiemRate)})`
+      : 'Per diem not available yet',
+    'Estimate assumes standard 10-hour days.',
+    est.lowConfidence
+      ? 'Add your yearly wages in Settings — without them, tax is figured as if this gig were your only income.'
+      : null,
+  ].filter(Boolean).join('\n');
+
+  return (
+    <div className="earnings-mini" title={tooltip}>
+      <div className="earnings-mini-main">{money(est.netWages)}</div>
+      {est.perDiem > 0 && (
+        <div className="earnings-mini-sub">+{money(est.perDiem)}</div>
+      )}
     </div>
   );
 }

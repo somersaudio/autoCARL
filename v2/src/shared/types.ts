@@ -1,3 +1,5 @@
+import type { FilingStatus } from './taxes';
+
 // A single CARL booking. One show can have multiple bookings (different
 // date ranges + different positions); each iCal VEVENT becomes one Booking.
 export type Booking = {
@@ -22,6 +24,22 @@ export type UserSettings = {
   autofillPerDiem: boolean;  // when false, the app leaves per-diem empty for the user to fill manually
   defaultDailyRate: number;  // 0 = use whatever SSW has stored; >0 overwrites SSW's iDailyRate on every save
   theme: string;             // theme id, see renderer/themes.ts — 'default' is the original CT-gold dark
+  // ----- earnings estimates (display only — never pushed to SSW) -----
+  // Deliberately separate from defaultDailyRate above: that one rewrites your
+  // SSW record on save, this one only feeds the projection on the bookings card.
+  basePayDayRate: number;    // your day rate in USD; 0 = unset, estimate is hidden
+  subtractTaxes: boolean;    // when true, show take-home after tax alongside gross
+  retirementPct: number;     // 401k contribution as % of gross wages; 0 = none
+  // Tax inputs. Federal tax uses real brackets (see shared/taxes.ts) rather
+  // than a flat rate, so it needs to know where the user sits in the year.
+  filingStatus: FilingStatus;
+  ytdWages: number;          // taxable wages earned so far this year; 0 = unknown
+  // Date ytdWages was measured — the period-end on the stub it came from.
+  // ISO 'YYYY-MM-DD', '' = treat as today. Without this the full-year
+  // projection divides by too much elapsed year and understates income.
+  ytdAsOf: string;
+  expectedAnnualWages: number; // expected taxable wages for the full year; 0 = unknown
+  stateTaxRatePct: number;   // flat state rate, e.g. 0 for TX/FL/NV; 0 = none
 };
 
 // Two-stage onboarding: CARL first (gives us the iCal URL + read path),

@@ -24,7 +24,9 @@ import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl } from './carl-api';
 import type {
   Booking, BookingContactsCache, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress,
+  UserSettings,
 } from '../shared/types';
+import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
 import { friendlyError } from '../shared/errors';
 
 const isDev = !app.isPackaged;
@@ -388,6 +390,31 @@ async function doRefresh(): Promise<RefreshResult> {
   }
 }
 
+// Project the on-disk Config onto the renderer-facing UserSettings shape.
+// Config also holds carlEmail/sswEmail, which the renderer gets through the
+// dedicated credentials endpoint instead — keep them out of here.
+function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettings {
+  return {
+    defaultStartTime: cfg.defaultStartTime,
+    defaultEndTime: cfg.defaultEndTime,
+    autofillPerDiem: cfg.autofillPerDiem,
+    defaultDailyRate: cfg.defaultDailyRate,
+    theme: cfg.theme,
+    basePayDayRate: cfg.basePayDayRate,
+    subtractTaxes: cfg.subtractTaxes,
+    retirementPct: cfg.retirementPct,
+    filingStatus: cfg.filingStatus,
+    ytdWages: cfg.ytdWages,
+    ytdAsOf: cfg.ytdAsOf,
+    expectedAnnualWages: cfg.expectedAnnualWages,
+    stateTaxRatePct: cfg.stateTaxRatePct,
+  };
+}
+
+function nonNegative(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v >= 0;
+}
+
 function registerIpc(): void {
   ipcMain.handle('setup:getStatus', () => currentSetupStatus());
 
@@ -475,33 +502,30 @@ function registerIpc(): void {
 
   ipcMain.handle('app:getVersion', () => app.getVersion());
 
-  ipcMain.handle('settings:get', async () => {
-    const cfg = await readConfig();
-    return {
-      defaultStartTime: cfg.defaultStartTime,
-      defaultEndTime: cfg.defaultEndTime,
-      autofillPerDiem: cfg.autofillPerDiem,
-      defaultDailyRate: cfg.defaultDailyRate,
-      theme: cfg.theme,
-    };
-  });
-  ipcMain.handle('settings:update', async (_e, patch: { defaultStartTime?: string; defaultEndTime?: string; autofillPerDiem?: boolean; defaultDailyRate?: number; theme?: string }) => {
-    const allowed: Partial<{ defaultStartTime: string; defaultEndTime: string; autofillPerDiem: boolean; defaultDailyRate: number; theme: string }> = {};
+  ipcMain.handle('settings:get', async () => toUserSettings(await readConfig()));
+  ipcMain.handle('settings:update', async (_e, patch: Partial<UserSettings>) => {
+    const allowed: Partial<UserSettings> = {};
     if (typeof patch?.defaultStartTime === 'string') allowed.defaultStartTime = patch.defaultStartTime.trim();
     if (typeof patch?.defaultEndTime === 'string') allowed.defaultEndTime = patch.defaultEndTime.trim();
     if (typeof patch?.autofillPerDiem === 'boolean') allowed.autofillPerDiem = patch.autofillPerDiem;
-    if (typeof patch?.defaultDailyRate === 'number' && Number.isFinite(patch.defaultDailyRate) && patch.defaultDailyRate >= 0) {
-      allowed.defaultDailyRate = patch.defaultDailyRate;
-    }
+    if (nonNegative(patch?.defaultDailyRate)) allowed.defaultDailyRate = patch.defaultDailyRate as number;
     if (typeof patch?.theme === 'string' && patch.theme.trim()) allowed.theme = patch.theme.trim();
-    const next = await updateConfig(allowed);
-    return {
-      defaultStartTime: next.defaultStartTime,
-      defaultEndTime: next.defaultEndTime,
-      autofillPerDiem: next.autofillPerDiem,
-      defaultDailyRate: next.defaultDailyRate,
-      theme: next.theme,
-    };
+    if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate as number;
+    if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
+    // Percentages are clamped to 0–100 here as well as in the renderer, so a
+    // malformed patch can't persist a rate that makes take-home go negative.
+    if (nonNegative(patch?.retirementPct)) allowed.retirementPct = Math.min(patch.retirementPct as number, 100);
+    if (nonNegative(patch?.stateTaxRatePct)) allowed.stateTaxRatePct = Math.min(patch.stateTaxRatePct as number, 100);
+    if (nonNegative(patch?.ytdWages)) allowed.ytdWages = patch.ytdWages as number;
+    // '' clears it (meaning "as of today"); otherwise require ISO YYYY-MM-DD.
+    if (typeof patch?.ytdAsOf === 'string' && /^(\d{4}-\d{2}-\d{2})?$/.test(patch.ytdAsOf)) {
+      allowed.ytdAsOf = patch.ytdAsOf;
+    }
+    if (nonNegative(patch?.expectedAnnualWages)) allowed.expectedAnnualWages = patch.expectedAnnualWages as number;
+    if (FILING_STATUSES.includes(patch?.filingStatus as FilingStatus)) {
+      allowed.filingStatus = patch.filingStatus as FilingStatus;
+    }
+    return toUserSettings(await updateConfig(allowed));
   });
 
   ipcMain.handle('settings:getCredentials', async () => {

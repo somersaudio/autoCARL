@@ -2,6 +2,7 @@ import { app } from 'electron';
 import { promises as fs } from 'node:fs';
 import { join } from 'node:path';
 import type { Booking, BookingContactsCache, FlightsCache, SswWeek } from '../shared/types';
+import type { FilingStatus } from '../shared/taxes';
 
 const CONFIG_FILE = 'autocarl2-config.json';
 const BOOKINGS_FILE = 'autocarl2-bookings.json';
@@ -18,6 +19,15 @@ type Config = {
   autofillPerDiem: boolean;  // when false, leave per-diem empty for user to fill
   defaultDailyRate: number;  // 0 = use SSW's stored iDailyRate; >0 overrides on every push
   theme: string;             // theme id, see renderer/themes.ts — 'default' is the CT-gold dark
+  // Earnings-estimate inputs. Display only — never written back to SSW.
+  basePayDayRate: number;    // day rate for projections; 0 = unset, estimate hidden
+  subtractTaxes: boolean;    // show after-tax take-home as well as gross
+  retirementPct: number;     // 401k contribution as % of gross wages; 0 = none
+  filingStatus: FilingStatus;
+  ytdWages: number;          // taxable wages so far this year; 0 = unknown
+  ytdAsOf: string;           // ISO date ytdWages was measured; '' = today
+  expectedAnnualWages: number; // expected taxable wages for the year; 0 = unknown
+  stateTaxRatePct: number;   // flat state income tax rate; 0 = none
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -28,6 +38,14 @@ const DEFAULT_CONFIG: Config = {
   autofillPerDiem: true,
   defaultDailyRate: 0,
   theme: 'default',
+  basePayDayRate: 0,
+  subtractTaxes: false,
+  retirementPct: 0,
+  filingStatus: 'single',
+  ytdWages: 0,
+  ytdAsOf: '',
+  expectedAnnualWages: 0,
+  stateTaxRatePct: 0,
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }

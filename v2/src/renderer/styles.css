@@ -225,7 +225,8 @@ body {
   color: var(--ct-gold);
 }
 
-.app-tabs .tab {
+.app-tabs .tab,
+.settings-tabs .tab {
   background: transparent;
   color: var(--text-subtle);
   border: none;
@@ -235,13 +236,31 @@ body {
   font-weight: 500;
 }
 
-.app-tabs .tab:hover:not(.is-active) {
+.app-tabs .tab:hover:not(.is-active),
+.settings-tabs .tab:hover:not(.is-active) {
   color: var(--text);
 }
 
-.app-tabs .tab.is-active {
+.app-tabs .tab.is-active,
+.settings-tabs .tab.is-active {
   background: var(--ct-gold);
   color: #1a1408;
+}
+
+/* Same pill treatment as the main tabs, but full-width inside the modal so the
+   two options split the row evenly. */
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  margin-top: 14px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.settings-tabs .tab {
+  flex: 1;
 }
 
 .card {
@@ -281,7 +300,8 @@ body {
   color: var(--text-subtle);
 }
 
-.field input {
+.field input,
+.field select {
   background: var(--panel-2);
   color: var(--text);
   border: 1px solid var(--border);
@@ -291,8 +311,19 @@ body {
   outline: none;
 }
 
-.field input:focus {
+.field input:focus,
+.field select:focus {
   border-color: var(--ct-gold);
+}
+
+/* Tax inputs, revealed only when "Subtract estimated taxes" is on — they're
+   meaningless otherwise, and hiding them keeps the default Settings short. */
+.tax-detail {
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
 }
 
 .password-input {
@@ -586,6 +617,46 @@ button.link:hover:not(:disabled) {
 
 .featured-field-email:hover {
   text-decoration: underline;
+}
+
+/* Two-number earnings estimate, bottom-right of the featured card and right
+   of each upcoming row. Hidden entirely until a base day rate is set. */
+.earnings-mini {
+  text-align: right;
+  flex-shrink: 0;
+  line-height: 1.3;
+  cursor: default;
+}
+
+.earnings-mini-main {
+  font-size: 12px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.earnings-mini-sub {
+  font-size: 11px;
+  color: var(--ct-gold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Footer row on the featured card. Collapses when no estimate is configured,
+   so the card keeps its original spacing. */
+.featured-foot {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+
+.featured-foot:empty {
+  display: none;
+}
+
+/* Upcoming rows: keep the estimate clear of the itinerary buttons. */
+.booking .earnings-mini {
+  margin-left: 12px;
 }
 
 /* Per-PDF flight block (summary line + button) on the featured card. */

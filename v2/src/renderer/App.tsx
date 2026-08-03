@@ -25,7 +25,12 @@ export default function App() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [tab, setTab] = useState<Tab>('bookings');
   const [version, setVersion] = useState<string>('');
-  const [settings, setSettings] = useState<UserSettings>({ defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true, defaultDailyRate: 0, theme: 'default' });
+  const [settings, setSettings] = useState<UserSettings>({
+    defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true,
+    defaultDailyRate: 0, theme: 'default',
+    basePayDayRate: 0, subtractTaxes: false, retirementPct: 0,
+    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, stateTaxRatePct: 0,
+  });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
 
@@ -182,6 +187,7 @@ export default function App() {
           error={bookingsError}
           flights={flights}
           contacts={contacts}
+          settings={settings}
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />
