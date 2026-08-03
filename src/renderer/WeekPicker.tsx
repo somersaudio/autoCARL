@@ -18,7 +18,7 @@ function toISO(d: Date): string {
 }
 
 function mondayOf(d: Date): Date {
-  const day = d.getDay(); // Sun=0..Sat=6
+  const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
   const out = new Date(d);
   out.setDate(d.getDate() + diff);
@@ -36,17 +36,14 @@ const WEEKDAYS_MON_FIRST = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 export default function WeekPicker({ value, onChange }: Props) {
   const selectedMonday = useMemo(() => parseISO(value), [value]);
   const [open, setOpen] = useState(false);
-  // Month currently being viewed in the popover (1st of that month).
   const [viewMonth, setViewMonth] = useState(() => new Date(selectedMonday.getFullYear(), selectedMonday.getMonth(), 1));
   const [hoveredRow, setHoveredRow] = useState<number | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
-  // Re-anchor view when value changes (e.g. parent updates it from elsewhere).
   useEffect(() => {
     setViewMonth(new Date(selectedMonday.getFullYear(), selectedMonday.getMonth(), 1));
   }, [selectedMonday.getFullYear(), selectedMonday.getMonth()]);
 
-  // Click-outside to close.
   useEffect(() => {
     if (!open) return;
     const onDoc = (e: MouseEvent) => {
@@ -56,13 +53,11 @@ export default function WeekPicker({ value, onChange }: Props) {
     return () => document.removeEventListener('mousedown', onDoc);
   }, [open]);
 
-  // Build the calendar grid: rows of 7 days, Monday-first, padded so the
-  // first row's Monday is on or before the 1st of the month.
   const cells = useMemo(() => {
     const first = new Date(viewMonth.getFullYear(), viewMonth.getMonth(), 1);
     const gridStart = mondayOf(first);
     const rows: Date[][] = [];
-    let cursor = new Date(gridStart);
+    const cursor = new Date(gridStart);
     for (let r = 0; r < 6; r++) {
       const row: Date[] = [];
       for (let c = 0; c < 7; c++) {
@@ -70,7 +65,6 @@ export default function WeekPicker({ value, onChange }: Props) {
         cursor.setDate(cursor.getDate() + 1);
       }
       rows.push(row);
-      // Stop early if we've already passed the month and finished the week.
       if (row[6].getMonth() !== viewMonth.getMonth() && row[0].getMonth() !== viewMonth.getMonth()) {
         if (r >= 4) break;
       }
@@ -79,8 +73,7 @@ export default function WeekPicker({ value, onChange }: Props) {
   }, [viewMonth]);
 
   const selectMonday = (d: Date) => {
-    const m = mondayOf(d);
-    onChange(toISO(m));
+    onChange(toISO(mondayOf(d)));
     setOpen(false);
   };
 

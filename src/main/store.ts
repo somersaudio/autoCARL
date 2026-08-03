@@ -4,12 +4,51 @@ import { join } from 'node:path';
 import type { Booking, BookingContactsCache, FlightsCache, SswWeek } from '../shared/types';
 import type { FilingStatus } from '../shared/taxes';
 
-const CONFIG_FILE = 'autocarl2-config.json';
-const BOOKINGS_FILE = 'autocarl2-bookings.json';
-const FLIGHTS_FILE = 'autocarl2-flights.json';
+// These live inside userData, which is already the app's own directory, so the
+// filenames don't repeat the app name.
+const CONFIG_FILE = 'config.json';
+const BOOKINGS_FILE = 'bookings.json';
+const FLIGHTS_FILE = 'flights.json';
 const FLIGHTS_DIR = 'flights';
-const SSW_WEEKS_FILE = 'autocarl2-ssw-weeks.json';
-const CONTACTS_FILE = 'autocarl2-contacts.json';
+const SSW_WEEKS_FILE = 'ssw-weeks.json';
+const CONTACTS_FILE = 'contacts.json';
+
+// What these files were called when this app shipped alongside its predecessor
+// and prefixed everything to stay out of its way. migrateStoreFiles() copies
+// them across on first run.
+//
+// Note the old prefix was 'autocarl2-'; the *predecessor's* files are named
+// 'autocarl-*' and still sit in the same directory. That is exactly why the
+// new names drop the prefix entirely rather than shortening it — reusing
+// 'autocarl-config.json' would silently adopt the old app's config.
+const LEGACY_FILES: Record<string, string> = {
+  [CONFIG_FILE]: 'autocarl2-config.json',
+  [BOOKINGS_FILE]: 'autocarl2-bookings.json',
+  [FLIGHTS_FILE]: 'autocarl2-flights.json',
+  [SSW_WEEKS_FILE]: 'autocarl2-ssw-weeks.json',
+  [CONTACTS_FILE]: 'autocarl2-contacts.json',
+};
+
+/**
+ * Copy any store files still under their old names across to the current ones.
+ * Safe on every launch: only writes when the new file is absent, and leaves the
+ * old one in place so a partial run can simply be repeated. Never throws —
+ * losing a cache should not stop the app booting.
+ */
+export async function migrateStoreFiles(): Promise<void> {
+  const dir = app.getPath('userData');
+  for (const [current, legacy] of Object.entries(LEGACY_FILES)) {
+    try {
+      await fs.access(join(dir, current));
+      continue;                                   // already migrated
+    } catch { /* not there yet — fall through and try the copy */ }
+    try {
+      await fs.copyFile(join(dir, legacy), join(dir, current));
+    } catch {
+      /* no legacy file either (fresh install) — nothing to do */
+    }
+  }
+}
 
 type Config = {
   carlEmail: string;

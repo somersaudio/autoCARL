@@ -1,52 +1,69 @@
 # AUTOcarl
 
-Desktop app that automates crew-site timecard entry and expense-report PDF filling for the team.
+Desktop app for crew timecard entry. Reads your bookings from C.A.R.L. and
+writes your timesheet to SSW, so neither has to be filled in by hand.
 
-## Status
+## Design goals
 
-Early scaffold. Hours-submission flow first; expense PDFs next.
+- **Open → bookings in under a second.** No CARL scrape on startup. Bookings
+  come from the user's personal iCal feed (sub-second HTTPS fetch) plus a
+  local cache that paints instantly while the refresh runs in the background.
+- **CARL is touched exactly once at onboarding.** A headless Playwright session
+  signs in, clicks "Calendar Instructions", extracts the iCal URL, and stores
+  it in the OS keychain. After that, CARL is not opened again.
+- **Optimistic UI for writes.** Saves to SSW are applied in the background —
+  the UI reflects the intended state immediately and surfaces a toast + retry
+  if a save fails.
 
-## Stack
+## What it does
 
-- Electron + React + TypeScript (Vite)
-- Playwright — browser automation against the crew site
-- pdf-lib — PDF form-field filling
-- keytar — OS keychain for per-user site credentials (never plaintext)
+1. **Onboarding:** email + password → discover and store the iCal URL.
+2. **Bookings:** cached-first list with background refresh, show logos, flight
+   itineraries, venue and per-diem lookup.
+3. **Timesheet:** week editor that reads and writes SSW, with GSA per-diem
+   autofill.
+4. **Earnings:** projects what an upcoming gig is worth — take-home and per
+   diem — from your day rate and tax profile. Display only; never written back
+   to SSW.
 
-## Develop
+## Run
 
-```bash
+```
 npm install
 npm run dev
 ```
 
-## Build a distributable
+## Secrets
 
-```bash
-# Mac (universal — Apple Silicon + Intel, builds both DMGs)
-npm run dist:mac
+`src/main/secrets.ts` is gitignored. Populate it locally with logo.dev keys:
 
-# Windows (build on a Windows machine for best results)
-npm run dist:win
+```ts
+export const LOGODEV_SECRET = 'sk_...';
+export const LOGODEV_PUBLISHABLE = 'pk_...';
 ```
 
-Output lands in `release/<version>/`:
-- `AUTOcarl-0.1.0-arm64.dmg` — Apple Silicon Mac
-- `AUTOcarl-0.1.0-x64.dmg` — Intel Mac
-- `AUTOcarl-0.1.0-portable.exe` — Windows (no install, double-click to run)
+## Storage
 
-### Standalone, no install dependencies on the user side
-Teammates do not need Node.js, npm, or any developer tools. They just download the file for their OS and open it. Credentials live in the OS keychain (macOS Keychain / Windows Credential Manager). All data stays on their machine.
+- **Keychain (keytar):** CARL password, SSW password, discovered iCal URL.
+- **App data dir:** `config.json` (no secrets), plus `bookings.json`,
+  `flights.json`, `ssw-weeks.json` and `contacts.json` caches.
 
-### Cross-compilation notes
-- Mac → Mac (both arches): works from any Mac.
-- Mac → Windows: works but unsigned — Windows SmartScreen will show a warning the first time. For a signed binary, build on a Windows machine with a code-signing certificate.
-- Native dependency (`keytar`) rebuilds per target via `electron-builder install-app-deps`.
+## Tax tables
 
-## Architecture
+`src/shared/taxes.ts` carries the federal brackets, standard deductions,
+Social Security wage base and additional-Medicare thresholds behind the
+earnings estimates. The IRS publishes the next year's figures each autumn —
+update that one file and bump `TAX_YEAR`. Nothing outside it needs to change,
+and Settings displays the year in use so a stale table is visible.
 
-- `src/main/` — Electron main process. Owns Playwright runs, keytar access, PDF generation. Never exposed to renderer directly.
-- `src/preload/` — Bridges a typed IPC API into the renderer. The renderer can ONLY call what's exposed here.
-- `src/renderer/` — React UI. Pure UI; all side effects go through the preload bridge.
-- `src/shared/` — Types shared between main and renderer.
-- `src/automation/` — Playwright scripts. Pure functions that take config + return result.
+## History
+
+This is the iCal-first rewrite that replaced the original scrape-on-startup
+app at v0.9.0. The predecessor's source is in git history up to `c958b85` if
+anything needs referring back to.
+
+On first launch the app migrates credentials and store files off their older
+names automatically, so existing installs keep their logins, settings and
+caches. That migration code — `migrateCredentials` in `src/main/credentials.ts`
+and `migrateStoreFiles` in `src/main/store.ts` — can be deleted once every
+install has been opened at least once.

@@ -42,7 +42,7 @@ function sswFetch(url: string, opts: { method?: string; headers?: Record<string,
     const headers: Record<string, string> = {
       Referer: SSW + '/',
       Origin: SSW,
-      'User-Agent': 'Mozilla/5.0 (AUTOcarl-v2)',
+      'User-Agent': 'Mozilla/5.0 (AUTOcarl)',
       Accept: 'text/html,application/json,*/*;q=0.9',
       ...(opts.headers || {}),
     };

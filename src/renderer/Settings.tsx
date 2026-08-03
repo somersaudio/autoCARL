@@ -1,195 +1,490 @@
 import { useEffect, useState } from 'react';
-import type { AppConfig, CredService, Theme } from '../shared/types';
+import type { UserSettings } from '../shared/types';
+import { FILING_STATUSES, FILING_STATUS_LABELS, TAX_YEAR, type FilingStatus } from '../shared/taxes';
+import { projectAnnualFromYtd } from '../shared/earnings';
+import PasswordInput from './PasswordInput';
 
 type Props = {
-  config: AppConfig;
-  onChange: () => Promise<void>;
+  open: boolean;
+  onClose: () => void;
+  onSaved: (next: UserSettings) => void;
 };
 
-export default function Settings({ config, onChange }: Props) {
-  const [carlUser, setCarlUser] = useState(config.carlUsername);
-  const [carlPass, setCarlPass] = useState('');
-  const [hasCarlPass, setHasCarlPass] = useState(false);
+type SaveState = { tone: 'idle' | 'ok' | 'err' | 'busy'; message: string };
+const IDLE: SaveState = { tone: 'idle', message: '' };
 
-  const [sswUser, setSswUser] = useState(config.sswUsername);
-  const [sswPass, setSswPass] = useState('');
-  const [hasSswPass, setHasSswPass] = useState(false);
+type Tab = 'general' | 'earnings';
 
-  const [defaults, setDefaults] = useState(config.weeklyDefaults);
+export default function SettingsModal({ open, onClose, onSaved }: Props) {
+  // Which tab is showing. Persists across open/close within a session, matching
+  // how the main Bookings/Timesheet tabs behave.
+  const [tab, setTab] = useState<Tab>('general');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
+  const [autofillPerDiem, setAutofillPerDiem] = useState(true);
+  const [dailyRate, setDailyRate] = useState('');  // empty string = use SSW's value
+  const [theme, setTheme] = useState('default');
+  const [busy, setBusy] = useState(false);
 
-  const [banner, setBanner] = useState<{ kind: 'success' | 'error' | 'info'; text: string } | null>(null);
+  // Earnings-estimate inputs. Empty string = unset (stored as 0).
+  const [basePay, setBasePay] = useState('');
+  const [subtractTaxes, setSubtractTaxes] = useState(false);
+  const [retirement, setRetirement] = useState('');
+  const [filingStatus, setFilingStatus] = useState<FilingStatus>('single');
+  const [ytdWages, setYtdWages] = useState('');
+  const [ytdAsOf, setYtdAsOf] = useState('');
+  const [annualWages, setAnnualWages] = useState('');
+  const [stateRate, setStateRate] = useState('');
+  const [earningsBusy, setEarningsBusy] = useState(false);
+
+  const [carlEmail, setCarlEmail] = useState('');
+  const [carlPassword, setCarlPassword] = useState('');
+  const [carlState, setCarlState] = useState<SaveState>(IDLE);
+
+  const [sswEmail, setSswEmail] = useState('');
+  const [sswPassword, setSswPassword] = useState('');
+  const [sswState, setSswState] = useState<SaveState>(IDLE);
 
   useEffect(() => {
-    if (config.carlUsername) window.api.credentials.has('carl', config.carlUsername).then(setHasCarlPass);
-    if (config.sswUsername) window.api.credentials.has('ssw', config.sswUsername).then(setHasSswPass);
-  }, [config.carlUsername, config.sswUsername]);
+    if (!open) return;
+    window.api.settings.get().then((s) => {
+      setStart(s.defaultStartTime);
+      setEnd(s.defaultEndTime);
+      setAutofillPerDiem(s.autofillPerDiem);
+      setDailyRate(s.defaultDailyRate > 0 ? String(s.defaultDailyRate) : '');
+      setTheme(s.theme);
+      setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
+      setSubtractTaxes(s.subtractTaxes);
+      setRetirement(s.retirementPct > 0 ? String(s.retirementPct) : '');
+      setFilingStatus(s.filingStatus);
+      setYtdWages(s.ytdWages > 0 ? String(s.ytdWages) : '');
+      setYtdAsOf(s.ytdAsOf);
+      setAnnualWages(s.expectedAnnualWages > 0 ? String(s.expectedAnnualWages) : '');
+      setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
+    });
+    window.api.settings.getCredentials().then((c) => {
+      setCarlEmail(c.carlEmail);
+      setSswEmail(c.sswEmail);
+    });
+    // Clear any leftover password state and feedback when re-opening.
+    setCarlPassword('');
+    setSswPassword('');
+    setCarlState(IDLE);
+    setSswState(IDLE);
+  }, [open]);
 
-  const flash = (kind: 'success' | 'error' | 'info', text: string, ms = 3500) => {
-    setBanner({ kind, text });
-    setTimeout(() => setBanner(null), ms);
-  };
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open, onClose]);
 
-  const setTheme = async (theme: Theme) => {
-    await window.api.config.update({ theme });
-    await onChange();
-  };
-
-  const saveCreds = async (service: CredService, username: string, password: string) => {
-    const trimmed = username.trim();
-    if (service === 'carl') await window.api.config.update({ carlUsername: trimmed });
-    else await window.api.config.update({ sswUsername: trimmed });
-
-    if (password) {
-      await window.api.credentials.save(service, trimmed, password);
-      if (service === 'carl') {
-        setCarlPass('');
-        setHasCarlPass(true);
-      } else {
-        setSswPass('');
-        setHasSswPass(true);
-      }
-    }
-    await onChange();
-    flash('success', 'Saved.');
-  };
-
-  const clearCreds = async (service: CredService, username: string) => {
-    if (!username) return;
-    await window.api.credentials.clear(service, username);
-    if (service === 'carl') setHasCarlPass(false);
-    else setHasSswPass(false);
-    flash('success', 'Password cleared from keychain.');
-  };
+  if (!open) return null;
 
   const saveDefaults = async () => {
-    await window.api.config.update({ weeklyDefaults: defaults });
-    await onChange();
-    flash('success', 'Defaults saved.');
+    setBusy(true);
+    const parsedRate = parseFloat(dailyRate);
+    const next = await window.api.settings.update({
+      defaultStartTime: start,
+      defaultEndTime: end,
+      autofillPerDiem,
+      defaultDailyRate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0,
+    });
+    setBusy(false);
+    onSaved(next);
+    onClose();
+  };
+
+  // Parse a numeric text field, clamping to [0, max]. Empty / garbage → 0,
+  // which is the "unset" sentinel everywhere downstream.
+  const num = (s: string, max: number): number => {
+    const n = parseFloat(s);
+    if (!Number.isFinite(n) || n <= 0) return 0;
+    return Math.min(n, max);
+  };
+
+  const saveEarnings = async () => {
+    setEarningsBusy(true);
+    const next = await window.api.settings.update({
+      basePayDayRate: num(basePay, 1_000_000),
+      subtractTaxes,
+      retirementPct: num(retirement, 100),
+      filingStatus,
+      ytdWages: num(ytdWages, 100_000_000),
+      ytdAsOf,
+      expectedAnnualWages: num(annualWages, 100_000_000),
+      stateTaxRatePct: num(stateRate, 100),
+    });
+    setEarningsBusy(false);
+    onSaved(next);
+  };
+
+  // One-click fill for the field people are least able to answer off the top of
+  // their head. Scales YTD by how much of the year had elapsed *when that YTD
+  // was measured* — using today instead would understate the year for anyone
+  // whose stub is a few weeks old, which is everyone. The user can still type
+  // over the result if the rest of their year looks nothing like the start.
+  const projectAnnual = () => {
+    const asOf = ytdAsOf ? parseISODate(ytdAsOf) : new Date();
+    if (!asOf) return;
+    const projected = projectAnnualFromYtd(num(ytdWages, 100_000_000), asOf);
+    if (projected > 0) setAnnualWages(String(projected));
+  };
+
+  // Checkbox applies immediately so the estimate on the bookings card updates
+  // without a Save round-trip, matching how per diem and theme behave.
+  const toggleSubtractTaxes = async (checked: boolean) => {
+    setSubtractTaxes(checked);
+    const next = await window.api.settings.update({ subtractTaxes: checked });
+    onSaved(next);
+  };
+
+  const togglePerDiem = async (checked: boolean) => {
+    setAutofillPerDiem(checked);
+    const next = await window.api.settings.update({ autofillPerDiem: checked });
+    onSaved(next);
+  };
+
+  // Theme is applied immediately on change — no Save click needed — so the
+  // user sees the effect (rain background, colors) the moment they pick it.
+  const changeTheme = async (id: string) => {
+    setTheme(id);
+    const next = await window.api.settings.update({ theme: id });
+    onSaved(next);
+  };
+
+  const saveCarl = async () => {
+    setCarlState({ tone: 'busy', message: 'Testing login…' });
+    const r = await window.api.settings.updateCarlCredentials(carlEmail, carlPassword);
+    if (r.ok) {
+      setCarlState({ tone: 'ok', message: '✓ Saved. CARL login works.' });
+      setCarlPassword('');
+    } else {
+      setCarlState({ tone: 'err', message: r.error });
+    }
+  };
+
+  const saveSsw = async () => {
+    setSswState({ tone: 'busy', message: 'Testing login…' });
+    const r = await window.api.settings.updateSswCredentials(sswEmail, sswPassword);
+    if (r.ok) {
+      setSswState({ tone: 'ok', message: '✓ Saved. SSW login works.' });
+      setSswPassword('');
+    } else {
+      setSswState({ tone: 'err', message: r.error });
+    }
   };
 
   return (
-    <>
-      {banner && <div className={`banner ${banner.kind}`}>{banner.text}</div>}
-
-      <div className="card">
-        <h2>Appearance</h2>
-        <div className="theme-toggle">
-          <button className={config.theme === 'dark' ? 'active' : ''} onClick={() => setTheme('dark')}>
-            Dark
-          </button>
-          <button className={config.theme === 'light' ? 'active' : ''} onClick={() => setTheme('light')}>
-            Light
-          </button>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+        <div className="row-between">
+          <h2 style={{ margin: 0 }}>Settings</h2>
+          <button className="link" onClick={onClose}>✕</button>
         </div>
-      </div>
 
-      <div className="card">
-        <h2>C.A.R.L. login</h2>
-        <p className="subtle">Used to read your shows + profile. Password stored in OS keychain.</p>
-        <div className="row">
-          <div>
-            <label>Email</label>
-            <input type="email" value={carlUser} onChange={(e) => setCarlUser(e.target.value)} placeholder="you@example.com" />
-          </div>
-          <div>
-            <label>Password {hasCarlPass && <span className="subtle">(saved)</span>}</label>
-            <input
-              type="password"
-              placeholder={hasCarlPass ? '••••••••' : 'Enter to save'}
-              value={carlPass}
-              onChange={(e) => setCarlPass(e.target.value)}
-            />
-          </div>
+        <div className="settings-tabs">
+          <button
+            className={`tab ${tab === 'general' ? 'is-active' : ''}`}
+            onClick={() => setTab('general')}
+          >General</button>
+          <button
+            className={`tab ${tab === 'earnings' ? 'is-active' : ''}`}
+            onClick={() => setTab('earnings')}
+          >Earnings</button>
         </div>
-        <button className="primary" onClick={() => saveCreds('carl', carlUser, carlPass)}>Save</button>
-        {hasCarlPass && (
-          <button className="danger" style={{ marginLeft: 8 }} onClick={() => clearCreds('carl', config.carlUsername)}>
-            Clear
-          </button>
-        )}
-      </div>
 
-      <div className="card">
-        <h2>SpreadsheetWeb login</h2>
-        <p className="subtle">Used to submit timesheets. Different username — usually NOT your email.</p>
-        <div className="row">
-          <div>
-            <label>Username</label>
-            <input type="text" value={sswUser} onChange={(e) => setSswUser(e.target.value)} placeholder="Your SpreadsheetWeb username" />
-          </div>
-          <div>
-            <label>Password {hasSswPass && <span className="subtle">(saved)</span>}</label>
-            <input
-              type="password"
-              placeholder={hasSswPass ? '••••••••' : 'Enter to save'}
-              value={sswPass}
-              onChange={(e) => setSswPass(e.target.value)}
-            />
-          </div>
-        </div>
-        <button className="primary" onClick={() => saveCreds('ssw', sswUser, sswPass)}>Save</button>
-        {hasSswPass && (
-          <button className="danger" style={{ marginLeft: 8 }} onClick={() => clearCreds('ssw', config.sswUsername)}>
-            Clear
-          </button>
-        )}
-      </div>
-
-      <div className="card">
-        <h2>Submit Hours</h2>
-        <p className="subtle">
-          Scheduled days from C.A.R.L. (show start through travel return) get pre-filled
-          with 8:00 AM – 6:00 PM and per-diem (when the show has it). Unscheduled days
-          stay blank.
+        {tab === 'general' && (<>
+        {/* ---- Timesheet defaults ---- */}
+        <h3 style={{ marginTop: 18 }}>Timesheet defaults</h3>
+        <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
+          Start/end are autofilled on worked days you haven't edited yet. Daily rate, when set, overwrites SSW's stored rate on every save.
         </p>
-        <div className="field">
-          <label>
-            <input
-              type="checkbox"
-              checked={config.autoApplySchedule}
-              onChange={async (e) => {
-                await window.api.config.update({ autoApplySchedule: e.target.checked });
-                await onChange();
-              }}
-            />{' '}
-            Auto-fill scheduled days from C.A.R.L.
-          </label>
+        <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end' }}>
+          <div className="field" style={{ flex: 1, margin: 0 }}>
+            <label>Start</label>
+            <input type="text" value={start} onChange={(e) => setStart(e.target.value)} placeholder="8:00 am" disabled={busy} />
+          </div>
+          <div className="field" style={{ flex: 1, margin: 0 }}>
+            <label>End</label>
+            <input type="text" value={end} onChange={(e) => setEnd(e.target.value)} placeholder="6:00 pm" disabled={busy} />
+          </div>
         </div>
-        <div className="field">
-          <label>
-            <input
-              type="checkbox"
-              checked={config.hideMealBreak}
-              onChange={async (e) => {
-                await window.api.config.update({ hideMealBreak: e.target.checked });
-                await onChange();
-              }}
-            />{' '}
-            Hide meal break fields
-          </label>
-        </div>
-      </div>
-
-      <div className="card">
-        <h2>Pay</h2>
-        <div className="field">
+        <div className="field" style={{ margin: '10px 0 0' }}>
           <label>Daily rate ($)</label>
           <input
             type="number"
-            step="any"
+            inputMode="decimal"
             min="0"
-            placeholder="e.g. 715"
-            value={defaults.dailyRate ?? ''}
-            onChange={(e) =>
-              setDefaults({ ...defaults, dailyRate: e.target.value === '' ? null : Number(e.target.value) })
-            }
+            step="1"
+            value={dailyRate}
+            onChange={(e) => setDailyRate(e.target.value)}
+            placeholder="0"
+            disabled={busy}
           />
-          <p className="subtle" style={{ marginTop: 4 }}>
-            Filled into the timesheet's Daily Rate field. Leave blank to skip.
-          </p>
         </div>
-        <button className="primary" onClick={saveDefaults}>Save</button>
+        <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          <button className="primary" onClick={saveDefaults} disabled={busy || !start || !end}>
+            {busy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+
+        {/* ---- Per diem autofill ---- */}
+        <h3 style={{ marginTop: 22 }}>Per diem</h3>
+        <label className="row-actions" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={autofillPerDiem}
+            onChange={(e) => togglePerDiem(e.target.checked)}
+          />
+          <span>Auto-fill per diem from GSA federal rates</span>
+        </label>
+        <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
+          When off, AUTOcarl leaves the per diem field blank for you to type in manually.
+        </p>
+
+        </>)}
+
+        {/* ---- Earnings tab: base pay + everything tax ---- */}
+        {tab === 'earnings' && (<>
+        <p className="subtle" style={{ marginTop: 18, fontSize: 12 }}>
+          Your base pay, used to project what an upcoming gig is worth. Estimates only —
+          this is never sent to SSW and doesn't affect what you submit.
+        </p>
+        <div className="field" style={{ margin: '10px 0 0' }}>
+          <label>Base pay — day rate ($)</label>
+          <input
+            type="number"
+            inputMode="decimal"
+            min="0"
+            step="1"
+            value={basePay}
+            onChange={(e) => setBasePay(e.target.value)}
+            placeholder="0"
+            disabled={earningsBusy}
+          />
+        </div>
+        <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
+          <div className="field" style={{ flex: 1, margin: 0 }}>
+            <label>401k contribution (%)</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              max="100"
+              step="0.01"
+              value={retirement}
+              onChange={(e) => setRetirement(e.target.value)}
+              placeholder="0"
+              disabled={earningsBusy}
+            />
+          </div>
+          <div className="field" style={{ flex: 1, margin: 0 }}>
+            <label>State tax rate (%)</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              max="100"
+              step="0.01"
+              value={stateRate}
+              onChange={(e) => setStateRate(e.target.value)}
+              placeholder="0"
+              disabled={earningsBusy}
+            />
+          </div>
+        </div>
+        <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
+          Leave state at 0 if you're in TX, FL, NV, WA, TN, SD, WY, AK or NH.
+        </p>
+
+        <label className="row-actions" style={{ gap: 8, alignItems: 'center', cursor: 'pointer', marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={subtractTaxes}
+            onChange={(e) => toggleSubtractTaxes(e.target.checked)}
+          />
+          <span>Subtract estimated taxes from the total</span>
+        </label>
+
+        {/* Federal tax uses real brackets, so it needs to know roughly where in
+            the year's income this gig lands. Both numbers come off a pay stub. */}
+        {subtractTaxes && (
+          <div className="tax-detail">
+            <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
+              Federal tax uses the real {TAX_YEAR} brackets, so it needs to know where a gig
+              falls in your year. Both figures are on your latest pay stub — use YTD
+              <em> taxable</em> wages, not gross (gross includes per diem and reimbursements).
+            </p>
+            <div className="field" style={{ margin: '10px 0 0' }}>
+              <label>Filing status</label>
+              <select
+                value={filingStatus}
+                onChange={(e) => setFilingStatus(e.target.value as FilingStatus)}
+                disabled={earningsBusy}
+              >
+                {FILING_STATUSES.map((s) => (
+                  <option key={s} value={s}>{FILING_STATUS_LABELS[s]}</option>
+                ))}
+              </select>
+            </div>
+            <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
+              <div className="field" style={{ flex: 1, margin: 0 }}>
+                <label>Taxable wages so far this year ($)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={ytdWages}
+                  onChange={(e) => setYtdWages(e.target.value)}
+                  placeholder="0"
+                  disabled={earningsBusy}
+                />
+              </div>
+              <div className="field" style={{ flex: 1, margin: 0 }}>
+                <label>…as of (stub period end)</label>
+                <input
+                  type="date"
+                  value={ytdAsOf}
+                  onChange={(e) => setYtdAsOf(e.target.value)}
+                  disabled={earningsBusy}
+                />
+              </div>
+            </div>
+            <div className="field" style={{ margin: '10px 0 0' }}>
+              <label>Expected for the full year ($)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="1"
+                value={annualWages}
+                onChange={(e) => setAnnualWages(e.target.value)}
+                placeholder="0"
+                disabled={earningsBusy}
+              />
+            </div>
+            <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 6 }}>
+              <button className="link" onClick={projectAnnual} disabled={earningsBusy || !ytdWages}>
+                Estimate full year from YTD
+              </button>
+            </div>
+            {/* Without an income figure the gig is taxed as if it were the whole
+                year — it falls under the standard deduction and federal tax
+                comes out at zero, which reads as a much better payday than it
+                is. Warn loudly rather than quietly showing a wrong number. */}
+            {num(ytdWages, 100_000_000) === 0 && num(annualWages, 100_000_000) === 0 && (
+              <div className="banner error" style={{ marginTop: 10, fontSize: 12 }}>
+                Add at least one of these. Without them, federal tax comes out at $0 and the
+                estimates will read high — only Social Security and Medicare get subtracted.
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="subtle" style={{ marginTop: 10, fontSize: 12 }}>
+          401k comes out pre-tax, so income tax is figured after it — but Social Security and
+          Medicare still apply to the full amount. Per diem is a reimbursement: never taxed,
+          always shown on its own line.
+        </p>
+        <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          <button className="primary" onClick={saveEarnings} disabled={earningsBusy}>
+            {earningsBusy ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+        </>)}
+
+        {tab === 'general' && (<>
+        {/* ---- CARL credentials ---- */}
+        <h3 style={{ marginTop: 22 }}>C.A.R.L. login</h3>
+        <div className="field" style={{ margin: '6px 0' }}>
+          <label>Email</label>
+          <input type="email" value={carlEmail} onChange={(e) => setCarlEmail(e.target.value)} autoComplete="username" />
+        </div>
+        <div className="field" style={{ margin: '6px 0' }}>
+          <label>Password</label>
+          <PasswordInput
+            value={carlPassword}
+            onChange={setCarlPassword}
+            placeholder="Enter to update"
+            autoComplete="current-password"
+          />
+        </div>
+        <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
+          <button
+            className="primary"
+            onClick={saveCarl}
+            disabled={carlState.tone === 'busy' || !carlEmail || !carlPassword}
+          >
+            {carlState.tone === 'busy' ? 'Testing…' : 'Update C.A.R.L.'}
+          </button>
+        </div>
+        {carlState.message && <CredStatus state={carlState} />}
+
+        {/* ---- SSW credentials ---- */}
+        <h3 style={{ marginTop: 22 }}>SSW login</h3>
+        <div className="field" style={{ margin: '6px 0' }}>
+          <label>Email</label>
+          <input type="email" value={sswEmail} onChange={(e) => setSswEmail(e.target.value)} autoComplete="username" />
+        </div>
+        <div className="field" style={{ margin: '6px 0' }}>
+          <label>Password</label>
+          <PasswordInput
+            value={sswPassword}
+            onChange={setSswPassword}
+            placeholder="Enter to update"
+            autoComplete="current-password"
+          />
+        </div>
+        <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
+          <button
+            className="primary"
+            onClick={saveSsw}
+            disabled={sswState.tone === 'busy' || !sswEmail || !sswPassword}
+          >
+            {sswState.tone === 'busy' ? 'Testing…' : 'Update SSW'}
+          </button>
+        </div>
+        {sswState.message && <CredStatus state={sswState} />}
+
+        {/* ---- Digital Rain theme toggle ---- */}
+        <h3 style={{ marginTop: 22 }}>Theme</h3>
+        <label className="row-actions" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }}>
+          <input
+            type="checkbox"
+            checked={theme === 'digital-rain'}
+            onChange={(e) => changeTheme(e.target.checked ? 'digital-rain' : 'default')}
+          />
+          <span>Digital Rain</span>
+        </label>
+        </>)}
+
+        <div className="row-actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
+          <button className="link" onClick={onClose}>Close</button>
+        </div>
       </div>
-    </>
+    </div>
+  );
+}
+
+// Parse "YYYY-MM-DD" at local midnight. Bare `new Date(iso)` treats it as UTC,
+// which lands on the previous day west of Greenwich and skews the projection.
+function parseISODate(s: string): Date | null {
+  const parts = s.split('-').map(Number);
+  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
+  return new Date(parts[0], parts[1] - 1, parts[2]);
+}
+
+function CredStatus({ state }: { state: SaveState }) {
+  const cls =
+    state.tone === 'ok' ? 'banner-inline success'
+    : state.tone === 'err' ? 'banner error'
+    : 'subtle';
+  return (
+    <div className={cls} style={{ marginTop: 6, fontSize: 12 }}>
+      {state.message}
+    </div>
   );
 }

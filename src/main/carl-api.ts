@@ -53,7 +53,7 @@ function carlFetch(url: string, opts: { method?: string; headers?: Record<string
     const headers: Record<string, string> = {
       Referer: CARL + '/',
       Origin: CARL,
-      'User-Agent': 'Mozilla/5.0 (AUTOcarl-v2)',
+      'User-Agent': 'Mozilla/5.0 (AUTOcarl)',
       Accept: 'application/json, text/html, */*',
       ...(opts.headers || {}),
     };

@@ -1,9 +1,12 @@
 node_modules/
 out/
-release/
 dist/
+release/
 .DS_Store
 *.log
+*.tsbuildinfo
 .env
 .env.local
+
+# Local secrets — never commit
 src/main/secrets.ts
