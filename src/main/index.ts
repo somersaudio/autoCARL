@@ -294,7 +294,9 @@ async function createWindow(): Promise<void> {
 
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     await win.loadURL(process.env['ELECTRON_RENDERER_URL']);
-    win.webContents.openDevTools({ mode: 'detach' });
+    // DevTools no longer opens on launch — it covered the window every time.
+    // Still one keystroke away when wanted: View > Toggle Developer Tools,
+    // or Cmd+Alt+I, from Electron's default menu.
   } else {
     await win.loadFile(join(__dirname, '../renderer/index.html'));
   }
