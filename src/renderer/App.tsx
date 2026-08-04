@@ -29,7 +29,7 @@ export default function App() {
     defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true,
     defaultDailyRate: 0, theme: 'default',
     basePayDayRate: 0, subtractTaxes: false, retirementPct: 0,
-    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, stateTaxRatePct: 0,
+    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0,
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);

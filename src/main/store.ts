@@ -65,7 +65,8 @@ type Config = {
   filingStatus: FilingStatus;
   ytdWages: number;          // taxable wages so far this year; 0 = unknown
   ytdAsOf: string;           // ISO date ytdWages was measured; '' = today
-  expectedAnnualWages: number; // expected taxable wages for the year; 0 = unknown
+  expectedAnnualWages: number; // YOUR expected taxable wages for the year; 0 = unknown
+  spouseAnnualWages: number;   // spouse's expected wages; married-filing-jointly only
   stateTaxRatePct: number;   // flat state income tax rate; 0 = none
 };
 
@@ -84,6 +85,7 @@ const DEFAULT_CONFIG: Config = {
   ytdWages: 0,
   ytdAsOf: '',
   expectedAnnualWages: 0,
+  spouseAnnualWages: 0,
   stateTaxRatePct: 0,
 };
 

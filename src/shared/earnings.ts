@@ -152,21 +152,40 @@ export function estimateEarnings(
   const lowConfidence = statedAnnual <= 0 && ytdWages <= 0;
 
   // ----- tax the whole year, then take this gig's share -----
-  // `share` is what fraction of the year's wages this gig represents. Every tax
-  // below is computed annually and scaled by it, which is what makes the
-  // per-gig figures sum to the year's real bill.
-  const share = annualWages > 0 ? grossWages / annualWages : 0;
+  //
+  // Federal brackets apply to HOUSEHOLD income, but Social Security is capped
+  // PER PERSON — so a joint filer's two figures cannot be collapsed into one.
+  // Everything below keeps them apart: `annualWages` is this user's own, and
+  // spouse wages only ever widen the federal base.
+  const spouseWages = status === 'mfj' ? positive(settings.spouseAnnualWages) : 0;
 
-  // Federal: 401k is pre-tax, so it shrinks the taxable base.
-  const annualTaxable = annualWages * (1 - retirementRate) - STANDARD_DEDUCTION[status];
-  const federalTax = federalIncomeTax(annualTaxable, status) * share;
+  // Federal: 401k is pre-tax, so it shrinks the taxable base — but only this
+  // user defers; the spouse figure is entered as already-taxable wages.
+  const ownTaxableWages = annualWages * (1 - retirementRate);
+  const householdTaxableWages = ownTaxableWages + spouseWages;
+  const gigTaxableWages = grossWages - retirement;
+
+  const householdFederal = federalIncomeTax(
+    householdTaxableWages - STANDARD_DEDUCTION[status],
+    status,
+  );
+  // This gig's slice of the household's taxable wages, so the year's gigs sum
+  // to the household's actual federal bill rather than each paying top rate.
+  const federalShare = householdTaxableWages > 0 ? gigTaxableWages / householdTaxableWages : 0;
+  const federalTax = householdFederal * federalShare;
 
   // FICA is levied on gross wages — a traditional 401k deferral does not
-  // reduce it. Computed across the full year so the Social Security cap and
-  // the additional-Medicare threshold land in the right place, then shared out.
+  // reduce it — and on THIS PERSON's wages alone, since each spouse gets their
+  // own Social Security cap. Computed across their full year so the cap lands
+  // in the right place, then shared out.
+  //
+  // Caveat: for joint filers the 0.9% additional-Medicare surtax is legally
+  // assessed on combined wages over $250k. Using own wages here under-counts it
+  // for couples who each earn a lot; the error is at most 0.9% of the excess.
+  const ficaShare = annualWages > 0 ? grossWages / annualWages : 0;
   const annualFica = ficaOnWageSlice(0, annualWages, status);
-  const socialSecurity = annualFica.socialSecurity * share;
-  const medicare = annualFica.medicare * share;
+  const socialSecurity = annualFica.socialSecurity * ficaShare;
+  const medicare = annualFica.medicare * ficaShare;
 
   // State: a flat rate covers no-income-tax states exactly and approximates the
   // rest. Most states start from federal AGI, so the 401k deferral reduces it.

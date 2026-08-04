@@ -34,6 +34,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
   const [ytdWages, setYtdWages] = useState('');
   const [ytdAsOf, setYtdAsOf] = useState('');
   const [annualWages, setAnnualWages] = useState('');
+  const [spouseWages, setSpouseWages] = useState('');
   const [stateRate, setStateRate] = useState('');
   const [earningsBusy, setEarningsBusy] = useState(false);
 
@@ -60,6 +61,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       setYtdWages(s.ytdWages > 0 ? String(s.ytdWages) : '');
       setYtdAsOf(s.ytdAsOf);
       setAnnualWages(s.expectedAnnualWages > 0 ? String(s.expectedAnnualWages) : '');
+      setSpouseWages(s.spouseAnnualWages > 0 ? String(s.spouseAnnualWages) : '');
       setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
     });
     window.api.settings.getCredentials().then((c) => {
@@ -114,6 +116,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       ytdWages: num(ytdWages, 100_000_000),
       ytdAsOf,
       expectedAnnualWages: num(annualWages, 100_000_000),
+      spouseAnnualWages: num(spouseWages, 100_000_000),
       stateTaxRatePct: num(stateRate, 100),
     });
     setEarningsBusy(false);
@@ -331,7 +334,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
             </div>
             <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
               <div className="field" style={{ flex: 1, margin: 0 }}>
-                <label>Taxable wages so far this year ($)</label>
+                <label>Your taxable wages so far this year ($)</label>
                 <input
                   type="number"
                   inputMode="decimal"
@@ -354,7 +357,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
               </div>
             </div>
             <div className="field" style={{ margin: '10px 0 0' }}>
-              <label>Expected for the full year ($)</label>
+              <label>Your expected total for the year ($)</label>
               <input
                 type="number"
                 inputMode="decimal"
@@ -371,6 +374,28 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
                 Estimate full year from YTD
               </button>
             </div>
+            {/* Joint filers only. Federal brackets apply to household income,
+                but Social Security is capped per person — so the two figures
+                have to be entered separately rather than added together. */}
+            {filingStatus === 'mfj' && (
+              <div className="field" style={{ margin: '10px 0 0' }}>
+                <label>Spouse's expected wages for the year ($)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={spouseWages}
+                  onChange={(e) => setSpouseWages(e.target.value)}
+                  placeholder="0"
+                  disabled={earningsBusy}
+                />
+                <span className="subtle" style={{ fontSize: 11, marginTop: 4 }}>
+                  Keep this separate from your own figure above — it widens your tax
+                  brackets, but Social Security is capped per person.
+                </span>
+              </div>
+            )}
             {/* Without an income figure the gig is taxed as if it were the whole
                 year — it falls under the standard deduction and federal tax
                 comes out at zero, which reads as a much better payday than it

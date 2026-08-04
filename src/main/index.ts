@@ -407,6 +407,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     ytdWages: cfg.ytdWages,
     ytdAsOf: cfg.ytdAsOf,
     expectedAnnualWages: cfg.expectedAnnualWages,
+    spouseAnnualWages: cfg.spouseAnnualWages,
     stateTaxRatePct: cfg.stateTaxRatePct,
   };
 }
@@ -522,6 +523,7 @@ function registerIpc(): void {
       allowed.ytdAsOf = patch.ytdAsOf;
     }
     if (nonNegative(patch?.expectedAnnualWages)) allowed.expectedAnnualWages = patch.expectedAnnualWages as number;
+    if (nonNegative(patch?.spouseAnnualWages)) allowed.spouseAnnualWages = patch.spouseAnnualWages as number;
     if (FILING_STATUSES.includes(patch?.filingStatus as FilingStatus)) {
       allowed.filingStatus = patch.filingStatus as FilingStatus;
     }

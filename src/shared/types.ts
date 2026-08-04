@@ -33,12 +33,16 @@ export type UserSettings = {
   // Tax inputs. Federal tax uses real brackets (see shared/taxes.ts) rather
   // than a flat rate, so it needs to know where the user sits in the year.
   filingStatus: FilingStatus;
-  ytdWages: number;          // taxable wages earned so far this year; 0 = unknown
+  ytdWages: number;          // YOUR taxable wages earned so far this year; 0 = unknown
   // Date ytdWages was measured — the period-end on the stub it came from.
   // ISO 'YYYY-MM-DD', '' = treat as today. Without this the full-year
   // projection divides by too much elapsed year and understates income.
   ytdAsOf: string;
-  expectedAnnualWages: number; // expected taxable wages for the full year; 0 = unknown
+  expectedAnnualWages: number; // YOUR expected taxable wages for the full year; 0 = unknown
+  // Spouse's expected wages, for married-filing-jointly only. Federal brackets
+  // apply to household income, but Social Security is capped per person — so
+  // the two figures have to stay separate. Ignored for other filing statuses.
+  spouseAnnualWages: number;
   stateTaxRatePct: number;   // flat state rate, e.g. 0 for TX/FL/NV; 0 = none
 };
 
