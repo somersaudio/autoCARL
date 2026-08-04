@@ -583,6 +583,23 @@ button.link:hover:not(:disabled) {
   padding-bottom: 2px;
 }
 
+/* The venue line links to Apple Maps. Styled as plain text until hovered so
+   the card stays calm; underline on hover is the "this is clickable" cue. */
+a.featured-venue {
+  display: block;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.featured-venue:hover {
+  text-decoration: underline;
+  text-decoration-color: rgba(255, 255, 255, 0.4);
+}
+
+a.featured-venue:hover .featured-venue-name {
+  color: var(--ct-gold);
+}
+
 .featured-venue-name {
   color: var(--text);
   font-weight: 500;

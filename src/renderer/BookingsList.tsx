@@ -260,11 +260,15 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate }
         )}
       </div>
       {(contacts.venue || contacts.venueAddress) && (
-        <div className="featured-venue subtle">
+        <a
+          className="featured-venue subtle"
+          href={mapsUrl(booking, contacts)}
+          title="Open in Apple Maps"
+        >
           {contacts.venue && <span className="featured-venue-name">{contacts.venue}</span>}
           {contacts.venue && contacts.venueAddress && <span> · </span>}
           {contacts.venueAddress && <span>{contacts.venueAddress}</span>}
-        </div>
+        </a>
       )}
       <div className="featured-grid">
         {booking.position && <FeaturedField label="Position" value={booking.position} />}
@@ -396,6 +400,18 @@ function EarningsSummary({
       )}
     </button>
   );
+}
+
+// Apple Maps via its URL scheme — the OS hands maps:// straight to the native
+// app, exactly like the mailto: links elsewhere on this card. (An
+// https://maps.apple.com link would detour through the default browser.)
+// Prefer the scraped street address; fall back to searching venue + city.
+function mapsUrl(booking: Booking, contacts: BookingContacts): string {
+  if (contacts.venueAddress) {
+    return `maps://?address=${encodeURIComponent(contacts.venueAddress)}`;
+  }
+  const q = [contacts.venue, booking.city, booking.state].filter(Boolean).join(', ');
+  return `maps://?q=${encodeURIComponent(q)}`;
 }
 
 function FeaturedField({ label, value, email }: { label: string; value: string; email?: string }) {
