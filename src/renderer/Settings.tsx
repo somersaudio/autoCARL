@@ -196,7 +196,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
           <button
             className={`tab ${tab === 'earnings' ? 'is-active' : ''}`}
             onClick={() => setTab('earnings')}
-          >Earnings</button>
+          >Earnings &amp; Tax</button>
         </div>
 
         {tab === 'general' && (<>
