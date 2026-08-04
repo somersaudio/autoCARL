@@ -69,6 +69,8 @@ export type EarningsEstimate = {
   // True when we had no income context to place this gig in the brackets, so
   // it was taxed as though it were the year's only income. Understates tax.
   lowConfidence: boolean;
+  // True when dayRate came from a per-gig override rather than base pay.
+  usesCustomRate: boolean;
 };
 
 // Inclusive day count between two ISO "YYYY-MM-DD" dates. Booking.endDate is
@@ -130,8 +132,11 @@ export function estimateEarnings(
   endDate: string,
   settings: UserSettings,
   perDiemRate?: number,
+  /** Day rate for this gig alone, overriding basePayDayRate. 0/undefined = use the default. */
+  dayRateOverride?: number,
 ): EarningsEstimate | null {
-  const dayRate = positive(settings.basePayDayRate);
+  const override = positive(dayRateOverride);
+  const dayRate = override > 0 ? override : positive(settings.basePayDayRate);
   if (dayRate <= 0) return null;
 
   const days = bookingDays(startDate, endDate);
@@ -214,6 +219,7 @@ export function estimateEarnings(
     perDiem: days * rate,
     hasDeductions: retirement > 0 || taxes > 0,
     lowConfidence: lowConfidence && settings.subtractTaxes,
+    usesCustomRate: override > 0,
   };
 }
 

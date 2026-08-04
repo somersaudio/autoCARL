@@ -635,6 +635,57 @@ button.link:hover:not(:disabled) {
   cursor: default;
 }
 
+/* The figures double as the control for this gig's day rate. Styled as plain
+   text until hovered so the card stays calm. */
+.earnings-clickable {
+  background: none;
+  border: none;
+  padding: 4px 6px;
+  margin: -4px -6px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+
+.earnings-clickable:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* A gig on a non-default rate is marked, otherwise there's no way to tell why
+   two similar gigs project differently. */
+.earnings-clickable.is-custom .earnings-mini-main {
+  border-bottom: 1px dotted var(--ct-gold);
+  padding-bottom: 1px;
+}
+
+.earnings-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.earnings-edit-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-subtle);
+  white-space: nowrap;
+}
+
+.earnings-edit-input {
+  width: 78px;
+  background: var(--panel-2);
+  color: var(--text);
+  border: 1px solid var(--ct-gold);
+  border-radius: 6px;
+  padding: 4px 6px;
+  font: inherit;
+  font-size: 13px;
+  text-align: right;
+  outline: none;
+}
+
 .earnings-mini-main {
   font-size: 12px;
   font-weight: 600;

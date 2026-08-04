@@ -68,6 +68,7 @@ type Config = {
   expectedAnnualWages: number; // YOUR expected taxable wages for the year; 0 = unknown
   spouseAnnualWages: number;   // spouse's expected wages; married-filing-jointly only
   stateTaxRatePct: number;   // flat state income tax rate; 0 = none
+  gigDayRates: Record<string, number>;  // per-booking day-rate overrides, by bookingId
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -87,6 +88,7 @@ const DEFAULT_CONFIG: Config = {
   expectedAnnualWages: 0,
   spouseAnnualWages: 0,
   stateTaxRatePct: 0,
+  gigDayRates: {},
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }

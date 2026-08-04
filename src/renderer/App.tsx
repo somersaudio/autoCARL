@@ -29,7 +29,7 @@ export default function App() {
     defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true,
     defaultDailyRate: 0, theme: 'default',
     basePayDayRate: 0, subtractTaxes: false, retirementPct: 0,
-    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0,
+    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0, gigDayRates: {},
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
@@ -87,6 +87,16 @@ export default function App() {
     } else {
       setBookingsError(friendlyError(r.error, !navigator.onLine));
     }
+  };
+
+  // Set or clear a single gig's day-rate override. Passing null removes the
+  // entry entirely rather than storing a zero, so `gigDayRates` only ever holds
+  // real overrides and the fallback to base pay stays a simple absence check.
+  const setGigDayRate = async (bookingId: string, rate: number | null) => {
+    const next = { ...settings.gigDayRates };
+    if (rate === null) delete next[bookingId];
+    else next[bookingId] = rate;
+    setSettings(await window.api.settings.update({ gigDayRates: next }));
   };
 
   const refreshBookings = async () => {
@@ -188,6 +198,7 @@ export default function App() {
           flights={flights}
           contacts={contacts}
           settings={settings}
+          onSetDayRate={setGigDayRate}
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />

@@ -413,6 +413,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     expectedAnnualWages: cfg.expectedAnnualWages,
     spouseAnnualWages: cfg.spouseAnnualWages,
     stateTaxRatePct: cfg.stateTaxRatePct,
+    gigDayRates: cfg.gigDayRates,
   };
 }
 
@@ -530,6 +531,17 @@ function registerIpc(): void {
     if (nonNegative(patch?.spouseAnnualWages)) allowed.spouseAnnualWages = patch.spouseAnnualWages as number;
     if (FILING_STATUSES.includes(patch?.filingStatus as FilingStatus)) {
       allowed.filingStatus = patch.filingStatus as FilingStatus;
+    }
+    // Rebuilt entry by entry rather than trusted wholesale — this arrives from
+    // the renderer, and a bad value here would corrupt every future estimate.
+    if (patch?.gigDayRates && typeof patch.gigDayRates === 'object') {
+      const clean: Record<string, number> = {};
+      for (const [id, rate] of Object.entries(patch.gigDayRates)) {
+        if (typeof id === 'string' && id && nonNegative(rate) && rate > 0) {
+          clean[id] = Math.min(rate as number, 1_000_000);
+        }
+      }
+      allowed.gigDayRates = clean;
     }
     return toUserSettings(await updateConfig(allowed));
   });

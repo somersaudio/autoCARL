@@ -12,6 +12,7 @@ type Props = {
   flights: FlightsCache;
   contacts: BookingContactsCache;
   settings: UserSettings;
+  onSetDayRate: (bookingId: string, rate: number | null) => void;
   onRefresh: () => void | Promise<void>;
   onResetSetup: () => void;
 };
@@ -19,7 +20,7 @@ type Props = {
 const NO_CONTACTS: BookingContacts = { pmEmail: '', lcEmail: '' };
 
 export default function BookingsList({
-  bookings, fetchedAt, refreshing, error, flights, contacts, settings, onRefresh, onResetSetup,
+  bookings, fetchedAt, refreshing, error, flights, contacts, settings, onSetDayRate, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
   const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -58,6 +59,7 @@ export default function BookingsList({
             pdfs={flights[upcoming[0].bookingId] || []}
             contacts={contacts[upcoming[0].bookingId] || NO_CONTACTS}
             settings={settings}
+            onSetDayRate={onSetDayRate}
           />
           {upcoming.length > 1 && (
             <div className="card">
@@ -69,6 +71,7 @@ export default function BookingsList({
                   pdfs={flights[b.bookingId] || []}
                   contacts={contacts[b.bookingId] || NO_CONTACTS}
                   settings={settings}
+                  onSetDayRate={onSetDayRate}
                 />
               ))}
             </div>
@@ -115,9 +118,10 @@ type BookingCardProps = {
   // estimate there would be noise. Both must be present to show earnings.
   contacts?: BookingContacts;
   settings?: UserSettings;
+  onSetDayRate?: (bookingId: string, rate: number | null) => void;
 };
 
-function BookingCard({ booking, pdfs, contacts, settings }: BookingCardProps) {
+function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: BookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -142,8 +146,13 @@ function BookingCard({ booking, pdfs, contacts, settings }: BookingCardProps) {
           {booking.laborCoordinator && <span>· LC: {booking.laborCoordinator}</span>}
         </div>
       </div>
-      {contacts && settings && (
-        <EarningsSummary booking={booking} contacts={contacts} settings={settings} />
+      {contacts && settings && onSetDayRate && (
+        <EarningsSummary
+          booking={booking}
+          contacts={contacts}
+          settings={settings}
+          onSetDayRate={onSetDayRate}
+        />
       )}
       {pdfs.length > 0 && (
         <div className="booking-actions">
@@ -203,7 +212,7 @@ type FeaturedBookingCardProps = BookingCardProps & {
   settings: UserSettings;
 };
 
-function FeaturedBookingCard({ booking, pdfs, contacts, settings }: FeaturedBookingCardProps) {
+function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: FeaturedBookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -276,7 +285,12 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings }: FeaturedBook
         )}
       </div>
       <div className="featured-foot">
-        <EarningsSummary booking={booking} contacts={contacts} settings={settings} />
+        <EarningsSummary
+          booking={booking}
+          contacts={contacts}
+          settings={settings}
+          onSetDayRate={onSetDayRate!}
+        />
       </div>
     </div>
   );
@@ -289,19 +303,69 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings }: FeaturedBook
 // The full breakdown (days, rate, 401k, tax) lives in the hover tooltip rather
 // than on the card — the cards stay scannable, the detail is one hover away.
 function EarningsSummary({
-  booking, contacts, settings,
-}: { booking: Booking; contacts: BookingContacts; settings: UserSettings }) {
+  booking, contacts, settings, onSetDayRate,
+}: {
+  booking: Booking;
+  contacts: BookingContacts;
+  settings: UserSettings;
+  onSetDayRate: (bookingId: string, rate: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+
   // GSA's zip lookup is the better number; CARL's stored rate is the fallback
   // for bookings whose venue zip we couldn't resolve.
   const perDiemRate = contacts.gsaPerDiem || contacts.perDiem || 0;
-  const est = estimateEarnings(booking.startDate, booking.endDate, settings, perDiemRate);
+  const override = settings.gigDayRates?.[booking.bookingId];
+  const est = estimateEarnings(
+    booking.startDate, booking.endDate, settings, perDiemRate, override,
+  );
   if (!est) return null;
+
+  const beginEdit = () => {
+    setDraft(String(est.dayRate));
+    setEditing(true);
+  };
+
+  // Empty or non-positive clears the override and falls back to base pay, so
+  // there's a way out without a separate "reset" control.
+  const commit = () => {
+    const n = parseFloat(draft);
+    onSetDayRate(booking.bookingId, Number.isFinite(n) && n > 0 ? n : null);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <div className="earnings-mini earnings-edit" onClick={(e) => e.stopPropagation()}>
+        <label className="earnings-edit-label">Day rate</label>
+        <input
+          className="earnings-edit-input"
+          type="number"
+          inputMode="decimal"
+          min="0"
+          step="1"
+          value={draft}
+          autoFocus
+          onFocus={(e) => e.target.select()}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);   // discard, keep old value
+          }}
+          onBlur={commit}
+        />
+      </div>
+    );
+  }
 
   // The cards show bare numbers, so the tooltip carries what they mean —
   // including whether the top figure is take-home or gross, which depends on
   // the Subtract-taxes setting.
   const tooltip = [
-    `${est.days} ${est.days === 1 ? 'day' : 'days'} @ ${money(est.dayRate)} = ${money(est.grossWages)} gross`,
+    'Click to edit day rate',
+    '',
+    `${est.days} ${est.days === 1 ? 'day' : 'days'} @ ${money(est.dayRate)}${est.usesCustomRate ? ' (custom)' : ''} = ${money(est.grossWages)} gross`,
     est.retirement > 0 ? `401k (${settings.retirementPct}%): −${money(est.retirement)}` : null,
     est.federalTax > 0 ? `Federal: −${money(est.federalTax)}` : null,
     est.socialSecurity > 0 ? `Social Security: −${money(est.socialSecurity)}` : null,
@@ -316,15 +380,21 @@ function EarningsSummary({
     est.lowConfidence
       ? 'Add your yearly wages in Settings — without them, tax is figured as if this gig were your only income.'
       : null,
-  ].filter(Boolean).join('\n');
+    // Only drop nulls, so the deliberate blank line after the first row lives.
+  ].filter((line) => line !== null).join('\n');
 
   return (
-    <div className="earnings-mini" title={tooltip}>
+    <button
+      type="button"
+      className={`earnings-mini earnings-clickable${est.usesCustomRate ? ' is-custom' : ''}`}
+      title={tooltip}
+      onClick={(e) => { e.stopPropagation(); beginEdit(); }}
+    >
       <div className="earnings-mini-main">{money(est.netWages)}</div>
       {est.perDiem > 0 && (
         <div className="earnings-mini-sub">+{money(est.perDiem)}</div>
       )}
-    </div>
+    </button>
   );
 }
 

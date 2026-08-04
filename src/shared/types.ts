@@ -44,6 +44,10 @@ export type UserSettings = {
   // the two figures have to stay separate. Ignored for other filing statuses.
   spouseAnnualWages: number;
   stateTaxRatePct: number;   // flat state rate, e.g. 0 for TX/FL/NV; 0 = none
+  // Per-booking day-rate overrides, keyed by bookingId. A gig paying something
+  // other than your usual rate gets an entry here; everything else falls back
+  // to basePayDayRate. Absent key = no override.
+  gigDayRates: Record<string, number>;
 };
 
 // Two-stage onboarding: CARL first (gives us the iCal URL + read path),
