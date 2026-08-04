@@ -774,6 +774,37 @@ a.featured-venue:hover .featured-venue-name {
   filter: brightness(1.08);
 }
 
+/* A soft light band sweeps across the plane and the button every few seconds
+   — enough to catch the eye, mostly at rest. The band is a white gradient
+   layered over the accent background; on the plane the mask clips it to the
+   silhouette, so the glint runs along the artwork itself. */
+.plane-icon,
+.flight-request-btn {
+  background-image: linear-gradient(
+    105deg,
+    rgba(255, 255, 255, 0) 42%,
+    rgba(255, 255, 255, 0.32) 50%,
+    rgba(255, 255, 255, 0) 58%
+  );
+  background-size: 240% 100%;
+  background-repeat: no-repeat;
+  background-position: 200% 0;
+  animation: flight-shimmer 3.8s ease-in-out infinite;
+}
+
+@keyframes flight-shimmer {
+  0%   { background-position: 200% 0; }
+  45%  { background-position: -100% 0; }
+  100% { background-position: -100% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plane-icon,
+  .flight-request-btn {
+    animation: none;
+  }
+}
+
 /* Per-PDF flight block (summary line + button) on the featured card. */
 .featured-flights {
   display: flex;
