@@ -180,6 +180,9 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand
           {booking.laborCoordinator && <span>· LC: {booking.laborCoordinator}</span>}
         </div>
       </div>
+      {flightRequestOpen(contacts) && (
+        <PlaneIcon size={34} title={contacts!.laborTravel} />
+      )}
       {contacts && settings && onSetDayRate && (
         <EarningsSummary
           booking={booking}
@@ -188,11 +191,8 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand
           onSetDayRate={onSetDayRate}
         />
       )}
-      {(pdfs.length > 0 || flightRequestOpen(contacts)) && (
+      {pdfs.length > 0 && (
         <div className="booking-actions">
-          {flightRequestOpen(contacts) && (
-            <PlaneIcon size={34} title={contacts!.laborTravel} />
-          )}
           {pdfs.map((p) => (
             <button
               key={p.url}
