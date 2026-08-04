@@ -31,8 +31,8 @@ export const THEMES: Theme[] = [
       '--border': 'rgba(140, 170, 255, 0.20)',
       '--text': '#ffffff',
       '--text-subtle': 'rgba(255, 255, 255, 0.62)',
-      // The accent role: a pale starlight gold, warm against the deep blue.
-      '--ct-gold': '#ffd782',
+      // No --ct-gold override: the accent stays the true CT brand gold from
+      // styles.css. (A paler "starlight" gold was tried and read as washed out.)
     },
   },
   {
