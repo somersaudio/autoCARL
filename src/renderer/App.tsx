@@ -8,6 +8,7 @@ import BookingsList from './BookingsList';
 import TimesheetTab from './TimesheetTab';
 import SettingsModal from './Settings';
 import MatrixRain from './MatrixRain';
+import Starfield from './Starfield';
 import { applyTheme, findTheme } from './themes';
 import logoCT from './assets/logoCT.png';
 
@@ -61,6 +62,10 @@ export default function App() {
   // -------- theme: apply CSS-var overrides whenever the selected theme changes
   const theme = findTheme(settings.theme);
   useEffect(() => { applyTheme(theme); }, [theme]);
+  const backdrop =
+    theme.backdrop === 'rain' ? <MatrixRain />
+    : theme.backdrop === 'stars' ? <Starfield />
+    : null;
 
   // -------- bookings --------
   useEffect(() => {
@@ -141,7 +146,7 @@ export default function App() {
   // -------- render --------
   if (!status) return (
     <>
-      {theme.rain && <MatrixRain />}
+      {backdrop}
       {updateProgress && <UpdateOverlay progress={updateProgress} />}
       <div className="app"><p className="subtle">Loading…</p></div>
     </>
@@ -150,7 +155,7 @@ export default function App() {
   if (status.stage !== 'ready') {
     return (
       <>
-        {theme.rain && <MatrixRain />}
+        {backdrop}
         {updateProgress && <UpdateOverlay progress={updateProgress} />}
         <div className="app">
           <div className="app-header">
@@ -165,7 +170,7 @@ export default function App() {
 
   return (
     <>
-    {theme.rain && <MatrixRain />}
+    {backdrop}
     {updateProgress && <UpdateOverlay progress={updateProgress} />}
     <div className="app">
       <div className="app-header">

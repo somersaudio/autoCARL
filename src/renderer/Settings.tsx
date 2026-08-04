@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { UserSettings } from '../shared/types';
 import { FILING_STATUSES, FILING_STATUS_LABELS, TAX_YEAR, type FilingStatus } from '../shared/taxes';
+import { THEMES } from './themes';
 import { projectAnnualFromYtd } from '../shared/earnings';
 import PasswordInput from './PasswordInput';
 
@@ -481,16 +482,15 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
         </div>
         {sswState.message && <CredStatus state={sswState} />}
 
-        {/* ---- Digital Rain theme toggle ---- */}
+        {/* ---- Theme picker ---- */}
         <h3 style={{ marginTop: 22 }}>Theme</h3>
-        <label className="row-actions" style={{ gap: 8, alignItems: 'center', cursor: 'pointer' }}>
-          <input
-            type="checkbox"
-            checked={theme === 'digital-rain'}
-            onChange={(e) => changeTheme(e.target.checked ? 'digital-rain' : 'default')}
-          />
-          <span>Digital Rain</span>
-        </label>
+        <div className="field" style={{ margin: '6px 0 0', maxWidth: 260 }}>
+          <select value={theme} onChange={(e) => changeTheme(e.target.value)}>
+            {THEMES.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
         </>)}
 
         <div className="row-actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>

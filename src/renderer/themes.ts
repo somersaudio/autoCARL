@@ -4,7 +4,7 @@
 // for themes that include a background effect (digital-rain), so the canvas
 // shows through the cards subtly.
 
-export type ThemeId = 'default' | 'digital-rain';
+export type ThemeId = 'default' | 'digital-rain' | 'constellation';
 
 export type Theme = {
   id: ThemeId;
@@ -12,8 +12,8 @@ export type Theme = {
   // Maps directly to CSS variables under :root. Any keys you set here override
   // styles.css; anything you omit falls through to the original value.
   vars: Record<string, string>;
-  // When true, App.tsx mounts the MatrixRain canvas behind everything.
-  rain?: boolean;
+  // Which full-window canvas App.tsx mounts behind everything, if any.
+  backdrop?: 'rain' | 'stars';
 };
 
 export const THEMES: Theme[] = [
@@ -25,7 +25,7 @@ export const THEMES: Theme[] = [
   {
     id: 'digital-rain',
     name: 'Digital Rain',
-    rain: true,
+    backdrop: 'rain',
     vars: {
       '--bg': '#000000',
       '--panel': 'rgba(0, 16, 4, 0.72)',
@@ -37,6 +37,21 @@ export const THEMES: Theme[] = [
       // rain swaps in the bright matrix-green instead — keeps the "accent"
       // role consistent across themes.
       '--ct-gold': '#00ff66',
+    },
+  },
+  {
+    id: 'constellation',
+    name: 'Constellations',
+    backdrop: 'stars',
+    vars: {
+      '--bg': '#04070d',
+      '--panel': 'rgba(10, 16, 30, 0.72)',
+      '--panel-2': 'rgba(14, 22, 40, 0.78)',
+      '--border': 'rgba(140, 170, 255, 0.20)',
+      '--text': '#ffffff',
+      '--text-subtle': 'rgba(255, 255, 255, 0.62)',
+      // The accent role: a pale starlight gold, warm against the deep blue.
+      '--ct-gold': '#ffd782',
     },
   },
 ];
