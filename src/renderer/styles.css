@@ -139,7 +139,14 @@ body {
   border: 1px solid var(--border);
   border-radius: 10px;
   padding: 18px 22px 20px;
-  width: min(420px, calc(100vw - 32px));
+  width: min(560px, calc(100vw - 32px));
+  /* Never taller than the window. The Earnings tab with the tax block open can
+     out-grow a short window, and a centred card would then be clipped at BOTH
+     ends — including the title and the Close button. Cap the height and let the
+     card scroll instead. */
+  max-height: calc(100vh - 48px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
 }
 

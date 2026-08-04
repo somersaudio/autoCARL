@@ -356,44 +356,51 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
                 />
               </div>
             </div>
-            <div className="field" style={{ margin: '10px 0 0' }}>
-              <label>Your expected total for the year ($)</label>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="1"
-                value={annualWages}
-                onChange={(e) => setAnnualWages(e.target.value)}
-                placeholder="0"
-                disabled={earningsBusy}
-              />
+            {/* Yours and, for joint filers, your spouse's sit side by side —
+                same kind of figure, and pairing them keeps the tax block short
+                enough to fit without scrolling. */}
+            <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
+              <div className="field" style={{ flex: 1, margin: 0 }}>
+                <label>Your expected total for the year ($)</label>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  min="0"
+                  step="1"
+                  value={annualWages}
+                  onChange={(e) => setAnnualWages(e.target.value)}
+                  placeholder="0"
+                  disabled={earningsBusy}
+                />
+              </div>
+              {/* Federal brackets apply to household income, but Social Security
+                  is capped per person — so these are entered separately rather
+                  than added together. */}
+              {filingStatus === 'mfj' && (
+                <div className="field" style={{ flex: 1, margin: 0 }}>
+                  <label>Spouse's expected wages ($)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="1"
+                    value={spouseWages}
+                    onChange={(e) => setSpouseWages(e.target.value)}
+                    placeholder="0"
+                    disabled={earningsBusy}
+                  />
+                </div>
+              )}
             </div>
             <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 6 }}>
               <button className="link" onClick={projectAnnual} disabled={earningsBusy || !ytdWages}>
                 Estimate full year from YTD
               </button>
             </div>
-            {/* Joint filers only. Federal brackets apply to household income,
-                but Social Security is capped per person — so the two figures
-                have to be entered separately rather than added together. */}
             {filingStatus === 'mfj' && (
-              <div className="field" style={{ margin: '10px 0 0' }}>
-                <label>Spouse's expected wages for the year ($)</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="1"
-                  value={spouseWages}
-                  onChange={(e) => setSpouseWages(e.target.value)}
-                  placeholder="0"
-                  disabled={earningsBusy}
-                />
-                <span className="subtle" style={{ fontSize: 11, marginTop: 4 }}>
-                  Keep this separate from your own figure above — it widens your tax
-                  brackets, but Social Security is capped per person.
-                </span>
+              <div className="subtle" style={{ fontSize: 11, marginTop: 4 }}>
+                Keep your spouse's figure in its own box — it widens your tax brackets,
+                but Social Security is capped per person.
               </div>
             )}
             {/* Without an income figure the gig is taxed as if it were the whole
