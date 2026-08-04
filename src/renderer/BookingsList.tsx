@@ -191,7 +191,7 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand
       {(pdfs.length > 0 || flightRequestOpen(contacts)) && (
         <div className="booking-actions">
           {flightRequestOpen(contacts) && (
-            <FlightRequestButton booking={booking} contacts={contacts!} />
+            <PlaneIcon size={20} title={contacts!.laborTravel} />
           )}
           {pdfs.map((p) => (
             <button
@@ -454,21 +454,38 @@ function flightRequestOpen(contacts?: BookingContacts): boolean {
   return !!contacts?.laborTravel && /flight\s*requests?\s*open/i.test(contacts.laborTravel);
 }
 
-// Mirrors the blue "Add Flight Request" button on the CARL booking page.
-// Clicking opens that page in the browser — the request form itself lives
-// there, behind CARL's own login.
+// The plane silhouette (user-supplied art, converted to an alpha mask) tinted
+// through the theme accent — see .plane-icon in styles.css.
+function PlaneIcon({ size, title }: { size: number; title?: string }) {
+  return (
+    <span
+      className="plane-icon"
+      style={{ width: size, height: size }}
+      title={title}
+      aria-hidden={title ? undefined : true}
+    />
+  );
+}
+
+// Full-view treatment: plane to the left of the button that mirrors CARL's
+// "Add Flight Request". Clicking opens that page in the browser — the request
+// form itself lives there, behind CARL's own login. Collapsed rows show
+// PlaneIcon alone instead of this.
 function FlightRequestButton({ booking, contacts }: { booking: Booking; contacts: BookingContacts }) {
   return (
-    <button
-      className="flight-request-btn"
-      title={`${contacts.laborTravel} — opens this booking in C.A.R.L.`}
-      onClick={(e) => {
-        e.stopPropagation();
-        window.api.bookings.openInCarl(booking.bookingId).catch(() => {});
-      }}
-    >
-      Add Flight Request
-    </button>
+    <span className="flight-request-wrap">
+      <PlaneIcon size={26} />
+      <button
+        className="flight-request-btn"
+        title={`${contacts.laborTravel} — opens this booking in C.A.R.L.`}
+        onClick={(e) => {
+          e.stopPropagation();
+          window.api.bookings.openInCarl(booking.bookingId).catch(() => {});
+        }}
+      >
+        Add Flight Request
+      </button>
+    </span>
   );
 }
 
