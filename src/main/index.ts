@@ -279,8 +279,10 @@ function initAutoUpdater(): void {
 
 async function createWindow(): Promise<void> {
   const win = new BrowserWindow({
-    width: 877,
-    height: 915,
+    // Sized so the bookings list and the Settings modal both fit without
+    // scrolling. Outer window size, title bar included.
+    width: 899,
+    height: 863,
     title: 'AUTOcarl',
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
