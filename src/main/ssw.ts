@@ -275,7 +275,12 @@ async function findRecordIdForWeek(weekStartDate: string): Promise<string | null
     headers: { 'content-type': 'application/json; charset=UTF-8' },
     body: JSON.stringify(body),
   });
-  if (res.status !== 200) throw new Error(`GetDataGrid HTTP ${res.status}`);
+  // SSW answers an EXPIRED session with a generic HTTP 500 on WebMethod
+  // calls, not a 401 (verified against the live site: no cookie -> 500
+  // "There was an error processing the request"). The session wording below
+  // is what withSession's retry predicate keys on, so a stale session gets
+  // one silent re-login + retry instead of surfacing an error.
+  if (res.status !== 200) throw new Error(`GetDataGrid HTTP ${res.status} — SSW session may have expired`);
   const txt = await res.text();
   const outer = JSON.parse(txt) as { d: string };
   if (typeof outer.d === 'undefined') throw new Error('GetDataGrid: missing .d');
@@ -312,7 +317,7 @@ async function getRecordExtended(recordId: string): Promise<SswRecordResponse> {
     },
     body: JSON.stringify({ request: { ApplicationKey: APP_KEY, RecordId: String(recordId), UserName: '' } }),
   });
-  if (res.status !== 200) throw new Error(`GetRecordExtended HTTP ${res.status}`);
+  if (res.status !== 200) throw new Error(`GetRecordExtended HTTP ${res.status} — SSW session may have expired`);
   const txt = await res.text();
   const outer = JSON.parse(txt) as { d: string };
   if (typeof outer.d === 'undefined') throw new Error('GetRecordExtended: missing .d');

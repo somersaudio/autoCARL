@@ -38,7 +38,11 @@ export function looksOffline(message: string): boolean {
 // message. `offline` lets the renderer pass navigator.onLine === false to force
 // the offline message even when the underlying error text is ambiguous.
 export function friendlyError(e: unknown, offline = false): string {
-  const raw = e instanceof Error ? e.message : String(e);
+  let raw = e instanceof Error ? e.message : String(e);
+  // Errors thrown in the main process reach the renderer wrapped by Electron:
+  // "Error invoking remote method 'ssw:fetchWeek': Error: <real message>".
+  // Strip the plumbing so the banner shows only the real message.
+  raw = raw.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, '');
   if (offline || looksOffline(raw)) return OFFLINE_MESSAGE;
   return raw;
 }
