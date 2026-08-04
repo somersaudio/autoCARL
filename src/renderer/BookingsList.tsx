@@ -23,6 +23,11 @@ export default function BookingsList({
   bookings, fetchedAt, refreshing, error, flights, contacts, settings, onSetDayRate, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
+  // Which upcoming gig shows as the full-view card. null = the default (first
+  // upcoming); 'none' = everything collapsed. Rows expand on click, and only
+  // one gig is ever expanded — the previous one collapses back into its row,
+  // with the list keeping strict date order throughout.
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const upcoming = bookings
     .filter((b) => parseISOLocal(b.endDate) >= today)
@@ -52,19 +57,41 @@ export default function BookingsList({
         {error && <div className="banner error" style={{ marginTop: 8 }}>{error}</div>}
       </div>
 
-      {upcoming.length > 0 && (
-        <>
-          <FeaturedBookingCard
-            booking={upcoming[0]}
-            pdfs={flights[upcoming[0].bookingId] || []}
-            contacts={contacts[upcoming[0].bookingId] || NO_CONTACTS}
-            settings={settings}
-            onSetDayRate={onSetDayRate}
-          />
-          {upcoming.length > 1 && (
-            <div className="card">
-              <h3>Upcoming</h3>
-              {upcoming.slice(1).map((b) => (
+      {upcoming.length > 0 && (() => {
+        const expanded = expandedId ?? upcoming[0].bookingId;
+        // Walk the date-ordered list, grouping consecutive collapsed gigs into
+        // row cards and emitting the expanded gig as a full card in place.
+        const segments: Array<{ full: Booking } | { rows: Booking[] }> = [];
+        for (const b of upcoming) {
+          if (b.bookingId === expanded) {
+            segments.push({ full: b });
+          } else {
+            const last = segments[segments.length - 1];
+            if (last && 'rows' in last) last.rows.push(b);
+            else segments.push({ rows: [b] });
+          }
+        }
+        let headerUsed = false;
+        return segments.map((seg) => {
+          if ('full' in seg) {
+            return (
+              <FeaturedBookingCard
+                key={seg.full.bookingId}
+                booking={seg.full}
+                pdfs={flights[seg.full.bookingId] || []}
+                contacts={contacts[seg.full.bookingId] || NO_CONTACTS}
+                settings={settings}
+                onSetDayRate={onSetDayRate}
+                onCollapse={() => setExpandedId('none')}
+              />
+            );
+          }
+          const withHeader = !headerUsed;
+          headerUsed = true;
+          return (
+            <div className="card" key={seg.rows[0].bookingId}>
+              {withHeader && <h3>Upcoming</h3>}
+              {seg.rows.map((b) => (
                 <BookingCard
                   key={b.bookingId}
                   booking={b}
@@ -72,12 +99,13 @@ export default function BookingsList({
                   contacts={contacts[b.bookingId] || NO_CONTACTS}
                   settings={settings}
                   onSetDayRate={onSetDayRate}
+                  onExpand={() => setExpandedId(b.bookingId)}
                 />
               ))}
             </div>
-          )}
-        </>
-      )}
+          );
+        });
+      })()}
 
       {past.length > 0 && (
         <div className="card past-card">
@@ -119,9 +147,11 @@ type BookingCardProps = {
   contacts?: BookingContacts;
   settings?: UserSettings;
   onSetDayRate?: (bookingId: string, rate: number | null) => void;
+  // Present on upcoming rows only: clicking the row swaps it to the full view.
+  onExpand?: () => void;
 };
 
-function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: BookingCardProps) {
+function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand }: BookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -130,7 +160,11 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: Bookin
   }, [booking.jobName]);
 
   return (
-    <div className="booking">
+    <div
+      className={`booking${onExpand ? ' booking-clickable' : ''}`}
+      onClick={onExpand}
+      title={onExpand ? 'Show full view' : undefined}
+    >
       {logo && <img src={logo} alt="" className="booking-logo" />}
       <div className="booking-main">
         <div className="booking-line1">
@@ -164,7 +198,7 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: Bookin
               key={p.url}
               className="secondary"
               title={p.filename}
-              onClick={() => window.api.flights.open(p.localPath).catch(() => {})}
+              onClick={(e) => { e.stopPropagation(); window.api.flights.open(p.localPath).catch(() => {}); }}
             >
               View itinerary{pdfs.length > 1 ? ` (${pdfs.indexOf(p) + 1})` : ''}
             </button>
@@ -213,9 +247,10 @@ function relativeWhen(start: string, end: string): string {
 type FeaturedBookingCardProps = BookingCardProps & {
   contacts: BookingContacts;
   settings: UserSettings;
+  onCollapse?: () => void;
 };
 
-function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: FeaturedBookingCardProps) {
+function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onCollapse }: FeaturedBookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -227,7 +262,11 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate }
     <div className="card featured-booking">
       <div className="featured-top">
         {logo && <img src={logo} alt="" className="featured-logo" />}
-        <div className="featured-headline">
+        <div
+          className={`featured-headline${onCollapse ? ' featured-collapsible' : ''}`}
+          onClick={onCollapse}
+          title={onCollapse ? 'Collapse' : undefined}
+        >
           <div className="featured-jobnum show-num">{booking.jobNumber}</div>
           <div className="featured-name">{booking.jobName}</div>
           <div className="featured-when">

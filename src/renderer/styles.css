@@ -878,8 +878,21 @@ a.featured-venue:hover .featured-venue-name {
   font-variant-numeric: tabular-nums;
 }
 
+.booking-clickable {
+  cursor: pointer;
+}
+
 .booking-clickable:hover {
   background: rgba(253, 184, 39, 0.06);
+}
+
+/* Expanded card's headline doubles as the collapse control. */
+.featured-collapsible {
+  cursor: pointer;
+}
+
+.featured-collapsible:hover .featured-name {
+  color: var(--ct-gold);
 }
 
 /* ----- WeekPicker ----- */
