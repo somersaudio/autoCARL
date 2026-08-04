@@ -743,8 +743,8 @@ a.featured-venue:hover .featured-venue-name {
      with no dead space around the glyph. */
   aspect-ratio: 256 / 132;
   background-color: var(--ct-gold);
-  -webkit-mask: url('./assets/plane-mask.png') no-repeat center / contain;
-  mask: url('./assets/plane-mask.png') no-repeat center / contain;
+  -webkit-mask: url('./assets/plane-takeoff.png') no-repeat center / contain;
+  mask: url('./assets/plane-takeoff.png') no-repeat center / contain;
   flex-shrink: 0;
 }
 
