@@ -737,11 +737,51 @@ button.link:hover:not(:disabled) {
   transition: background 0.12s;
 }
 
-/* Mask the bottom of the visible past rows so they fade into nothing,
- * hinting that more shows are available below. */
-.past-fading {
-  -webkit-mask-image: linear-gradient(180deg, black 30%, rgba(0, 0, 0, 0.15) 100%);
-  mask-image: linear-gradient(180deg, black 30%, rgba(0, 0, 0, 0.15) 100%);
+/* Past gigs collapse to a single header row. The whole row is the toggle, so
+   the hit target is the full width rather than a small link. */
+.past-card {
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.past-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-subtle);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.past-toggle:hover {
+  color: var(--text);
+}
+
+.past-toggle-chevron {
+  font-size: 17px;
+  line-height: 1;
+  width: 12px;
+  text-align: center;
+  transition: transform 120ms ease;
+}
+
+.past-toggle[aria-expanded="true"] .past-toggle-chevron {
+  transform: rotate(90deg);
+}
+
+.past-toggle-count {
+  margin-left: auto;
+  font-size: 12px;
+  letter-spacing: normal;
+  text-transform: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .booking-clickable:hover {

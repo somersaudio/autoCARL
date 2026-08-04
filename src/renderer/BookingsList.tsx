@@ -29,8 +29,9 @@ export default function BookingsList({
   const past = bookings
     .filter((b) => parseISOLocal(b.endDate) < today)
     .sort((a, b) => b.startDate.localeCompare(a.startDate));
-  const pastVisible = showAllPast ? past : past.slice(0, 3);
-  const pastHidden = past.length - pastVisible.length;
+  // Past gigs stay fully collapsed until asked for — they're history, and the
+  // screen is about what's coming up.
+  const pastVisible = showAllPast ? past : [];
 
   return (
     <>
@@ -76,30 +77,24 @@ export default function BookingsList({
       )}
 
       {past.length > 0 && (
-        <div className="card">
-          <h3>Past</h3>
-          <div className={pastHidden > 0 ? 'past-fading' : ''}>
-            {pastVisible.map((b) => (
-              <BookingCard key={b.bookingId} booking={b} pdfs={flights[b.bookingId] || []} />
-            ))}
-          </div>
-          {pastHidden > 0 && (
-            <button
-              className="link"
-              style={{ marginTop: 8 }}
-              onClick={() => setShowAllPast(true)}
-            >
-              Show all ({pastHidden} more)
-            </button>
-          )}
-          {showAllPast && past.length > 3 && (
-            <button
-              className="link"
-              style={{ marginTop: 8 }}
-              onClick={() => setShowAllPast(false)}
-            >
-              Show less
-            </button>
+        <div className="card past-card">
+          <button
+            className="past-toggle"
+            onClick={() => setShowAllPast((v) => !v)}
+            aria-expanded={showAllPast}
+          >
+            {/* One glyph rotated, rather than swapping ▸/▾ — the two render at
+                different optical sizes and read as a dot at small sizes. */}
+            <span className="past-toggle-chevron" aria-hidden="true">›</span>
+            <span>Past</span>
+            <span className="past-toggle-count subtle">{past.length}</span>
+          </button>
+          {showAllPast && (
+            <div style={{ marginTop: 10 }}>
+              {pastVisible.map((b) => (
+                <BookingCard key={b.bookingId} booking={b} pdfs={flights[b.bookingId] || []} />
+              ))}
+            </div>
           )}
         </div>
       )}
