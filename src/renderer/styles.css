@@ -739,6 +739,9 @@ a.featured-venue:hover .featured-venue-name {
    gold, green, or whatever a future theme's accent is. */
 .plane-icon {
   display: inline-block;
+  /* Matches the mask asset's dimensions (256x132) so a width alone sizes it
+     with no dead space around the glyph. */
+  aspect-ratio: 256 / 132;
   background-color: var(--ct-gold);
   -webkit-mask: url('./assets/plane-mask.png') no-repeat center / contain;
   mask: url('./assets/plane-mask.png') no-repeat center / contain;

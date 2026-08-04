@@ -191,7 +191,7 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand
       {(pdfs.length > 0 || flightRequestOpen(contacts)) && (
         <div className="booking-actions">
           {flightRequestOpen(contacts) && (
-            <PlaneIcon size={20} title={contacts!.laborTravel} />
+            <PlaneIcon size={30} title={contacts!.laborTravel} />
           )}
           {pdfs.map((p) => (
             <button
@@ -460,7 +460,7 @@ function PlaneIcon({ size, title }: { size: number; title?: string }) {
   return (
     <span
       className="plane-icon"
-      style={{ width: size, height: size }}
+      style={{ width: size }}
       title={title}
       aria-hidden={title ? undefined : true}
     />
@@ -474,7 +474,7 @@ function PlaneIcon({ size, title }: { size: number; title?: string }) {
 function FlightRequestButton({ booking, contacts }: { booking: Booking; contacts: BookingContacts }) {
   return (
     <span className="flight-request-wrap">
-      <PlaneIcon size={26} />
+      <PlaneIcon size={40} />
       <button
         className="flight-request-btn"
         title={`${contacts.laborTravel} — opens this booking in C.A.R.L.`}
