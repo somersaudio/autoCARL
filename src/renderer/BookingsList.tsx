@@ -483,7 +483,7 @@ function FlightRequestButton({ booking, contacts }: { booking: Booking; contacts
           window.api.bookings.openInCarl(booking.bookingId).catch(() => {});
         }}
       >
-        Add Flight Request
+        Flight Request Open
       </button>
     </span>
   );
