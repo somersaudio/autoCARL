@@ -16,29 +16,10 @@ export type Theme = {
   backdrop?: 'rain' | 'stars';
 };
 
+// Constellations leads: it's the default for fresh installs, the fallback for
+// unknown ids, and first in the Settings picker. The id 'default' is kept on
+// CT Gold for compatibility — configs that saved it long ago still resolve.
 export const THEMES: Theme[] = [
-  {
-    id: 'default',
-    name: 'Default (CT Gold)',
-    vars: {}, // use styles.css defaults
-  },
-  {
-    id: 'digital-rain',
-    name: 'Digital Rain',
-    backdrop: 'rain',
-    vars: {
-      '--bg': '#000000',
-      '--panel': 'rgba(0, 16, 4, 0.72)',
-      '--panel-2': 'rgba(0, 26, 8, 0.78)',
-      '--border': 'rgba(0, 255, 102, 0.22)',
-      '--text': '#ffffff',
-      '--text-subtle': 'rgba(255, 255, 255, 0.6)',
-      // Wherever the default theme uses CT gold (tab pill, accents), digital
-      // rain swaps in the bright matrix-green instead — keeps the "accent"
-      // role consistent across themes.
-      '--ct-gold': '#00ff66',
-    },
-  },
   {
     id: 'constellation',
     name: 'Constellations',
@@ -52,6 +33,28 @@ export const THEMES: Theme[] = [
       '--text-subtle': 'rgba(255, 255, 255, 0.62)',
       // The accent role: a pale starlight gold, warm against the deep blue.
       '--ct-gold': '#ffd782',
+    },
+  },
+  {
+    id: 'default',
+    name: 'CT Gold',
+    vars: {}, // use styles.css defaults
+  },
+  {
+    id: 'digital-rain',
+    name: 'Digital Rain',
+    backdrop: 'rain',
+    vars: {
+      '--bg': '#000000',
+      '--panel': 'rgba(0, 16, 4, 0.72)',
+      '--panel-2': 'rgba(0, 26, 8, 0.78)',
+      '--border': 'rgba(0, 255, 102, 0.22)',
+      '--text': '#ffffff',
+      '--text-subtle': 'rgba(255, 255, 255, 0.6)',
+      // Wherever the CT Gold theme uses gold (tab pill, accents), digital
+      // rain swaps in the bright matrix-green instead — keeps the "accent"
+      // role consistent across themes.
+      '--ct-gold': '#00ff66',
     },
   },
 ];

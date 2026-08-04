@@ -23,7 +23,7 @@ export type UserSettings = {
   defaultEndTime: string;    // e.g. '6:00 pm'
   autofillPerDiem: boolean;  // when false, the app leaves per-diem empty for the user to fill manually
   defaultDailyRate: number;  // 0 = use whatever SSW has stored; >0 overwrites SSW's iDailyRate on every save
-  theme: string;             // theme id, see renderer/themes.ts — 'default' is the original CT-gold dark
+  theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // ----- earnings estimates (display only — never pushed to SSW) -----
   // Deliberately separate from defaultDailyRate above: that one rewrites your
   // SSW record on save, this one only feeds the projection on the bookings card.
