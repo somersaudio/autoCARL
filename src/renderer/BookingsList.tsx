@@ -154,8 +154,11 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate }: Bookin
           onSetDayRate={onSetDayRate}
         />
       )}
-      {pdfs.length > 0 && (
+      {(pdfs.length > 0 || flightRequestOpen(contacts)) && (
         <div className="booking-actions">
+          {flightRequestOpen(contacts) && (
+            <FlightRequestButton booking={booking} contacts={contacts!} />
+          )}
           {pdfs.map((p) => (
             <button
               key={p.url}
@@ -236,8 +239,11 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate }
             )}
           </div>
         </div>
-        {pdfs.length > 0 && (
+        {(pdfs.length > 0 || flightRequestOpen(contacts)) && (
           <div className="featured-flights">
+            {flightRequestOpen(contacts) && (
+              <FlightRequestButton booking={booking} contacts={contacts} />
+            )}
             {pdfs.map((p, i) => (
               <div key={p.url} className="featured-flight">
                 {(p.vendor || p.confirmation) && (
@@ -398,6 +404,31 @@ function EarningsSummary({
       {est.perDiem > 0 && (
         <div className="earnings-mini-sub">+{money(est.perDiem)}</div>
       )}
+    </button>
+  );
+}
+
+// An LC has opened flight requests on this booking (CARL's laborTravel
+// status). The exact literal today is "Flight Requests Open to Crew"; matched
+// loosely so minor wording drift on CARL's side doesn't silently kill it.
+function flightRequestOpen(contacts?: BookingContacts): boolean {
+  return !!contacts?.laborTravel && /flight\s*requests?\s*open/i.test(contacts.laborTravel);
+}
+
+// Mirrors the blue "Add Flight Request" button on the CARL booking page.
+// Clicking opens that page in the browser — the request form itself lives
+// there, behind CARL's own login.
+function FlightRequestButton({ booking, contacts }: { booking: Booking; contacts: BookingContacts }) {
+  return (
+    <button
+      className="flight-request-btn"
+      title={`${contacts.laborTravel} — opens this booking in C.A.R.L.`}
+      onClick={(e) => {
+        e.stopPropagation();
+        window.api.bookings.openInCarl(booking.bookingId).catch(() => {});
+      }}
+    >
+      Add Flight Request
     </button>
   );
 }

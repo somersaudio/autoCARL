@@ -734,6 +734,25 @@ a.featured-venue:hover .featured-venue-name {
   margin-left: 12px;
 }
 
+/* Mirrors the blue "Add Flight Request" button on the CARL booking page —
+   shown only while the LC has requests open, so blue = action needed. */
+.flight-request-btn {
+  background: #2f6fed;
+  color: #ffffff;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.flight-request-btn:hover {
+  background: #4482ff;
+}
+
 /* Per-PDF flight block (summary line + button) on the featured card. */
 .featured-flights {
   display: flex;

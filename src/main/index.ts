@@ -21,7 +21,7 @@ import {
 } from './store';
 import { sweepFlights } from './flight-fetcher';
 import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
-import { loginCarl } from './carl-api';
+import { loginCarl, CARL } from './carl-api';
 import type {
   Booking, BookingContactsCache, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress,
   UserSettings,
@@ -507,6 +507,14 @@ function registerIpc(): void {
   ipcMain.handle('logo:forJob', (_e, jobName: string) => getJobLogo(jobName));
 
   ipcMain.handle('app:getVersion', () => app.getVersion());
+
+  // Open a booking's CARL page in the default browser — used by the renderer's
+  // flight-request button. The id is validated against CARL's short-id shape
+  // so a malformed value can't smuggle a path into openExternal.
+  ipcMain.handle('bookings:openInCarl', async (_e, bookingId: string) => {
+    if (typeof bookingId !== 'string' || !/^[A-Za-z0-9]{4,32}$/.test(bookingId)) return;
+    await shell.openExternal(`${CARL}/crewcalendar/booking-details-1/${bookingId}`);
+  });
 
   ipcMain.handle('settings:get', async () => toUserSettings(await readConfig()));
   ipcMain.handle('settings:update', async (_e, patch: Partial<UserSettings>) => {

@@ -21,7 +21,7 @@
 
 import { net, session } from 'electron';
 
-const CARL = 'https://carl.ctus.live';
+export const CARL = 'https://carl.ctus.live';
 
 // We use a dedicated session partition so cookies stay scoped (and so we
 // can wipe them on resetSession). Mirrors the SSW pattern.
@@ -204,6 +204,12 @@ export type CarlBookingDetails = {
   venue?: string;
   venueAddress?: string;
   venueZip?: string;
+  // CARL's "laborTravel" status (field_254), e.g. "Flight Requests Open to
+  // Crew" or "Travel Details Pending". Only present when the LC has set one —
+  // the field definition ships as an object on every booking, but the VALUE is
+  // a string only on bookings where it's populated, which is what asString
+  // keys on.
+  laborTravel?: string;
 };
 
 // Pull every encrypted handle the page would POST to /webapi/v1/app/g/.
@@ -333,6 +339,10 @@ function mergeResponse(resp: unknown, out: CarlBookingDetails): void {
     }
     const pd = asNum(obj.field_348);
     if (pd !== undefined && pd > 0 && out.perDiem === undefined) out.perDiem = pd;
+
+    // ---- labor travel status (field_254, e.g. "Flight Requests Open to Crew") ----
+    const laborTravel = asString(obj.field_254);
+    if (laborTravel && !out.laborTravel) out.laborTravel = decodeEntities(laborTravel);
 
     // ---- emails (shape: items containing { name, email }) ----
     // CARL returns each contact (PM, LC, etc.) as a separate single-item

@@ -154,6 +154,9 @@ export type BookingContacts = {
   venueZip?: string;           // 5-digit US zip
   gsaPerDiem?: number;         // M&IE rate from GSA API, looked up by zip
   gsaCity?: string;            // city name returned by GSA (for display sanity)
+  // CARL's laborTravel status, e.g. "Flight Requests Open to Crew". The
+  // renderer keys the flight-request button off this.
+  laborTravel?: string;
 };
 export type BookingContactsCache = Record<string, BookingContacts>;
 
@@ -186,6 +189,9 @@ export type Api = {
     refresh: () => Promise<RefreshResult>;
     // Subscribe to background refreshes (called by the 5-min poll on success).
     subscribe: (handler: (r: RefreshResult) => void) => () => void;
+    // Opens this booking's CARL page in the default browser (e.g. to complete
+    // a flight request).
+    openInCarl: (bookingId: string) => Promise<void>;
   };
   flights: {
     // Returns the full bookingId → FlightPdf[] cache from disk.

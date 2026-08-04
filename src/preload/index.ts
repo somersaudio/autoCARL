@@ -18,6 +18,7 @@ const api: Api = {
   bookings: {
     getCached: () => ipcRenderer.invoke('bookings:getCached') as Promise<{ bookings: Booking[]; fetchedAt: string | null }>,
     refresh: () => ipcRenderer.invoke('bookings:refresh') as Promise<RefreshResult>,
+    openInCarl: (bookingId) => ipcRenderer.invoke('bookings:openInCarl', bookingId) as Promise<void>,
     subscribe: (handler) => {
       const listener = (_e: Electron.IpcRendererEvent, payload: RefreshResult) => handler(payload);
       ipcRenderer.on('bookings:refresh', listener);

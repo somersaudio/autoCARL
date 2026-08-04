@@ -85,7 +85,7 @@ export async function sweepFlights(
         // Summarise the POST diagnostics: how many tokens returned non-null JSON.
         const ok = diags.filter((d) => d.status === 200 && d.nonNull).length;
         const sample = diags[0];
-        logSweep(`booking ${booking.bookingId}: fetched — htmlBytes=${dbg?.htmlBytes ?? '?'}, tokens=${dbg?.tokenCount ?? '?'}, postsOK=${ok}/${diags.length}, perDiem=${scraped.perDiem ?? '?'}, pm=${pmEmail || '?'}, lc=${lcEmail || '?'}, flights=${scraped.flights.length}, venue=${scraped.venue || '?'}, zip=${scraped.venueZip || '?'}`);
+        logSweep(`booking ${booking.bookingId}: fetched — htmlBytes=${dbg?.htmlBytes ?? '?'}, tokens=${dbg?.tokenCount ?? '?'}, postsOK=${ok}/${diags.length}, perDiem=${scraped.perDiem ?? '?'}, pm=${pmEmail || '?'}, lc=${lcEmail || '?'}, flights=${scraped.flights.length}, venue=${scraped.venue || '?'}, zip=${scraped.venueZip || '?'}, travel=${scraped.laborTravel || '?'}`);
         if (sample) logSweep(`  sample post[0]: status=${sample.status} bytes=${sample.bodyBytes} body=${(sample.sample || '').replace(/\n/g, ' ')}`);
 
         // ----- contacts (+ per-diem + venue + GSA rate) -----
@@ -114,6 +114,7 @@ export async function sweepFlights(
           venueZip: scraped.venueZip,
           gsaPerDiem,
           gsaCity,
+          laborTravel: scraped.laborTravel,
         };
         const prevContacts = contacts[booking.bookingId];
         const contactsChanged = !prevContacts
@@ -123,7 +124,8 @@ export async function sweepFlights(
           || prevContacts.venue !== next.venue
           || prevContacts.venueAddress !== next.venueAddress
           || prevContacts.venueZip !== next.venueZip
-          || prevContacts.gsaPerDiem !== next.gsaPerDiem;
+          || prevContacts.gsaPerDiem !== next.gsaPerDiem
+          || prevContacts.laborTravel !== next.laborTravel;
         if (contactsChanged) {
           contacts[booking.bookingId] = next;
           await writeContactsCache(contacts);
