@@ -355,7 +355,11 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
 
   const commit = (bookingId: string) => {
     const n = parseFloat(draft);
-    onSetDayRate(bookingId, Number.isFinite(n) && n > 0 ? n : null);
+    // Entering the base rate (or clearing) removes the override rather than
+    // pinning it — otherwise an opened-then-blurred editor stores base pay as
+    // an explicit override that silently stops tracking future base changes.
+    const isOverride = Number.isFinite(n) && n > 0 && n !== settings.basePayDayRate;
+    onSetDayRate(bookingId, isOverride ? n : null);
     setEditingId(null);
   };
 
