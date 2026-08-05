@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import type {
   Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, UserSettings,
 } from '../shared/types';
-import { estimateEarnings, money } from '../shared/earnings';
+import { buildPaychecks, money, type GigPay, type Paycheck } from '../shared/paychecks';
 
 type Props = {
   bookings: Booking[];
@@ -38,6 +38,11 @@ export default function BookingsList({
   // Past gigs stay fully collapsed until asked for — they're history, and the
   // screen is about what's coming up.
   const pastVisible = showAllPast ? past : [];
+
+  // Map upcoming gig days onto bi-weekly checks and withhold each check the
+  // way payroll does. Gig cards show their slice; the Paychecks card shows
+  // the checks themselves.
+  const plan = buildPaychecks(upcoming, contacts, settings);
 
   return (
     <>
@@ -81,6 +86,7 @@ export default function BookingsList({
                 pdfs={flights[seg.full.bookingId] || []}
                 contacts={contacts[seg.full.bookingId] || NO_CONTACTS}
                 settings={settings}
+                pay={plan.perGig[seg.full.bookingId]}
                 onSetDayRate={onSetDayRate}
                 onCollapse={() => setExpandedId('none')}
               />
@@ -98,6 +104,7 @@ export default function BookingsList({
                   pdfs={flights[b.bookingId] || []}
                   contacts={contacts[b.bookingId] || NO_CONTACTS}
                   settings={settings}
+                  pay={plan.perGig[b.bookingId]}
                   onSetDayRate={onSetDayRate}
                   onExpand={() => setExpandedId(b.bookingId)}
                 />
@@ -106,6 +113,8 @@ export default function BookingsList({
           );
         });
       })()}
+
+      {plan.checks.length > 0 && <PaychecksCard checks={plan.checks} subtractTaxes={settings.subtractTaxes} />}
 
       {past.length > 0 && (
         <div className="card past-card">
@@ -146,12 +155,13 @@ type BookingCardProps = {
   // estimate there would be noise. Both must be present to show earnings.
   contacts?: BookingContacts;
   settings?: UserSettings;
+  pay?: GigPay;
   onSetDayRate?: (bookingId: string, rate: number | null) => void;
   // Present on upcoming rows only: clicking the row swaps it to the full view.
   onExpand?: () => void;
 };
 
-function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand }: BookingCardProps) {
+function BookingCard({ booking, pdfs, contacts, settings, pay, onSetDayRate, onExpand }: BookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -183,11 +193,11 @@ function BookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onExpand
       {flightRequestOpen(contacts) && (
         <PlaneIcon size={34} title={contacts!.laborTravel} />
       )}
-      {contacts && settings && onSetDayRate && (
+      {settings && onSetDayRate && (
         <EarningsSummary
           booking={booking}
-          contacts={contacts}
           settings={settings}
+          pay={pay}
           onSetDayRate={onSetDayRate}
         />
       )}
@@ -250,7 +260,7 @@ type FeaturedBookingCardProps = BookingCardProps & {
   onCollapse?: () => void;
 };
 
-function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate, onCollapse }: FeaturedBookingCardProps) {
+function FeaturedBookingCard({ booking, pdfs, contacts, settings, pay, onSetDayRate, onCollapse }: FeaturedBookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -336,8 +346,8 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate, 
       <div className="featured-foot">
         <EarningsSummary
           booking={booking}
-          contacts={contacts}
           settings={settings}
+          pay={pay}
           onSetDayRate={onSetDayRate!}
         />
       </div>
@@ -345,34 +355,24 @@ function FeaturedBookingCard({ booking, pdfs, contacts, settings, onSetDayRate, 
   );
 }
 
-// Projected pay for a booking, as two numbers: what lands in the bank, and
-// per diem on its own line. Renders nothing until a base day rate is set in
-// Settings, so cards are unchanged for anyone who hasn't opted in.
-//
-// The full breakdown (days, rate, 401k, tax) lives in the hover tooltip rather
-// than on the card — the cards stay scannable, the detail is one hover away.
+// A gig's slice of the bi-weekly checks it lands on: what it adds to your
+// deposits, plus per diem on its own line. Renders nothing until a base day
+// rate is set in Settings. The per-check breakdown lives in the tooltip.
 function EarningsSummary({
-  booking, contacts, settings, onSetDayRate,
+  booking, settings, pay, onSetDayRate,
 }: {
   booking: Booking;
-  contacts: BookingContacts;
   settings: UserSettings;
+  pay?: GigPay;
   onSetDayRate: (bookingId: string, rate: number | null) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
 
-  // GSA's zip lookup is the better number; CARL's stored rate is the fallback
-  // for bookings whose venue zip we couldn't resolve.
-  const perDiemRate = contacts.gsaPerDiem || contacts.perDiem || 0;
-  const override = settings.gigDayRates?.[booking.bookingId];
-  const est = estimateEarnings(
-    booking.startDate, booking.endDate, settings, perDiemRate, override,
-  );
-  if (!est) return null;
+  if (!pay && !editing) return null;
 
   const beginEdit = () => {
-    setDraft(String(est.dayRate));
+    setDraft(String(pay?.dayRate ?? settings.basePayDayRate ?? ''));
     setEditing(true);
   };
 
@@ -407,43 +407,87 @@ function EarningsSummary({
       </div>
     );
   }
+  if (!pay) return null;
 
-  // The cards show bare numbers, so the tooltip carries what they mean —
-  // including whether the top figure is take-home or gross, which depends on
-  // the Subtract-taxes setting.
+  const usesCustomRate = !!settings.gigDayRates?.[booking.bookingId];
+  const hasDeductions = settings.subtractTaxes || settings.retirementPct > 0;
+
+  // Withholding is figured per bi-weekly check, the way payroll does it, so a
+  // gig split across checks shows one line per check.
   const tooltip = [
     'Click to edit day rate',
     '',
-    `${est.days} ${est.days === 1 ? 'day' : 'days'} @ ${money(est.dayRate)}${est.usesCustomRate ? ' (custom)' : ''} = ${money(est.grossWages)} gross`,
-    est.retirement > 0 ? `401k (${settings.retirementPct}%): −${money(est.retirement)}` : null,
-    est.federalTax > 0 ? `Federal: −${money(est.federalTax)}` : null,
-    est.socialSecurity > 0 ? `Social Security: −${money(est.socialSecurity)}` : null,
-    est.medicare > 0 ? `Medicare: −${money(est.medicare)}` : null,
-    est.stateTax > 0 ? `State: −${money(est.stateTax)}` : null,
-    `${money(est.netWages)} ${est.hasDeductions ? 'take-home' : 'gross'}`
-      + (est.taxes > 0 ? ` (${(est.effectiveRate * 100).toFixed(1)}% tax)` : ''),
-    est.perDiem > 0
-      ? `+${money(est.perDiem)} per diem (${est.days} × ${money(est.perDiemRate)})`
-      : 'Per diem not available yet',
-    'Estimate assumes standard 10-hour days.',
-    est.lowConfidence
-      ? 'Add your yearly wages in Settings — without them, tax is figured as if this gig were your only income.'
-      : null,
-    // Only drop nulls, so the deliberate blank line after the first row lives.
+    `${pay.days} ${pay.days === 1 ? 'day' : 'days'} @ ${money(pay.dayRate)}${usesCustomRate ? ' (custom)' : ''} = ${money(pay.gross)} gross`,
+    ...pay.parts.map((part) =>
+      `Check ${fmtPayDate(part.payDate)}: ${part.days}d -> ${money(part.net)}`
+      + (part.withholdingRate > 0 ? ` (${(part.withholdingRate * 100).toFixed(1)}% withheld)` : '')),
+    `${money(pay.net)} ${hasDeductions ? 'take-home' : 'gross'}`,
+    pay.perDiem > 0 ? `+${money(pay.perDiem)} per diem (untaxed)` : 'Per diem not available yet',
+    'Assumes standard 10-hour days — OT and DT push real checks higher, and',
+    'over-withheld heavy checks true up at tax time.',
   ].filter((line) => line !== null).join('\n');
 
   return (
     <button
       type="button"
-      className={`earnings-mini earnings-clickable${est.usesCustomRate ? ' is-custom' : ''}`}
+      className={`earnings-mini earnings-clickable${usesCustomRate ? ' is-custom' : ''}`}
       title={tooltip}
       onClick={(e) => { e.stopPropagation(); beginEdit(); }}
     >
-      <div className="earnings-mini-main">{money(est.netWages)}</div>
-      {est.perDiem > 0 && (
-        <div className="earnings-mini-sub">+{money(est.perDiem)}</div>
+      <div className="earnings-mini-main">{money(pay.net)}</div>
+      {pay.perDiem > 0 && (
+        <div className="earnings-mini-sub">+{money(pay.perDiem)}</div>
       )}
     </button>
+  );
+}
+
+// "Sep 10" from an ISO date, for check labels.
+function fmtPayDate(iso: string): string {
+  const [, m, d] = iso.split('-').map(Number);
+  const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return `${MONTHS[m - 1]} ${d}`;
+}
+
+// Upcoming bi-weekly checks: which gigs land on each, and what should hit the
+// bank. Withholding is per check — heavy checks carry a higher rate, exactly
+// as payroll computes them.
+function PaychecksCard({ checks, subtractTaxes }: { checks: Paycheck[]; subtractTaxes: boolean }) {
+  return (
+    <div className="card">
+      <h3>Paychecks</h3>
+      {checks.map((c) => (
+        <div className="paycheck-row" key={c.periodStart}>
+          <div className="paycheck-main">
+            <div className="paycheck-line1">
+              <span className="paycheck-date">{fmtPayDate(c.payDate)}</span>
+              <span className="subtle">{fmtPayDate(c.periodStart)} – {fmtPayDate(c.periodEnd)}</span>
+            </div>
+            <div className="paycheck-gigs subtle">
+              {c.gigs.map((g) => `${g.jobName} · ${g.days}d`).join('   +   ')}
+            </div>
+          </div>
+          {subtractTaxes && c.withholdingRate > 0 && (
+            <span className="paycheck-rate subtle">{(c.withholdingRate * 100).toFixed(1)}% withheld</span>
+          )}
+          <div
+            className="earnings-mini"
+            title={[
+              `${money(c.gross)} gross`,
+              c.retirement > 0 ? `401k: −${money(c.retirement)}` : null,
+              c.federal > 0 ? `Federal: −${money(c.federal)}` : null,
+              c.socialSecurity > 0 ? `Social Security: −${money(c.socialSecurity)}` : null,
+              c.medicare > 0 ? `Medicare: −${money(c.medicare)}` : null,
+              c.state > 0 ? `State: −${money(c.state)}` : null,
+              `${money(c.net)} deposit` + (c.perDiem > 0 ? ` + ${money(c.perDiem)} per diem` : ''),
+            ].filter((l) => l !== null).join('\n')}
+          >
+            <div className="earnings-mini-main">{money(c.net)}</div>
+            {c.perDiem > 0 && <div className="earnings-mini-sub">+{money(c.perDiem)}</div>}
+          </div>
+        </div>
+      ))}
+    </div>
   );
 }
 

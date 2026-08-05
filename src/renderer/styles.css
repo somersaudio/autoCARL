@@ -734,6 +734,50 @@ a.featured-venue:hover .featured-venue-name {
   margin-left: 12px;
 }
 
+/* ----- Paychecks card: one row per upcoming bi-weekly check ----- */
+
+.paycheck-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.paycheck-row:first-of-type {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.paycheck-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.paycheck-line1 {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.paycheck-date {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.paycheck-gigs {
+  font-size: 12px;
+}
+
+.paycheck-rate {
+  font-size: 11px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 /* Plane silhouette, tinted by the theme accent. The art is an alpha mask
    (assets/plane-mask.png) painted via CSS mask, so the same asset renders
    gold, green, or whatever a future theme's accent is. */

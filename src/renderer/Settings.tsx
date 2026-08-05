@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import type { UserSettings } from '../shared/types';
 import { FILING_STATUSES, FILING_STATUS_LABELS, TAX_YEAR, type FilingStatus } from '../shared/taxes';
 import { THEMES } from './themes';
-import { projectAnnualFromYtd } from '../shared/earnings';
 import PasswordInput from './PasswordInput';
 
 type Props = {
@@ -32,10 +31,6 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
   const [subtractTaxes, setSubtractTaxes] = useState(false);
   const [retirement, setRetirement] = useState('');
   const [filingStatus, setFilingStatus] = useState<FilingStatus>('single');
-  const [ytdWages, setYtdWages] = useState('');
-  const [ytdAsOf, setYtdAsOf] = useState('');
-  const [annualWages, setAnnualWages] = useState('');
-  const [spouseWages, setSpouseWages] = useState('');
   const [stateRate, setStateRate] = useState('');
   const [earningsBusy, setEarningsBusy] = useState(false);
 
@@ -59,10 +54,6 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       setSubtractTaxes(s.subtractTaxes);
       setRetirement(s.retirementPct > 0 ? String(s.retirementPct) : '');
       setFilingStatus(s.filingStatus);
-      setYtdWages(s.ytdWages > 0 ? String(s.ytdWages) : '');
-      setYtdAsOf(s.ytdAsOf);
-      setAnnualWages(s.expectedAnnualWages > 0 ? String(s.expectedAnnualWages) : '');
-      setSpouseWages(s.spouseAnnualWages > 0 ? String(s.spouseAnnualWages) : '');
       setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
     });
     window.api.settings.getCredentials().then((c) => {
@@ -114,26 +105,10 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       subtractTaxes,
       retirementPct: num(retirement, 100),
       filingStatus,
-      ytdWages: num(ytdWages, 100_000_000),
-      ytdAsOf,
-      expectedAnnualWages: num(annualWages, 100_000_000),
-      spouseAnnualWages: num(spouseWages, 100_000_000),
       stateTaxRatePct: num(stateRate, 100),
     });
     setEarningsBusy(false);
     onSaved(next);
-  };
-
-  // One-click fill for the field people are least able to answer off the top of
-  // their head. Scales YTD by how much of the year had elapsed *when that YTD
-  // was measured* — using today instead would understate the year for anyone
-  // whose stub is a few weeks old, which is everyone. The user can still type
-  // over the result if the rest of their year looks nothing like the start.
-  const projectAnnual = () => {
-    const asOf = ytdAsOf ? parseISODate(ytdAsOf) : new Date();
-    if (!asOf) return;
-    const projected = projectAnnualFromYtd(num(ytdWages, 100_000_000), asOf);
-    if (projected > 0) setAnnualWages(String(projected));
   };
 
   // Checkbox applies immediately so the estimate on the bookings card updates
@@ -312,14 +287,15 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
           <span>Subtract estimated taxes from the total</span>
         </label>
 
-        {/* Federal tax uses real brackets, so it needs to know roughly where in
-            the year's income this gig lands. Both numbers come off a pay stub. */}
+        {/* Withholding is computed per bi-weekly check, the way payroll does
+            it (annualize the check, apply the year's brackets, divide back).
+            That needs no income history — just the filing status. */}
         {subtractTaxes && (
           <div className="tax-detail">
             <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
-              Federal tax uses the real {TAX_YEAR} brackets, so it needs to know where a gig
-              falls in your year. Both figures are on your latest pay stub — use YTD
-              <em> taxable</em> wages, not gross (gross includes per diem and reimbursements).
+              Taxes are figured per bi-weekly paycheck, the same way payroll does it —
+              heavy checks withhold at a higher rate, quiet ones lower. Uses the
+              real {TAX_YEAR} brackets and your filing status; no other numbers needed.
             </p>
             <div className="field" style={{ margin: '10px 0 0' }}>
               <label>Filing status</label>
@@ -328,92 +304,11 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
                 onChange={(e) => setFilingStatus(e.target.value as FilingStatus)}
                 disabled={earningsBusy}
               >
-                {FILING_STATUSES.map((s) => (
-                  <option key={s} value={s}>{FILING_STATUS_LABELS[s]}</option>
+                {FILING_STATUSES.map((st) => (
+                  <option key={st} value={st}>{FILING_STATUS_LABELS[st]}</option>
                 ))}
               </select>
             </div>
-            <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
-              <div className="field" style={{ flex: 1, margin: 0 }}>
-                <label>Your taxable wages so far this year ($)</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="1"
-                  value={ytdWages}
-                  onChange={(e) => setYtdWages(e.target.value)}
-                  placeholder="0"
-                  disabled={earningsBusy}
-                />
-              </div>
-              <div className="field" style={{ flex: 1, margin: 0 }}>
-                <label>…as of (stub period end)</label>
-                <input
-                  type="date"
-                  value={ytdAsOf}
-                  onChange={(e) => setYtdAsOf(e.target.value)}
-                  disabled={earningsBusy}
-                />
-              </div>
-            </div>
-            {/* Yours and, for joint filers, your spouse's sit side by side —
-                same kind of figure, and pairing them keeps the tax block short
-                enough to fit without scrolling. */}
-            <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end', marginTop: 10 }}>
-              <div className="field" style={{ flex: 1, margin: 0 }}>
-                <label>Your expected total for the year ($)</label>
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min="0"
-                  step="1"
-                  value={annualWages}
-                  onChange={(e) => setAnnualWages(e.target.value)}
-                  placeholder="0"
-                  disabled={earningsBusy}
-                />
-              </div>
-              {/* Federal brackets apply to household income, but Social Security
-                  is capped per person — so these are entered separately rather
-                  than added together. */}
-              {filingStatus === 'mfj' && (
-                <div className="field" style={{ flex: 1, margin: 0 }}>
-                  <label>Spouse's expected wages ($)</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="1"
-                    value={spouseWages}
-                    onChange={(e) => setSpouseWages(e.target.value)}
-                    placeholder="0"
-                    disabled={earningsBusy}
-                  />
-                </div>
-              )}
-            </div>
-            <div className="row-actions" style={{ justifyContent: 'flex-start', marginTop: 6 }}>
-              <button className="link" onClick={projectAnnual} disabled={earningsBusy || !ytdWages}>
-                Estimate full year from YTD
-              </button>
-            </div>
-            {filingStatus === 'mfj' && (
-              <div className="subtle" style={{ fontSize: 11, marginTop: 4 }}>
-                Keep your spouse's figure in its own box — it widens your tax brackets,
-                but Social Security is capped per person.
-              </div>
-            )}
-            {/* Without an income figure the gig is taxed as if it were the whole
-                year — it falls under the standard deduction and federal tax
-                comes out at zero, which reads as a much better payday than it
-                is. Warn loudly rather than quietly showing a wrong number. */}
-            {num(ytdWages, 100_000_000) === 0 && num(annualWages, 100_000_000) === 0 && (
-              <div className="banner error" style={{ marginTop: 10, fontSize: 12 }}>
-                Add at least one of these. Without them, federal tax comes out at $0 and the
-                estimates will read high — only Social Security and Medicare get subtracted.
-              </div>
-            )}
           </div>
         )}
 
@@ -499,14 +394,6 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       </div>
     </div>
   );
-}
-
-// Parse "YYYY-MM-DD" at local midnight. Bare `new Date(iso)` treats it as UTC,
-// which lands on the previous day west of Greenwich and skews the projection.
-function parseISODate(s: string): Date | null {
-  const parts = s.split('-').map(Number);
-  if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return null;
-  return new Date(parts[0], parts[1] - 1, parts[2]);
 }
 
 function CredStatus({ state }: { state: SaveState }) {
