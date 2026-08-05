@@ -366,7 +366,7 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
 
   return (
     <div className="card">
-      <h3>Paychecks</h3>
+      <h3>Paycheck Estimator</h3>
       {checks.map((c) => (
         <div className="paycheck-row" key={c.periodStart}>
           <div className="paycheck-main">
