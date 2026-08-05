@@ -160,6 +160,20 @@ export type BookingContacts = {
 };
 export type BookingContactsCache = Record<string, BookingContacts>;
 
+// ----- Friends (mutual-consent gig sharing; see main/friends.ts) -----
+
+export type FriendGig = {
+  jobNumber: string; jobName: string; city: string; state: string;
+  start: string; end: string;
+};
+export type FriendEntry = { email: string; name: string; gigs: FriendGig[]; updatedAt: string | null };
+export type FriendsList = {
+  accepted: FriendEntry[];
+  incoming: Array<{ email: string; name: string }>;
+  outgoing: Array<{ email: string; name: string }>;
+};
+export type FriendsStatus = { enrolled: boolean; email: string; name: string };
+
 // Progress of an in-progress macOS auto-update. 'downloading' carries a 0–100
 // percent (when the server gives a Content-Length); 'installing' means the ZIP
 // is down and we're about to swap the bundle and relaunch.
@@ -229,6 +243,16 @@ export type Api = {
   };
   app: {
     getVersion: () => Promise<string>;
+  };
+  friends: {
+    status: () => Promise<FriendsStatus>;
+    // Registers with the friends service under the CARL email + given name,
+    // and publishes the current schedule.
+    enroll: (name: string) => Promise<FriendsStatus>;
+    list: () => Promise<FriendsList>;
+    request: (email: string) => Promise<void>;
+    respond: (email: string, accept: boolean) => Promise<void>;
+    remove: (email: string) => Promise<void>;
   };
   updater: {
     // Fires during a macOS auto-update so the renderer can show a progress

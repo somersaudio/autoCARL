@@ -1,7 +1,7 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import type {
   Api, Booking, BookingContactsCache, FlightsCache,
-  RefreshResult, SetupStatus, SswPushResult, SswWeek, UpdateProgress, UserSettings,
+  FriendsList, FriendsStatus, RefreshResult, SetupStatus, SswPushResult, SswWeek, UpdateProgress, UserSettings,
 } from '../shared/types';
 
 const api: Api = {
@@ -59,6 +59,14 @@ const api: Api = {
   },
   app: {
     getVersion: () => ipcRenderer.invoke('app:getVersion') as Promise<string>,
+  },
+  friends: {
+    status: () => ipcRenderer.invoke('friends:status') as Promise<FriendsStatus>,
+    enroll: (name) => ipcRenderer.invoke('friends:enroll', name) as Promise<FriendsStatus>,
+    list: () => ipcRenderer.invoke('friends:list') as Promise<FriendsList>,
+    request: (email) => ipcRenderer.invoke('friends:request', email) as Promise<void>,
+    respond: (email, accept) => ipcRenderer.invoke('friends:respond', email, accept) as Promise<void>,
+    remove: (email) => ipcRenderer.invoke('friends:remove', email) as Promise<void>,
   },
   updater: {
     onProgress: (handler) => {

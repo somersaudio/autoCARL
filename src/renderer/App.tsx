@@ -213,6 +213,7 @@ export default function App() {
           contacts={contacts}
           settings={settings}
           sswWeeks={sswWeeks}
+          suggestedFriendName={sswWeek?.name || Object.values(sswWeeks)[0]?.name || ''}
           onSetDayRate={setGigDayRate}
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}

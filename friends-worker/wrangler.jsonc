@@ -1,0 +1,18 @@
+{
+  "name": "autocarl-friends",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "autocarl-friends",
+      // Filled in after `wrangler d1 create autocarl-friends`.
+      "database_id": "c91dbeb0-15f4-4d1b-8dec-f1626ad6db12"
+    }
+  ]
+}

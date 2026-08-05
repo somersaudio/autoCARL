@@ -20,6 +20,10 @@ import {
   readFlightsCache, readSswWeek, readSswWeeksCache, readContactsCache, migrateStoreFiles,
 } from './store';
 import { sweepFlights } from './flight-fetcher';
+import {
+  friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
+  friendsRemove, publishScheduleQuietly,
+} from './friends';
 import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
 import type {
@@ -383,6 +387,7 @@ async function doRefresh(): Promise<RefreshResult> {
   try {
     const bookings = await fetchAndParseBookings(url);
     const fetchedAt = await writeCachedBookings(bookings);
+    publishScheduleQuietly(bookings);
     maybeStartFlightSweep(bookings).catch(() => {});
     const payload: RefreshResult = { ok: true, bookings, fetchedAt };
     broadcastRefresh(payload);
@@ -503,6 +508,15 @@ function registerIpc(): void {
   // Whole week cache in one call — the paycheck estimator folds actual
   // timesheet hours into any pay period it has data for.
   ipcMain.handle('ssw:getCachedWeeks', () => readSswWeeksCache());
+
+  // ---- friends ----
+  ipcMain.handle('friends:status', () => friendsStatus());
+  ipcMain.handle('friends:enroll', (_e, name: string) => friendsEnroll(String(name ?? '')));
+  ipcMain.handle('friends:list', () => friendsList());
+  ipcMain.handle('friends:request', (_e, email: string) => friendsRequest(String(email ?? '')));
+  ipcMain.handle('friends:respond', (_e, email: string, accept: boolean) =>
+    friendsRespond(String(email ?? ''), accept === true));
+  ipcMain.handle('friends:remove', (_e, email: string) => friendsRemove(String(email ?? '')));
   ipcMain.handle('ssw:fetchWeek', (_e, weekStartDate: string) => fetchWeek(weekStartDate));
   ipcMain.handle('ssw:createWeek', (_e, weekStartDate: string) => createWeek(weekStartDate));
   ipcMain.handle('ssw:pushWeek', (_e, week: SswWeek) => pushWeek(week));

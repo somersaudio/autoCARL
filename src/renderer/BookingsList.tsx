@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
-  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, SswWeek, UserSettings,
+  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache,
+  FriendEntry, FriendsList, SswWeek, UserSettings,
 } from '../shared/types';
 import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
 
@@ -13,6 +14,7 @@ type Props = {
   contacts: BookingContactsCache;
   settings: UserSettings;
   sswWeeks: Record<string, SswWeek>;
+  suggestedFriendName: string;
   onSetDayRate: (bookingId: string, rate: number | null) => void;
   onRefresh: () => void | Promise<void>;
   onResetSetup: () => void;
@@ -21,7 +23,7 @@ type Props = {
 const NO_CONTACTS: BookingContacts = { pmEmail: '', lcEmail: '' };
 
 export default function BookingsList({
-  bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, onSetDayRate, onRefresh, onResetSetup,
+  bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, suggestedFriendName, onSetDayRate, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
   // Which upcoming gig shows as the full-view card. null = the default (first
@@ -113,6 +115,8 @@ export default function BookingsList({
       {plan.checks.length > 0 && (
         <PaychecksCard checks={plan.checks} settings={settings} onSetDayRate={onSetDayRate} />
       )}
+
+      <FriendsCard upcoming={upcoming} suggestedName={suggestedFriendName} />
 
       {past.length > 0 && (
         <div className="card past-card">
@@ -436,6 +440,185 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
       ))}
     </div>
   );
+}
+
+// ----- Friends: mutual-consent gig sharing -----------------------------
+
+// A friend's overlap with my schedule: on the same show beats merely being in
+// the same city on overlapping dates.
+function friendOverlap(friend: FriendEntry, mine: Booking[]):
+  { kind: 'gig' | 'near'; label: string } | null {
+  for (const g of friend.gigs) {
+    for (const b of mine) {
+      if (g.jobNumber && g.jobNumber === b.jobNumber && g.start <= b.endDate && b.startDate <= g.end) {
+        return { kind: 'gig', label: `With you on ${b.jobName} · ${fmtRange(g.start, g.end)}` };
+      }
+    }
+  }
+  for (const g of friend.gigs) {
+    for (const b of mine) {
+      const sameCity = g.city && b.city
+        && g.city.toLowerCase() === b.city.toLowerCase()
+        && g.state.toLowerCase().slice(0, 2) === b.state.toLowerCase().slice(0, 2);
+      if (sameCity && g.start <= b.endDate && b.startDate <= g.end) {
+        return { kind: 'near', label: `In ${g.city} while you're there · ${fmtRange(g.start, g.end)}` };
+      }
+    }
+  }
+  return null;
+}
+
+function fmtRange(start: string, end: string): string {
+  const f = (iso: string) => {
+    const [, m, d] = iso.split('-');
+    return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+  };
+  return start === end ? f(start) : `${f(start)} – ${f(end)}`;
+}
+
+function FriendsCard({ upcoming, suggestedName }: { upcoming: Booking[]; suggestedName: string }) {
+  const [enrolled, setEnrolled] = useState<boolean | null>(null);
+  const [name, setName] = useState('');
+  const [list, setList] = useState<FriendsList | null>(null);
+  const [addEmail, setAddEmail] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const loadList = () => {
+    window.api.friends.list().then(setList).catch((e) => setError(friendlyMsg(e)));
+  };
+
+  useEffect(() => {
+    window.api.friends.status().then((st) => {
+      setEnrolled(st.enrolled);
+      if (st.enrolled) loadList();
+    }).catch(() => setEnrolled(false));
+  }, []);
+
+  useEffect(() => {
+    if (!name && suggestedName) setName(suggestedName);
+  }, [suggestedName]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true); setError('');
+    try { await fn(); loadList(); } catch (e) { setError(friendlyMsg(e)); }
+    setBusy(false);
+  };
+
+  if (enrolled === null) return null;
+
+  if (!enrolled) {
+    return (
+      <div className="card">
+        <h3>Friends</h3>
+        <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
+          See when friends are on your show, or working in the same city while
+          you're there. Sharing is mutual-consent only: friends you approve see
+          your upcoming shows (job, city, dates — nothing more), and you see
+          theirs. Turn it off anytime by asking John to remove you.
+        </p>
+        <div className="row-actions" style={{ gap: 10, alignItems: 'flex-end' }}>
+          <div className="field" style={{ flex: 1, margin: 0, maxWidth: 260 }}>
+            <label>Your name (as coworkers know you)</label>
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
+          </div>
+          <button
+            className="primary"
+            disabled={busy || !name.trim()}
+            onClick={() => run(async () => {
+              await window.api.friends.enroll(name);
+              setEnrolled(true);
+            })}
+          >
+            {busy ? 'Turning on…' : 'Turn on Friends'}
+          </button>
+        </div>
+        {error && <div className="banner error" style={{ marginTop: 8 }}>{error}</div>}
+      </div>
+    );
+  }
+
+  return (
+    <div className="card">
+      <div className="row-between">
+        <h3 style={{ margin: 0 }}>Friends</h3>
+        <button className="link" onClick={loadList} disabled={busy}>Refresh</button>
+      </div>
+
+      {list?.incoming.map((r) => (
+        <div className="friend-row" key={r.email}>
+          <div className="friend-main">
+            <span className="friend-name">{r.name}</span>
+            <span className="subtle friend-status">wants to connect · {r.email}</span>
+          </div>
+          <button className="primary friend-btn" disabled={busy}
+            onClick={() => run(() => window.api.friends.respond(r.email, true))}>Accept</button>
+          <button className="secondary friend-btn" disabled={busy}
+            onClick={() => run(() => window.api.friends.respond(r.email, false))}>Decline</button>
+        </div>
+      ))}
+
+      {list?.accepted.map((f) => {
+        const overlap = friendOverlap(f, upcoming);
+        return (
+          <div className="friend-row" key={f.email}>
+            <div className="friend-main">
+              <span className="friend-name">{f.name}</span>
+              <span
+                className={overlap ? `friend-status friend-${overlap.kind}` : 'subtle friend-status'}
+              >
+                {overlap ? overlap.label
+                  : f.gigs.length === 0 ? 'No schedule shared yet'
+                  : 'No overlapping shows'}
+              </span>
+            </div>
+            <button className="link friend-btn" title={`Remove ${f.name}`} disabled={busy}
+              onClick={() => run(() => window.api.friends.remove(f.email))}>✕</button>
+          </div>
+        );
+      })}
+
+      {list?.outgoing.map((r) => (
+        <div className="friend-row" key={r.email}>
+          <div className="friend-main">
+            <span className="friend-name subtle">{r.email}</span>
+            <span className="subtle friend-status">invited · waiting for them to accept</span>
+          </div>
+          <button className="link friend-btn" disabled={busy}
+            onClick={() => run(() => window.api.friends.remove(r.email))}>✕</button>
+        </div>
+      ))}
+
+      {list && list.accepted.length === 0 && list.incoming.length === 0 && list.outgoing.length === 0 && (
+        <p className="subtle" style={{ fontSize: 12, margin: '6px 0' }}>
+          No friends yet — add a coworker below. They approve you on their end
+          before either of you sees anything.
+        </p>
+      )}
+
+      <div className="row-actions" style={{ gap: 8, marginTop: 10 }}>
+        <input
+          className="friend-add-input"
+          type="email"
+          placeholder="coworker@email.com"
+          value={addEmail}
+          onChange={(e) => setAddEmail(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && addEmail.trim()) run(async () => { await window.api.friends.request(addEmail.trim()); setAddEmail(''); }); }}
+          disabled={busy}
+        />
+        <button className="secondary" disabled={busy || !addEmail.trim()}
+          onClick={() => run(async () => { await window.api.friends.request(addEmail.trim()); setAddEmail(''); })}>
+          Add friend
+        </button>
+      </div>
+      {error && <div className="banner error" style={{ marginTop: 8 }}>{error}</div>}
+    </div>
+  );
+}
+
+function friendlyMsg(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  return raw.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, '');
 }
 
 // An LC has opened flight requests on this booking (CARL's laborTravel

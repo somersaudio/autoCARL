@@ -69,6 +69,10 @@ type Config = {
   spouseAnnualWages: number;   // spouse's expected wages; married-filing-jointly only
   stateTaxRatePct: number;   // flat state income tax rate; 0 = none
   gigDayRates: Record<string, number>;  // per-booking day-rate overrides, by bookingId
+  // Friends service (see main/friends.ts). The token is a bearer credential —
+  // deliberately NOT exposed through UserSettings to the renderer.
+  friendsToken: string;
+  friendsName: string;
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -89,6 +93,8 @@ const DEFAULT_CONFIG: Config = {
   spouseAnnualWages: 0,
   stateTaxRatePct: 0,
   gigDayRates: {},
+  friendsToken: '',
+  friendsName: '',
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }
