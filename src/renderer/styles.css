@@ -770,6 +770,35 @@ a.featured-venue:hover .featured-venue-name {
 
 .paycheck-gigs {
   font-size: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+}
+
+/* Gig chips double as the day-rate editor. Plain text until hovered; a gig
+   on a custom rate keeps the dotted-gold marker. */
+.paycheck-gig {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+.paycheck-gig:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
+.paycheck-gig.is-custom {
+  border-bottom: 1px dotted var(--ct-gold);
+}
+
+.paycheck-gig-sep {
+  margin: 0 4px;
 }
 
 /* Plane silhouette, tinted by the theme accent. The art is an alpha mask
