@@ -872,6 +872,53 @@ a.featured-venue:hover .featured-venue-name {
   border-color: var(--ct-gold);
 }
 
+/* Friend blocks on the Friends tab: header row + their gig rows. */
+.friend-block {
+  padding: 8px 0 4px;
+  border-top: 1px solid var(--border);
+}
+
+.friend-block:first-of-type {
+  border-top: none;
+}
+
+.friend-gig-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 0 3px 14px;
+  font-size: 12px;
+}
+
+.friend-gig-num {
+  font-size: 12px;
+}
+
+.friend-gig-name {
+  color: var(--text);
+}
+
+.friend-gig-dates {
+  font-variant-numeric: tabular-nums;
+}
+
+.friend-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border: 1px solid var(--border);
+  color: var(--text-subtle);
+  border-radius: 999px;
+  padding: 1px 7px;
+}
+
+.friend-tag-gig {
+  color: #1a1408;
+  background: var(--ct-gold);
+  border-color: var(--ct-gold);
+  font-weight: 600;
+}
+
 /* Plane silhouette, tinted by the theme accent. The art is an alpha mask
    (assets/plane-mask.png) painted via CSS mask, so the same asset renders
    gold, green, or whatever a future theme's accent is. */

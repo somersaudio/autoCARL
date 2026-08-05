@@ -7,12 +7,13 @@ import Setup from './Setup';
 import BookingsList from './BookingsList';
 import TimesheetTab from './TimesheetTab';
 import SettingsModal from './Settings';
+import FriendsTab from './FriendsTab';
 import MatrixRain from './MatrixRain';
 import Starfield from './Starfield';
 import { applyTheme, findTheme } from './themes';
 import logoCT from './assets/logoCT.png';
 
-type Tab = 'bookings' | 'timesheet';
+type Tab = 'bookings' | 'timesheet' | 'friends';
 
 function mondayOfDate(d: Date): string {
   const day = d.getDay();
@@ -194,6 +195,10 @@ export default function App() {
             className={`tab ${tab === 'timesheet' ? 'is-active' : ''}`}
             onClick={() => setTab('timesheet')}
           >Timesheet</button>
+          <button
+            className={`tab ${tab === 'friends' ? 'is-active' : ''}`}
+            onClick={() => setTab('friends')}
+          >Friends</button>
         </div>
         {sswWeek && (
           <div className="app-user">
@@ -213,10 +218,16 @@ export default function App() {
           contacts={contacts}
           settings={settings}
           sswWeeks={sswWeeks}
-          suggestedFriendName={sswWeek?.name || Object.values(sswWeeks)[0]?.name || ''}
           onSetDayRate={setGigDayRate}
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}
+        />
+      )}
+
+      {tab === 'friends' && (
+        <FriendsTab
+          bookings={bookings}
+          suggestedName={sswWeek?.name || Object.values(sswWeeks)[0]?.name || ''}
         />
       )}
 
