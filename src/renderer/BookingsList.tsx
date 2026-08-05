@@ -470,20 +470,22 @@ function PaychecksCard({ checks, subtractTaxes }: { checks: Paycheck[]; subtract
           {subtractTaxes && c.withholdingRate > 0 && (
             <span className="paycheck-rate subtle">{(c.withholdingRate * 100).toFixed(1)}% withheld</span>
           )}
+          {/* The white figure is the whole deposit — wages net of withholding
+              PLUS per diem, matching what the bank statement will show. */}
           <div
             className="earnings-mini"
             title={[
-              `${money(c.gross)} gross`,
+              `${money(c.gross)} gross wages`,
               c.retirement > 0 ? `401k: −${money(c.retirement)}` : null,
               c.federal > 0 ? `Federal: −${money(c.federal)}` : null,
               c.socialSecurity > 0 ? `Social Security: −${money(c.socialSecurity)}` : null,
               c.medicare > 0 ? `Medicare: −${money(c.medicare)}` : null,
               c.state > 0 ? `State: −${money(c.state)}` : null,
-              `${money(c.net)} deposit` + (c.perDiem > 0 ? ` + ${money(c.perDiem)} per diem` : ''),
+              c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
+              `${money(c.net + c.perDiem)} deposit`,
             ].filter((l) => l !== null).join('\n')}
           >
-            <div className="earnings-mini-main">{money(c.net)}</div>
-            {c.perDiem > 0 && <div className="earnings-mini-sub">+{money(c.perDiem)}</div>}
+            <div className="earnings-mini-main">{money(c.net + c.perDiem)}</div>
           </div>
         </div>
       ))}
