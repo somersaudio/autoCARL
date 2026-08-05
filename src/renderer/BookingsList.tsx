@@ -114,7 +114,7 @@ export default function BookingsList({
         });
       })()}
 
-      {plan.checks.length > 0 && <PaychecksCard checks={plan.checks} subtractTaxes={settings.subtractTaxes} />}
+      {plan.checks.length > 0 && <PaychecksCard checks={plan.checks} />}
 
       {past.length > 0 && (
         <div className="card past-card">
@@ -452,7 +452,7 @@ function fmtPayDate(iso: string): string {
 // Upcoming bi-weekly checks: which gigs land on each, and what should hit the
 // bank. Withholding is per check — heavy checks carry a higher rate, exactly
 // as payroll computes them.
-function PaychecksCard({ checks, subtractTaxes }: { checks: Paycheck[]; subtractTaxes: boolean }) {
+function PaychecksCard({ checks }: { checks: Paycheck[] }) {
   return (
     <div className="card">
       <h3>Paychecks</h3>
@@ -467,9 +467,6 @@ function PaychecksCard({ checks, subtractTaxes }: { checks: Paycheck[]; subtract
               {c.gigs.map((g) => `${g.jobName} · ${g.days}d`).join('   +   ')}
             </div>
           </div>
-          {subtractTaxes && c.withholdingRate > 0 && (
-            <span className="paycheck-rate subtle">{(c.withholdingRate * 100).toFixed(1)}% withheld</span>
-          )}
           {/* The white figure is the whole deposit — wages net of withholding
               PLUS per diem, matching what the bank statement will show. */}
           <div
@@ -481,6 +478,7 @@ function PaychecksCard({ checks, subtractTaxes }: { checks: Paycheck[]; subtract
               c.socialSecurity > 0 ? `Social Security: −${money(c.socialSecurity)}` : null,
               c.medicare > 0 ? `Medicare: −${money(c.medicare)}` : null,
               c.state > 0 ? `State: −${money(c.state)}` : null,
+              c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
               `${money(c.net + c.perDiem)} deposit`,
             ].filter((l) => l !== null).join('\n')}
