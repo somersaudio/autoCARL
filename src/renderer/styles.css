@@ -801,6 +801,13 @@ a.featured-venue:hover .featured-venue-name {
   margin: 0 4px;
 }
 
+/* The deposit figure carries the accent — it's the headline number of the
+   whole card, and var(--ct-gold) keeps it on-theme everywhere. */
+.paycheck-row .earnings-mini-main {
+  color: var(--ct-gold);
+  font-size: 13px;
+}
+
 /* Plane silhouette, tinted by the theme accent. The art is an alpha mask
    (assets/plane-mask.png) painted via CSS mask, so the same asset renders
    gold, green, or whatever a future theme's accent is. */
