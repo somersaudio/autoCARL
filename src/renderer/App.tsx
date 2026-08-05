@@ -46,6 +46,10 @@ export default function App() {
 
   const [currentWeekMonday, setCurrentWeekMonday] = useState<string>(() => mondayOfDate(new Date()));
   const [sswWeek, setSswWeek] = useState<SswWeek | null>(null);
+  // Every cached SSW week, for the paycheck estimator's actual-hours pricing.
+  // Re-read whenever the active week changes — fetchWeek/pushWeek write the
+  // cache, so this stays current after timesheet edits are saved.
+  const [sswWeeks, setSswWeeks] = useState<Record<string, SswWeek>>({});
   const [sswLoading, setSswLoading] = useState(false);
   const [sswError, setSswError] = useState<string | null>(null);
 
@@ -109,6 +113,11 @@ export default function App() {
     applyBookingsRefresh(await window.api.bookings.refresh());
     setBookingsRefreshing(false);
   };
+
+  useEffect(() => {
+    if (status?.stage !== 'ready') return;
+    window.api.ssw.getCachedWeeks().then(setSswWeeks).catch(() => {});
+  }, [status?.stage, sswWeek]);
 
   // -------- ssw week --------
   // Paint cached data immediately (sub-ms read from disk) then kick off a
@@ -203,6 +212,7 @@ export default function App() {
           flights={flights}
           contacts={contacts}
           settings={settings}
+          sswWeeks={sswWeeks}
           onSetDayRate={setGigDayRate}
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}

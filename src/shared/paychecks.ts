@@ -14,7 +14,7 @@
 // The rates here are cash-flow truth per check, not the year's blended rate:
 // over-withholding on heavy checks comes back at tax time.
 
-import type { Booking, BookingContactsCache, UserSettings } from './types';
+import type { Booking, BookingContactsCache, SswWeek, SswDay, UserSettings } from './types';
 import {
   STANDARD_DEDUCTION, SS_RATE, MEDICARE_RATE, federalIncomeTax,
 } from './taxes';
@@ -33,8 +33,11 @@ export type GigOnCheck = {
   jobNumber: string;
   days: number;          // this gig's worked days inside this period
   dayRate: number;
-  gross: number;         // days * dayRate
-  perDiem: number;       // days * per-diem rate (untaxed, paid on the check)
+  gross: number;         // standard days * dayRate, actual-hours days by hours
+  perDiem: number;       // per-diem dollars accrued on this check (untaxed)
+  // Days whose pay came from saved timesheet hours rather than the standard
+  // 10-hour-day assumption.
+  actualDays: number;
 };
 
 export type Paycheck = {
@@ -52,6 +55,7 @@ export type Paycheck = {
   net: number;           // gross - retirement - taxes  (per diem NOT included)
   perDiem: number;       // untaxed, lands on the same deposit
   withholdingRate: number; // taxes / gross — varies per check, by design
+  actualDays: number;    // days priced from saved timesheet hours
 };
 
 // A gig's totals across every check it appears on, for the booking cards.
@@ -119,15 +123,40 @@ function federalPerCheck(taxableCheckWages: number, settings: UserSettings): num
   return annualTax / CHECKS_PER_YEAR;
 }
 
+// SSW's own pay model (see ssw.ts): a day rate covers 8 reg + 2 OT×1.5 = 11
+// weighted hours, so hourly = dayRate / 11 and a day's wages are
+// hourly × (reg + 1.5×OT + 2×DT). Reproduces John's stub exactly
+// (72 reg + 29 OT at $650/day = $6,824.90).
+function hoursPay(day: SswDay, dayRate: number): number {
+  const hourly = dayRate / 11;
+  return hourly * (day.regHours + 1.5 * day.otHours + 2 * day.dtHours);
+}
+
+// The saved timesheet entry for a date, if its week is cached and the day has
+// SSW-computed hours. Unsaved grid edits don't qualify — the reg/OT/DT split
+// comes from SSW's spreadsheet on save, and we won't guess it locally.
+function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | null {
+  const monday = addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
+  const week = weeks[monday];
+  if (!week) return null;
+  const day = week.days.find((d) => d.date === iso);
+  return day && day.totalHours > 0 ? day : null;
+}
+
 /**
  * Map upcoming bookings onto bi-weekly checks and withhold each check the way
  * payroll will. Gigs with no day rate contribute nothing (same rule as the
  * old per-gig estimate: no base pay configured, no numbers shown).
+ *
+ * `weeks` is the cached SSW timesheet map: any day with saved hours is priced
+ * from those hours (OT/DT included) instead of the standard 10-hour-day
+ * assumption, and its per diem comes from the sheet rather than the GSA rate.
  */
 export function buildPaychecks(
   upcoming: Booking[],
   contacts: BookingContactsCache,
   settings: UserSettings,
+  weeks: Record<string, SswWeek> = {},
 ): PaycheckPlan {
   const baseRate = Number.isFinite(settings.basePayDayRate) && settings.basePayDayRate > 0
     ? settings.basePayDayRate : 0;
@@ -152,13 +181,20 @@ export function buildPaychecks(
       if (!gig) {
         gig = {
           bookingId: b.bookingId, jobName: b.jobName, jobNumber: b.jobNumber,
-          days: 0, dayRate: rate, gross: 0, perDiem: 0,
+          days: 0, dayRate: rate, gross: 0, perDiem: 0, actualDays: 0,
         };
         bucket.set(b.bookingId, gig);
       }
       gig.days += 1;
-      gig.gross += rate;
-      gig.perDiem += perDiemRate;
+      const sheet = timesheetDayFor(day, weeks);
+      if (sheet) {
+        gig.gross += hoursPay(sheet, rate);
+        gig.perDiem += sheet.perDiem;
+        gig.actualDays += 1;
+      } else {
+        gig.gross += rate;
+        gig.perDiem += perDiemRate;
+      }
     }
   }
 
@@ -189,6 +225,7 @@ export function buildPaychecks(
       gigs, gross, retirement, federal, socialSecurity, medicare, state, taxes,
       net, perDiem,
       withholdingRate: gross > 0 ? taxes / gross : 0,
+      actualDays: gigs.reduce((s2, g) => s2 + g.actualDays, 0),
     };
     checks.push(check);
 

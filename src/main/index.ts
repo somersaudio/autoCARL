@@ -17,7 +17,7 @@ import {
 } from './credentials';
 import {
   readCachedBookings, readConfig, updateConfig, writeCachedBookings,
-  readFlightsCache, readSswWeek, readContactsCache, migrateStoreFiles,
+  readFlightsCache, readSswWeek, readSswWeeksCache, readContactsCache, migrateStoreFiles,
 } from './store';
 import { sweepFlights } from './flight-fetcher';
 import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
@@ -500,6 +500,9 @@ function registerIpc(): void {
   ipcMain.handle('contacts:getCached', () => readContactsCache());
 
   ipcMain.handle('ssw:getCached', (_e, weekStartDate: string) => readSswWeek(weekStartDate));
+  // Whole week cache in one call — the paycheck estimator folds actual
+  // timesheet hours into any pay period it has data for.
+  ipcMain.handle('ssw:getCachedWeeks', () => readSswWeeksCache());
   ipcMain.handle('ssw:fetchWeek', (_e, weekStartDate: string) => fetchWeek(weekStartDate));
   ipcMain.handle('ssw:createWeek', (_e, weekStartDate: string) => createWeek(weekStartDate));
   ipcMain.handle('ssw:pushWeek', (_e, week: SswWeek) => pushWeek(week));

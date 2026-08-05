@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import type {
-  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, UserSettings,
+  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, SswWeek, UserSettings,
 } from '../shared/types';
 import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
 
@@ -12,6 +12,7 @@ type Props = {
   flights: FlightsCache;
   contacts: BookingContactsCache;
   settings: UserSettings;
+  sswWeeks: Record<string, SswWeek>;
   onSetDayRate: (bookingId: string, rate: number | null) => void;
   onRefresh: () => void | Promise<void>;
   onResetSetup: () => void;
@@ -20,7 +21,7 @@ type Props = {
 const NO_CONTACTS: BookingContacts = { pmEmail: '', lcEmail: '' };
 
 export default function BookingsList({
-  bookings, fetchedAt, refreshing, error, flights, contacts, settings, onSetDayRate, onRefresh, onResetSetup,
+  bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, onSetDayRate, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
   // Which upcoming gig shows as the full-view card. null = the default (first
@@ -42,7 +43,7 @@ export default function BookingsList({
   // Map upcoming gig days onto bi-weekly checks and withhold each check the
   // way payroll does. Gig cards show their slice; the Paychecks card shows
   // the checks themselves.
-  const plan = buildPaychecks(upcoming, contacts, settings);
+  const plan = buildPaychecks(upcoming, contacts, settings, sswWeeks);
 
   return (
     <>
@@ -400,7 +401,7 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
                   ) : (
                     <button
                       className={`paycheck-gig${settings.gigDayRates?.[g.bookingId] ? ' is-custom' : ''}`}
-                      title={`${g.days}d @ ${money(g.dayRate)}${settings.gigDayRates?.[g.bookingId] ? ' (custom)' : ''} — click to edit this gig's day rate`}
+                      title={`${g.days}d @ ${money(g.dayRate)}${settings.gigDayRates?.[g.bookingId] ? ' (custom)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this gig's day rate`}
                       onClick={() => { setDraft(String(g.dayRate)); setEditingId(g.bookingId); }}
                     >
                       {g.jobName} · {g.days}d
@@ -424,7 +425,9 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
               c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
               `${money(c.net + c.perDiem)} deposit`,
-              'Assumes standard 10-hour days — OT and DT push real checks higher.',
+              c.actualDays > 0
+                ? `${c.actualDays} of ${c.gigs.reduce((n, g) => n + g.days, 0)} days priced from saved timesheet hours (OT/DT included); the rest assume standard 10-hour days.`
+                : 'Assumes standard 10-hour days — OT and DT push real checks higher.',
             ].filter((l) => l !== null).join('\n')}
           >
             <div className="earnings-mini-main">{money(c.net + c.perDiem)}</div>

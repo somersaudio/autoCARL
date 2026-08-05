@@ -45,6 +45,8 @@ const api: Api = {
   ssw: {
     getCached: (weekStartDate) =>
       ipcRenderer.invoke('ssw:getCached', weekStartDate) as Promise<SswWeek | null>,
+    getCachedWeeks: () =>
+      ipcRenderer.invoke('ssw:getCachedWeeks') as Promise<Record<string, SswWeek>>,
     fetchWeek: (weekStartDate) =>
       ipcRenderer.invoke('ssw:fetchWeek', weekStartDate) as Promise<SswWeek | null>,
     createWeek: (weekStartDate) =>

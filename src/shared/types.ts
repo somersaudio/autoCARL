@@ -210,6 +210,9 @@ export type Api = {
     // Returns the last-known snapshot of a week from disk (sub-ms). Null if
     // we've never fetched this week yet.
     getCached: (weekStartDate: string) => Promise<SswWeek | null>;
+    // Every cached week keyed by Monday ISO — feeds actual timesheet hours
+    // into the paycheck estimator.
+    getCachedWeeks: () => Promise<Record<string, SswWeek>>;
     // Pulls a week's full timesheet from SSW (RecordId lookup + GetRecordExtended).
     // Caches the result to disk on success. Returns null if no SSW record
     // exists for that week yet.
