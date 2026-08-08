@@ -33,6 +33,11 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [expandedBuddy, setExpandedBuddy] = useState<string | null>(null);
+  // Pending removal awaiting confirmation. Removing is mutual and immediate
+  // with no undo, so it gets a period-appropriate confirm dialog.
+  const [confirmRemove, setConfirmRemove] = useState<
+    { email: string; label: string; kind: 'buddy' | 'invite' } | null
+  >(null);
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const upcoming = bookings.filter((b) => parseISOLocal(b.endDate) >= today);
@@ -140,7 +145,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             className="aim-x"
             title={`Remove ${f.name}`}
             disabled={busy}
-            onClick={(e) => { e.stopPropagation(); void run(() => window.api.friends.remove(f.email)); }}
+            onClick={(e) => {
+              e.stopPropagation();
+              setConfirmRemove({ email: f.email, label: f.name, kind: 'buddy' });
+            }}
           >×</button>
         </div>
         {away && !expanded && <div className="aim-away">{away}</div>}
@@ -255,7 +263,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
                 <div className="aim-buddy aim-offline" key={r.email}>
                   <span className="aim-buddy-name">{r.email}</span>
                   <button className="aim-x" title="Cancel invite" disabled={busy}
-                    onClick={() => run(() => window.api.friends.remove(r.email))}>×</button>
+                    onClick={() => setConfirmRemove({ email: r.email, label: r.email, kind: 'invite' })}>×</button>
                 </div>
               ))}
             </>
@@ -264,6 +272,52 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
             Signed on as <b>{myName}</b>. Friends see your upcoming shows —
             job, city, dates — nothing more. To leave entirely, ask John.
+          </div>
+        </div>
+      )}
+
+      {confirmRemove && (
+        <div className="aim-modal-backdrop" onClick={() => setConfirmRemove(null)}>
+          <div className="aim-window aim-dialog" onClick={(e) => e.stopPropagation()}>
+            <div className="aim-titlebar">
+              <span className="aim-titlebar-icon"><RunnerIcon size={12} /></span>
+              <span>{confirmRemove.kind === 'buddy' ? 'Remove Buddy' : 'Cancel Invite'}</span>
+            </div>
+            <div className="aim-dialog-body">
+              <span className="aim-dialog-bang">!</span>
+              <div>
+                {confirmRemove.kind === 'buddy' ? (
+                  <>
+                    Remove <b>{confirmRemove.label}</b> from your buddy list?
+                    <div className="aim-fineprint" style={{ marginTop: 6 }}>
+                      You'll each disappear from the other's list, and one of you
+                      has to send a new request to reconnect.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    Cancel your invite to <b>{confirmRemove.label}</b>?
+                    <div className="aim-fineprint" style={{ marginTop: 6 }}>
+                      They won't see the request anymore. You can send another later.
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="aim-dialog-actions">
+              <button
+                className="aim-btn"
+                disabled={busy}
+                onClick={() => {
+                  const email = confirmRemove.email;
+                  setConfirmRemove(null);
+                  void run(() => window.api.friends.remove(email));
+                }}
+              >{confirmRemove.kind === 'buddy' ? 'Remove' : 'Cancel Invite'}</button>
+              <button className="aim-btn" onClick={() => setConfirmRemove(null)}>
+                {confirmRemove.kind === 'buddy' ? 'Cancel' : 'Keep It'}
+              </button>
+            </div>
           </div>
         </div>
       )}

@@ -1109,6 +1109,54 @@ a.featured-venue:hover .featured-venue-name {
   font-size: 11px;
 }
 
+/* Confirm dialog — a small modal window in the same era's chrome. */
+.aim-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+}
+
+.aim-dialog {
+  width: 300px;
+  margin: 0;
+  cursor: default;
+}
+
+.aim-dialog-body {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 14px 14px 10px;
+  line-height: 1.35;
+}
+
+/* The exclamation badge every Win9x confirm shipped with. */
+.aim-dialog-bang {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #ffcc00;
+  border: 1px solid #a37a00;
+  color: #4a3600;
+  font-weight: bold;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.aim-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 0 14px 14px;
+}
+
 .aim-statusbar {
   display: flex;
   align-items: center;
