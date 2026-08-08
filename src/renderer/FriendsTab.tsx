@@ -1,22 +1,38 @@
 import { useEffect, useState } from 'react';
 import type { Booking, FriendEntry, FriendGig, FriendsList } from '../shared/types';
 
-// Full-screen Friends tab: mutual-consent gig sharing. The card version lived
-// on the Bookings tab; with a whole screen we can show each friend's actual
-// upcoming shows, with the rows that overlap yours called out.
+// The Friends tab, dressed as a 1999 buddy list — beveled chrome, blue title
+// bar, groups with (n/total) counts, and away messages. The joke is loving:
+// a Win9x window floating on the night-sky theme. All the real machinery
+// (mutual consent, requests, coarse schedules) is unchanged underneath.
+//
+// AIM-to-AUTOcarl mapping:
+//   Sign On screen      -> enrollment
+//   Buddies group       -> friends on your show (overlap = same jobNumber)
+//   Nearby group        -> friends in the same city on overlapping dates
+//   Co-Workers group    -> other friends with schedules (they ARE co-workers)
+//   Offline group       -> friends who haven't shared a schedule yet
+//   Away message        -> their next gig (or the overlap line)
+//   List Setup tab      -> add friend / pending invites / account
 
 type Props = {
   bookings: Booking[];
   suggestedName: string;
 };
 
+type Pane = 'online' | 'setup';
+
 export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [enrolled, setEnrolled] = useState<boolean | null>(null);
+  const [myName, setMyName] = useState('');
   const [name, setName] = useState('');
   const [list, setList] = useState<FriendsList | null>(null);
+  const [pane, setPane] = useState<Pane>('online');
   const [addEmail, setAddEmail] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  const [expandedBuddy, setExpandedBuddy] = useState<string | null>(null);
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const upcoming = bookings.filter((b) => parseISOLocal(b.endDate) >= today);
@@ -28,6 +44,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   useEffect(() => {
     window.api.friends.status().then((st) => {
       setEnrolled(st.enrolled);
+      setMyName(st.name);
       if (st.enrolled) loadList();
     }).catch(() => setEnrolled(false));
   }, []);
@@ -44,151 +61,250 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
   if (enrolled === null) return null;
 
+  // ---------- Sign On (enrollment) ----------
   if (!enrolled) {
     return (
-      <div className="card">
-        <h3>Friends</h3>
-        <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
-          See when friends are on your show, or working in the same city while
-          you're there. Sharing is mutual-consent only: friends you approve see
-          your upcoming shows (job, city, dates — nothing more), and you see
-          theirs. Turn it off anytime by asking John to remove you.
-        </p>
-        <div className="row-actions" style={{ gap: 10, alignItems: 'flex-end' }}>
-          <div className="field" style={{ flex: 1, margin: 0, maxWidth: 260 }}>
-            <label>Your name (as coworkers know you)</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} disabled={busy} />
-          </div>
-          <button
-            className="primary"
-            disabled={busy || !name.trim()}
-            onClick={() => run(async () => {
-              await window.api.friends.enroll(name);
-              setEnrolled(true);
-            })}
-          >
-            {busy ? 'Turning on…' : 'Turn on Friends'}
-          </button>
+      <div className="aim-window aim-signon">
+        <div className="aim-titlebar">
+          <span className="aim-titlebar-icon"><RunnerIcon size={12} /></span>
+          <span>Sign On</span>
         </div>
-        {error && <div className="banner error" style={{ marginTop: 8 }}>{error}</div>}
+        <AimBanner />
+        <div className="aim-body">
+          <div className="aim-field">
+            <label>Screen Name</label>
+            <input
+              className="aim-input"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              disabled={busy}
+            />
+          </div>
+          <div className="aim-field">
+            <label>Password</label>
+            <input className="aim-input" type="password" value="hunter2" disabled readOnly />
+            <span className="aim-fineprint">(relax — there is no password)</span>
+          </div>
+          <p className="aim-fineprint" style={{ maxWidth: 240 }}>
+            Friends you approve see your upcoming shows — job, city, dates,
+            nothing more — and you see theirs. Both sides must accept.
+          </p>
+          <div className="aim-actions">
+            <button
+              className="aim-btn"
+              disabled={busy || !name.trim()}
+              onClick={() => run(async () => {
+                await window.api.friends.enroll(name);
+                setEnrolled(true);
+                setMyName(name.trim());
+              })}
+            >
+              {busy ? 'Signing On…' : 'Sign On'}
+            </button>
+          </div>
+          {error && <div className="aim-error">{error}</div>}
+        </div>
       </div>
     );
   }
 
-  const hasRequests = !!list && (list.incoming.length > 0 || list.outgoing.length > 0);
+  // ---------- Buddy List ----------
+  const accepted = list?.accepted ?? [];
+  const buddies = accepted.filter((f) => overlapKindForFriend(f, upcoming) === 'gig');
+  const nearby = accepted.filter((f) => overlapKindForFriend(f, upcoming) === 'near');
+  const coworkers = accepted.filter((f) => !overlapKindForFriend(f, upcoming) && f.gigs.length > 0);
+  const offline = accepted.filter((f) => f.gigs.length === 0);
+  const total = accepted.length;
+  const incoming = list?.incoming ?? [];
+  const outgoing = list?.outgoing ?? [];
+
+  const toggleGroup = (g: string) => setCollapsed((c) => ({ ...c, [g]: !c[g] }));
+
+  const buddyRow = (f: FriendEntry, offlineStyle = false) => {
+    const kind = overlapKindForFriend(f, upcoming);
+    const away = awayMessage(f, upcoming);
+    const expanded = expandedBuddy === f.email;
+    return (
+      <div key={f.email}>
+        <div
+          className={`aim-buddy${offlineStyle ? ' aim-offline' : ''}`}
+          onClick={() => setExpandedBuddy(expanded ? null : f.email)}
+          title={expanded ? undefined : 'Click for schedule'}
+        >
+          {kind === 'gig' && (
+            <span className="plane-icon aim-buddy-plane" style={{ width: 16, backgroundColor: '#003a9e' }} />
+          )}
+          <span className="aim-buddy-name">{f.name}</span>
+          <button
+            className="aim-x"
+            title={`Remove ${f.name}`}
+            disabled={busy}
+            onClick={(e) => { e.stopPropagation(); void run(() => window.api.friends.remove(f.email)); }}
+          >×</button>
+        </div>
+        {away && !expanded && <div className="aim-away">{away}</div>}
+        {expanded && (
+          <div className="aim-profile">
+            {f.gigs.length === 0 && <div className="aim-away">No schedule shared yet.</div>}
+            {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g) => {
+              const k = gigOverlapKind(g, upcoming);
+              return (
+                <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}`}>
+                  {fmtRange(g.start, g.end)} · {g.jobName} ({g.city}{g.state ? `, ${g.state}` : ''})
+                  {k === 'gig' ? ' — with you' : k === 'near' ? ' — near you' : ''}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const group = (label: string, members: FriendEntry[], offlineStyle = false) => (
+    <div className="aim-group">
+      <button className="aim-group-header" onClick={() => toggleGroup(label)}>
+        <span className="aim-tri">{collapsed[label] ? '▶' : '▼'}</span>
+        <span className={label === 'Buddies' ? 'aim-group-hl' : ''}>
+          {label} ({members.length}/{total})
+        </span>
+      </button>
+      {!collapsed[label] && members.map((f) => buddyRow(f, offlineStyle))}
+    </div>
+  );
 
   return (
-    <>
-      {hasRequests && (
-        <div className="card">
-          <h3>Requests</h3>
-          {list!.incoming.map((r) => (
-            <div className="friend-row" key={r.email}>
-              <div className="friend-main">
-                <span className="friend-name">{r.name}</span>
-                <span className="subtle friend-status">wants to connect · {r.email}</span>
+    <div className="aim-window">
+      <div className="aim-titlebar">
+        <span className="aim-titlebar-icon"><RunnerIcon size={12} /></span>
+        <span>{myName ? `${myName}'s Buddy List` : 'Buddy List'} ...</span>
+      </div>
+      <div className="aim-menubar">
+        <span>My C.A.R.L.</span><span>People</span>
+        <span title="Have you tried asking John?">Help</span>
+      </div>
+      <AimBanner />
+      <div className="aim-tabs">
+        <button className={`aim-tab${pane === 'online' ? ' is-active' : ''}`} onClick={() => setPane('online')}>
+          Online
+        </button>
+        <button className={`aim-tab${pane === 'setup' ? ' is-active' : ''}`} onClick={() => setPane('setup')}>
+          List Setup
+        </button>
+      </div>
+
+      {pane === 'online' && (
+        <div className="aim-list">
+          {incoming.length > 0 && (
+            <div className="aim-group">
+              <div className="aim-group-header as-static">
+                <span className="aim-tri">▼</span>
+                <span className="aim-group-hl">Wants to be your Buddy ({incoming.length})</span>
               </div>
-              <button className="primary friend-btn" disabled={busy}
-                onClick={() => run(() => window.api.friends.respond(r.email, true))}>Accept</button>
-              <button className="secondary friend-btn" disabled={busy}
-                onClick={() => run(() => window.api.friends.respond(r.email, false))}>Decline</button>
+              {incoming.map((r) => (
+                <div className="aim-buddy" key={r.email} title={r.email}>
+                  <span className="aim-buddy-name">{r.name}</span>
+                  <span className="aim-req-btns">
+                    <button className="aim-btn aim-btn-sm" disabled={busy}
+                      onClick={() => run(() => window.api.friends.respond(r.email, true))}>Accept</button>
+                    <button className="aim-btn aim-btn-sm" disabled={busy}
+                      onClick={() => run(() => window.api.friends.respond(r.email, false))}>Decline</button>
+                  </span>
+                </div>
+              ))}
             </div>
-          ))}
-          {list!.outgoing.map((r) => (
-            <div className="friend-row" key={r.email}>
-              <div className="friend-main">
-                <span className="friend-name subtle">{r.email}</span>
-                <span className="subtle friend-status">invited · waiting for them to accept</span>
-              </div>
-              <button className="link friend-btn" disabled={busy}
-                onClick={() => run(() => window.api.friends.remove(r.email))}>✕</button>
+          )}
+          {group('Buddies', buddies)}
+          {group('Nearby', nearby)}
+          {group('Co-Workers', coworkers)}
+          {group('Offline', offline, true)}
+          {total === 0 && incoming.length === 0 && (
+            <div className="aim-away" style={{ marginTop: 8 }}>
+              Your buddy list is empty. Head to List Setup to add a coworker.
             </div>
-          ))}
+          )}
         </div>
       )}
 
-      <div className="card">
-        <div className="row-between">
-          <h3 style={{ margin: 0 }}>Friends</h3>
-          <button className="link" onClick={loadList} disabled={busy}>Refresh</button>
-        </div>
-
-        {list && list.accepted.length === 0 && (
-          <p className="subtle" style={{ fontSize: 12, margin: '8px 0 2px' }}>
-            No friends yet — add a coworker below. They approve you on their end
-            before either of you sees anything.
-          </p>
-        )}
-
-        {list?.accepted.map((f) => (
-          <FriendBlock key={f.email} friend={f} mine={upcoming} busy={busy}
-            onRemove={() => run(() => window.api.friends.remove(f.email))} />
-        ))}
-      </div>
-
-      <div className="card">
-        <h3>Add a friend</h3>
-        <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
-          Enter the email they use for C.A.R.L. Nothing is shared until they accept.
-        </p>
-        <div className="row-actions" style={{ gap: 8 }}>
-          <input
-            className="friend-add-input"
-            type="email"
-            placeholder="coworker@email.com"
-            value={addEmail}
-            onChange={(e) => setAddEmail(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && addEmail.trim()) run(async () => { await window.api.friends.request(addEmail.trim()); setAddEmail(''); }); }}
-            disabled={busy}
-          />
-          <button className="secondary" disabled={busy || !addEmail.trim()}
-            onClick={() => run(async () => { await window.api.friends.request(addEmail.trim()); setAddEmail(''); })}>
-            Add friend
-          </button>
-        </div>
-        {error && <div className="banner error" style={{ marginTop: 8 }}>{error}</div>}
-      </div>
-    </>
-  );
-}
-
-// One friend: name, best-overlap summary, and their upcoming shows with the
-// overlapping rows marked.
-function FriendBlock({ friend, mine, busy, onRemove }: {
-  friend: FriendEntry; mine: Booking[]; busy: boolean; onRemove: () => void;
-}) {
-  const gigs = [...friend.gigs].sort((a, b) => a.start.localeCompare(b.start));
-  const summary = bestOverlap(friend, mine);
-  return (
-    <div className="friend-block">
-      <div className="friend-row" style={{ borderTop: 'none', paddingBottom: 4 }}>
-        <div className="friend-main">
-          <span className="friend-name">{friend.name}</span>
-          <span className={summary ? `friend-status friend-${summary.kind}` : 'subtle friend-status'}>
-            {summary ? summary.label
-              : gigs.length === 0 ? 'No schedule shared yet'
-              : 'No overlapping shows'}
-          </span>
-        </div>
-        <button className="link friend-btn" title={`Remove ${friend.name}`} disabled={busy}
-          onClick={onRemove}>✕</button>
-      </div>
-      {gigs.map((g) => {
-        const kind = gigOverlapKind(g, mine);
-        return (
-          <div className={`friend-gig-row${kind ? ` is-${kind}` : ''}`} key={`${g.jobNumber}-${g.start}`}>
-            <span className="show-num friend-gig-num">{g.jobNumber}</span>
-            <span className="friend-gig-name">{g.jobName}</span>
-            <span className="subtle">{g.city}{g.city && g.state ? ', ' : ''}{g.state}</span>
-            <span className="subtle friend-gig-dates">{fmtRange(g.start, g.end)}</span>
-            {kind === 'gig' && <span className="friend-tag friend-tag-gig">with you</span>}
-            {kind === 'near' && <span className="friend-tag">near you</span>}
+      {pane === 'setup' && (
+        <div className="aim-list">
+          <div className="aim-setup-section">Add a Buddy</div>
+          <div className="aim-add-row">
+            <input
+              className="aim-input"
+              type="email"
+              placeholder="coworker@email.com"
+              value={addEmail}
+              onChange={(e) => setAddEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && addEmail.trim()) run(async () => { await window.api.friends.request(addEmail.trim()); setAddEmail(''); }); }}
+              disabled={busy}
+            />
+            <button className="aim-btn aim-btn-sm" disabled={busy || !addEmail.trim()}
+              onClick={() => run(async () => { await window.api.friends.request(addEmail.trim()); setAddEmail(''); })}>
+              Add Buddy
+            </button>
           </div>
-        );
-      })}
+          <div className="aim-fineprint" style={{ margin: '4px 2px 10px' }}>
+            The email they use for C.A.R.L. Nothing is shared until they accept.
+          </div>
+          {outgoing.length > 0 && (
+            <>
+              <div className="aim-setup-section">Pending Invites</div>
+              {outgoing.map((r) => (
+                <div className="aim-buddy aim-offline" key={r.email}>
+                  <span className="aim-buddy-name">{r.email}</span>
+                  <button className="aim-x" title="Cancel invite" disabled={busy}
+                    onClick={() => run(() => window.api.friends.remove(r.email))}>×</button>
+                </div>
+              ))}
+            </>
+          )}
+          <div className="aim-setup-section">Account</div>
+          <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
+            Signed on as <b>{myName}</b>. Friends see your upcoming shows —
+            job, city, dates — nothing more. To leave entirely, ask John.
+          </div>
+        </div>
+      )}
+
+      {error && <div className="aim-error">{error}</div>}
+      <div className="aim-statusbar">
+        <span>{total} buddies</span>
+        <button className="aim-refresh" onClick={loadList} disabled={busy}>⟳</button>
+      </div>
     </div>
   );
 }
+
+// The banner: blue field, yellow runner, and the wordmark that keeps this on
+// the right side of a trademark lawyer's desk.
+function AimBanner() {
+  return (
+    <div className="aim-banner">
+      <RunnerIcon size={44} />
+      <div className="aim-banner-text">
+        <span className="aim-banner-carl">C.A.R.L.</span>
+        <span className="aim-banner-sub">Instant<br />Messenger<span className="aim-tm">™</span></span>
+      </div>
+    </div>
+  );
+}
+
+// A yellow running figure in the spirit of a certain 1999 icon — drawn fresh,
+// mid-sprint, allegedly late for load-in.
+function RunnerIcon({ size }: { size: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+      <g fill="#ffcc00">
+        <circle cx="14.2" cy="3.4" r="2.6" />
+        <path d="M10.5 6.5 L15.5 6.8 L17.8 10.2 L21 11.4 L20.2 13.4 L16.4 12.1 L14.6 9.8 L13.2 13.6 L16 16.2 L14.8 21.5 L12.4 21 L13.3 17.2 L10 14.4 L8.2 17.6 L3.4 19.8 L2.4 17.9 L6.6 15.9 L8.6 12 L9.9 8.4 L6.2 9.6 L4.6 12.4 L2.7 11.4 L4.8 7.8 Z" />
+      </g>
+    </svg>
+  );
+}
+
+// ---- overlap helpers (same rules as before the makeover) ----
 
 function gigOverlapKind(g: FriendGig, mine: Booking[]): 'gig' | 'near' | null {
   for (const b of mine) {
@@ -205,26 +321,30 @@ function gigOverlapKind(g: FriendGig, mine: Booking[]): 'gig' | 'near' | null {
   return null;
 }
 
-function bestOverlap(friend: FriendEntry, mine: Booking[]):
-  { kind: 'gig' | 'near'; label: string } | null {
-  for (const g of friend.gigs) {
-    for (const b of mine) {
-      if (g.jobNumber && g.jobNumber === b.jobNumber && g.start <= b.endDate && b.startDate <= g.end) {
-        return { kind: 'gig', label: `With you on ${b.jobName} · ${fmtRange(g.start, g.end)}` };
-      }
+function overlapKindForFriend(f: FriendEntry, mine: Booking[]): 'gig' | 'near' | null {
+  let best: 'gig' | 'near' | null = null;
+  for (const g of f.gigs) {
+    const k = gigOverlapKind(g, mine);
+    if (k === 'gig') return 'gig';
+    if (k === 'near') best = 'near';
+  }
+  return best;
+}
+
+// The buddy's "away message": the overlap if there is one, else their next gig.
+function awayMessage(f: FriendEntry, mine: Booking[]): string {
+  for (const g of f.gigs) {
+    if (gigOverlapKind(g, mine) === 'gig') {
+      return `with you on ${g.jobName} · ${fmtRange(g.start, g.end)}`;
     }
   }
-  for (const g of friend.gigs) {
-    for (const b of mine) {
-      const sameCity = g.city && b.city
-        && g.city.toLowerCase() === b.city.toLowerCase()
-        && g.state.toLowerCase().slice(0, 2) === b.state.toLowerCase().slice(0, 2);
-      if (sameCity && g.start <= b.endDate && b.startDate <= g.end) {
-        return { kind: 'near', label: `In ${g.city} while you're there · ${fmtRange(g.start, g.end)}` };
-      }
+  for (const g of f.gigs) {
+    if (gigOverlapKind(g, mine) === 'near') {
+      return `in ${g.city} while you're there · ${fmtRange(g.start, g.end)}`;
     }
   }
-  return null;
+  const next = [...f.gigs].sort((a, b) => a.start.localeCompare(b.start))[0];
+  return next ? `${next.jobName} (${next.city}) · ${fmtRange(next.start, next.end)}` : '';
 }
 
 function fmtRange(start: string, end: string): string {
