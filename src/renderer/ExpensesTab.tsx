@@ -3,6 +3,10 @@ import type {
   Booking, ExpenseCategory, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache,
 } from '../shared/types';
 import { friendlyError } from '../shared/errors';
+import {
+  COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
+} from '../shared/expense-form-layout';
+import sheetPng from './assets/expense-sheet@2x.png';
 
 // The Expense Reports tab: drop receipts in, the app reads them (on-device
 // OCR for photos, text extraction for PDF receipts), sorts them into the CT
@@ -363,100 +367,43 @@ export default function ExpensesTab({ bookings }: Props) {
       ) : (
         <div className="card">
           <h3>CT Expense Reimbursement Form</h3>
-          <div className="exp-form-grid">
-            <div className="field"><label>Date</label>
-              <input value={draft.date} onChange={(e) => patchDraft({ date: e.target.value })} /></div>
-            <div className="field"><label>Name</label>
-              <input value={draft.name} onChange={(e) => patchDraft({ name: e.target.value })} /></div>
-            <div className="field"><label>Employee ID</label>
-              <input value={draft.employeeId} onChange={(e) => patchDraft({ employeeId: e.target.value })} /></div>
-            <div className="field"><label>Project Manager</label>
-              <input value={draft.projectManager} onChange={(e) => patchDraft({ projectManager: e.target.value })} /></div>
-            <div className="field"><label>Labor Coordinator</label>
-              <input value={draft.laborCoordinator} onChange={(e) => patchDraft({ laborCoordinator: e.target.value })} /></div>
-            <div className="field"><label>State Worked In</label>
-              <input value={draft.stateWorkedIn} onChange={(e) => patchDraft({ stateWorkedIn: e.target.value })} /></div>
-            <div className="field"><label>Country/Location</label>
-              <input value={draft.countryWorkedIn} onChange={(e) => patchDraft({ countryWorkedIn: e.target.value })} /></div>
-            <div className="field"><label>Mileage rate $/mi</label>
+          <div className="sheet-toolbar">
+            <label className="sheet-rate subtle">Mileage rate $/mi
               <input
+                key={`rate-${draft.mileageRate}`}
+                className="exp-in exp-in-amount sheet-rate-in"
                 defaultValue={draft.mileageRate.toFixed(2)}
                 inputMode="decimal"
                 onBlur={(e) => {
                   const v = parseFloat(e.target.value);
                   if (isFinite(v) && v >= 0) patchDraft({ mileageRate: v });
                 }}
-              /></div>
+              />
+            </label>
+            <button className="link" onClick={() => patchDraft({
+              rows: [...draft.rows, {
+                jobNumber: '', description: '', lodging: 0, airfare: 0, parking: 0,
+                carRental: 0, miles: 0, rideshare: 0, misc: 0, receiptIds: [],
+              }],
+            })}>+ add row</button>
           </div>
-
-          <div className="exp-table-wrap">
-            <table className="exp-table">
-              <thead>
-                <tr>
-                  <th>Job#</th><th>Description</th><th>Lodging</th><th>Airfare</th><th>Parking</th>
-                  <th>Car Rental</th><th title="Mileage $ is computed at miles × rate">Miles</th><th>Uber/Lyft/Taxi</th><th>Misc.</th>
-                  <th>Total</th><th />
-                </tr>
-              </thead>
-              <tbody>
-                {draft.rows.map((row, i) => (
-                  <tr key={`${draft.id}-${i}`}>
-                    <td><input className="exp-cell exp-cell-job" defaultValue={row.jobNumber}
-                      onBlur={(e) => patchRow(i, { jobNumber: e.target.value })} /></td>
-                    <td><input className="exp-cell exp-cell-desc" defaultValue={row.description}
-                      onBlur={(e) => patchRow(i, { description: e.target.value })} /></td>
-                    {MONEY_COLS.slice(0, 4).map((k) => (
-                      <td key={k}><input className="exp-cell exp-cell-money" defaultValue={row[k] ? row[k].toFixed(2) : ''}
-                        inputMode="decimal" placeholder="—"
-                        onBlur={(e) => {
-                          const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
-                          patchRow(i, { [k]: isFinite(v) && v >= 0 ? v : 0 } as Partial<ExpenseRow>);
-                        }} /></td>
-                    ))}
-                    <td><input className="exp-cell exp-cell-miles" defaultValue={row.miles || ''}
-                      inputMode="numeric" placeholder="—"
-                      title={row.miles ? `Mileage: ${usd(mileageDollars(row, draft.mileageRate))}` : 'Miles driven — mileage $ lands on the form'}
-                      onBlur={(e) => {
-                        const v = parseInt(e.target.value, 10);
-                        patchRow(i, { miles: isFinite(v) && v >= 0 ? v : 0 });
-                      }} /></td>
-                    {MONEY_COLS.slice(4).map((k) => (
-                      <td key={k}><input className="exp-cell exp-cell-money" defaultValue={row[k] ? row[k].toFixed(2) : ''}
-                        inputMode="decimal" placeholder="—"
-                        onBlur={(e) => {
-                          const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
-                          patchRow(i, { [k]: isFinite(v) && v >= 0 ? v : 0 } as Partial<ExpenseRow>);
-                        }} /></td>
-                    ))}
-                    <td className="exp-computed">{usd(rowTotal(row, draft.mileageRate))}</td>
-                    <td><button className="link exp-x" title="Remove row"
-                      onClick={() => patchDraft({ rows: draft.rows.filter((_, j) => j !== i) })}>×</button></td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan={9} className="exp-computed exp-grand-label">Total</td>
-                  <td className="exp-computed exp-grand">{usd(draft.rows.reduce((a, r) => a + rowTotal(r, draft.mileageRate), 0))}</td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
+          <div className="sheet-wrap">
+            {(() => {
+              const pages = Math.max(1, Math.ceil(draft.rows.length / ROWS_PER_PAGE));
+              return Array.from({ length: pages }, (_, p) => (
+                <FormSheet
+                  key={`${draft.id}-p${p}`}
+                  draft={draft}
+                  startIndex={p * ROWS_PER_PAGE}
+                  isFirst={p === 0}
+                  isLast={p === pages - 1}
+                  onPatchDraft={patchDraft}
+                  onPatchRow={patchRow}
+                  onRemoveRow={(gi) => patchDraft({ rows: draft.rows.filter((_, k) => k !== gi) })}
+                />
+              ));
+            })()}
           </div>
-          <button className="link" onClick={() => patchDraft({
-            rows: [...draft.rows, {
-              jobNumber: '', description: '', lodging: 0, airfare: 0, parking: 0,
-              carRental: 0, miles: 0, rideshare: 0, misc: 0, receiptIds: [],
-            }],
-          })}>+ add row</button>
-
-          <div className="exp-form-grid exp-form-grid-wide">
-            <div className="field"><label>Comments</label>
-              <textarea rows={2} value={draft.comments} onChange={(e) => patchDraft({ comments: e.target.value })} /></div>
-            <div className="field"><label>Notes</label>
-              <textarea rows={2} value={draft.notes} onChange={(e) => patchDraft({ notes: e.target.value })} /></div>
-          </div>
-
           <label className="exp-attach">
             <input
               type="checkbox"
@@ -465,7 +412,6 @@ export default function ExpensesTab({ bookings }: Props) {
             />
             Attach receipts as pages after the form
           </label>
-
           <div className="exp-actions">
             <button className="primary" onClick={exportPdf} disabled={exportBusy}>
               {exportBusy ? 'Exporting…' : 'Export PDF'}
@@ -546,6 +492,177 @@ function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel }: {
         title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}
         onClick={() => onRemove(r.id)}
       >{armedId === r.id ? 'sure?' : '×'}</button>
+    </div>
+  );
+}
+
+// ---------- the on-sheet form editor ----------
+//
+// The report is edited ON the actual CT form: a raster of the same template
+// the export stamps (assets/expense-sheet@2x.png, displayed 1134×792 so CSS
+// px map 1:1 onto PDF points) with edit fields absolutely positioned inside
+// the form's own cells via shared/expense-form-layout. What you see here is
+// what fillExpensePdf produces, cell for cell.
+
+// Baseline (PDF, origin bottom-left) → CSS top for a 17px-tall field.
+const SHEET_FIELD_OFFSET = 12.5;
+function sheetTop(y: number): number {
+  return PAGE.height - y - SHEET_FIELD_OFFSET;
+}
+
+function fmt2(n: number): string {
+  return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+// A computed (read-only) money cell, painted in the cell's own fill so the
+// template's seeded "$ -" underneath disappears — mirrors export's cover().
+function SheetComputed({ col, y, amount, pink }: { col: Col; y: number; amount: number; pink?: boolean }) {
+  if (!amount) return null;
+  return (
+    <span
+      className={`sheet-cell ${pink ? 'is-pink' : 'is-peach'}`}
+      style={{ left: col.l + 1.5, top: sheetTop(y) - 1, width: col.r - col.l - 3 }}
+    >
+      <span>$</span><span>{fmt2(amount)}</span>
+    </span>
+  );
+}
+
+function SheetMoneyInput({ col, y, value, onCommit }: {
+  col: Col; y: number; value: number; onCommit: (v: number) => void;
+}) {
+  return (
+    <input
+      key={`v${value}`}
+      className="sheet-in sheet-in-right"
+      style={{ left: col.l + 2, top: sheetTop(y), width: col.r - col.l - 14 }}
+      defaultValue={value ? value.toFixed(2) : ''}
+      inputMode="decimal"
+      onBlur={(e) => {
+        const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
+        onCommit(isFinite(v) && v >= 0 ? v : 0);
+      }}
+    />
+  );
+}
+
+function FormSheet({ draft, startIndex, isFirst, isLast, onPatchDraft, onPatchRow, onRemoveRow }: {
+  draft: ExpenseReport;
+  startIndex: number;
+  isFirst: boolean;
+  isLast: boolean;
+  onPatchDraft: (patch: Partial<ExpenseReport>) => void;
+  onPatchRow: (i: number, patch: Partial<ExpenseRow>) => void;
+  onRemoveRow: (i: number) => void;
+}) {
+  const rate = draft.mileageRate;
+  const rows = draft.rows.slice(startIndex, startIndex + ROWS_PER_PAGE);
+  const sum = (f: (r: ExpenseRow) => number) => draft.rows.reduce((a, r) => a + f(r), 0);
+  const grand = draft.rows.reduce((a, r) => a + rowTotal(r, rate), 0);
+
+  // Header fields edit on the first sheet; continuation sheets mirror them
+  // read-only (the export repeats them on every page).
+  const hdr = (key: keyof typeof HDR, width: number, value: string, patch: (v: string) => void) => {
+    const { x, y } = HDR[key];
+    return isFirst ? (
+      <input
+        className="sheet-in"
+        style={{ left: x - 2, top: sheetTop(y), width }}
+        value={value}
+        onChange={(e) => patch(e.target.value)}
+      />
+    ) : (
+      <span className="sheet-static" style={{ left: x, top: sheetTop(y) }}>{value}</span>
+    );
+  };
+
+  const MONEY: Array<[Col, keyof Pick<ExpenseRow, 'lodging' | 'airfare' | 'parking' | 'carRental' | 'rideshare' | 'misc'>]> = [
+    [COL.lodging, 'lodging'], [COL.airfare, 'airfare'], [COL.parking, 'parking'],
+    [COL.carRental, 'carRental'], [COL.rideshare, 'rideshare'], [COL.misc, 'misc'],
+  ];
+
+  return (
+    <div className="sheet" style={{ backgroundImage: `url(${sheetPng})` }}>
+      {hdr('date', 182, draft.date, (v) => onPatchDraft({ date: v }))}
+      {hdr('name', 182, draft.name, (v) => onPatchDraft({ name: v }))}
+      {hdr('employeeId', 182, draft.employeeId, (v) => onPatchDraft({ employeeId: v }))}
+      {hdr('pm', 160, draft.projectManager, (v) => onPatchDraft({ projectManager: v }))}
+      {hdr('lc', 160, draft.laborCoordinator, (v) => onPatchDraft({ laborCoordinator: v }))}
+      {hdr('state', 182, draft.stateWorkedIn, (v) => onPatchDraft({ stateWorkedIn: v }))}
+      {hdr('country', 182, draft.countryWorkedIn, (v) => onPatchDraft({ countryWorkedIn: v }))}
+
+      {rows.map((row, i) => {
+        const gi = startIndex + i;
+        const y = ROW_Y[i];
+        return (
+          <span key={`${draft.id}-r${gi}`}>
+            <input
+              className="sheet-in sheet-in-center"
+              style={{ left: COL.job.l + 2, top: sheetTop(y), width: COL.job.r - COL.job.l - 4 }}
+              defaultValue={row.jobNumber}
+              onBlur={(e) => onPatchRow(gi, { jobNumber: e.target.value })}
+            />
+            <input
+              className="sheet-in"
+              style={{ left: COL.desc.l + 3, top: sheetTop(y), width: COL.desc.r - COL.desc.l - 6 }}
+              defaultValue={row.description}
+              onBlur={(e) => onPatchRow(gi, { description: e.target.value })}
+            />
+            {MONEY.map(([col, k]) => (
+              <SheetMoneyInput key={k} col={col} y={y} value={row[k]}
+                onCommit={(v) => onPatchRow(gi, { [k]: v } as Partial<ExpenseRow>)} />
+            ))}
+            <input
+              key={`m${row.miles}`}
+              className="sheet-in sheet-in-center"
+              style={{ left: COL.miles.l + 2, top: sheetTop(y), width: COL.miles.r - COL.miles.l - 4 }}
+              defaultValue={row.miles || ''}
+              inputMode="numeric"
+              title={row.miles ? `Mileage: $${fmt2(mileageDollars(row, rate))}` : 'Miles driven'}
+              onBlur={(e) => {
+                const v = parseInt(e.target.value, 10);
+                onPatchRow(gi, { miles: isFinite(v) && v >= 0 ? v : 0 });
+              }}
+            />
+            <SheetComputed col={COL.mileage} y={y} amount={mileageDollars(row, rate)} />
+            <SheetComputed col={COL.total} y={y} amount={rowTotal(row, rate)} pink />
+            <button
+              className="sheet-x"
+              title="Remove row"
+              style={{ left: COL.total.r + 6, top: sheetTop(y) - 1 }}
+              onClick={() => onRemoveRow(gi)}
+            >×</button>
+          </span>
+        );
+      })}
+
+      {isLast && (
+        <>
+          <SheetComputed col={COL.lodging} y={TOTALS_Y} amount={sum((r) => r.lodging)} pink />
+          <SheetComputed col={COL.airfare} y={TOTALS_Y} amount={sum((r) => r.airfare)} pink />
+          <SheetComputed col={COL.parking} y={TOTALS_Y} amount={sum((r) => r.parking)} pink />
+          <SheetComputed col={COL.carRental} y={TOTALS_Y} amount={sum((r) => r.carRental)} pink />
+          <SheetComputed col={COL.mileage} y={TOTALS_Y} amount={sum((r) => mileageDollars(r, rate))} pink />
+          <SheetComputed col={COL.rideshare} y={TOTALS_Y} amount={sum((r) => r.rideshare)} pink />
+          <SheetComputed col={COL.misc} y={TOTALS_Y} amount={sum((r) => r.misc)} pink />
+          <SheetComputed col={COL.misc} y={GRAND_Y} amount={grand} pink />
+          <SheetComputed col={COL.misc} y={FINAL_Y} amount={grand} pink />
+          <textarea
+            className="sheet-area"
+            style={{ left: COMMENTS_BOX.x - 2, top: sheetTop(COMMENTS_BOX.y), width: 182, height: 72 }}
+            value={draft.comments}
+            placeholder="Comments"
+            onChange={(e) => onPatchDraft({ comments: e.target.value })}
+          />
+          <textarea
+            className="sheet-area"
+            style={{ left: NOTES_BOX.x - 2, top: sheetTop(NOTES_BOX.y), width: 429, height: 72 }}
+            value={draft.notes}
+            placeholder="Notes"
+            onChange={(e) => onPatchDraft({ notes: e.target.value })}
+          />
+        </>
+      )}
     </div>
   );
 }

@@ -1826,72 +1826,112 @@ a.featured-venue:hover .featured-venue-name {
 .exp-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .exp-exported { font-size: 12px; color: #7cd9a0; }
 
-/* Report editor. */
-.exp-form-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 8px 12px;
-  margin-bottom: 12px;
-}
-
-.exp-form-grid .field { margin: 0; }
-.exp-form-grid-wide { grid-template-columns: 1fr 1fr; }
-
-.exp-form-grid textarea {
-  width: 100%;
-  padding: 6px 8px;
-  font: inherit;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: inherit;
-  border: 1px solid var(--border);
-  border-radius: 5px;
-  resize: vertical;
-}
-
-.exp-form-grid textarea:focus { outline: none; border-color: var(--ct-gold); }
-
-.exp-table-wrap { overflow-x: auto; margin-bottom: 6px; }
-
-.exp-table { border-collapse: collapse; width: 100%; }
-
-.exp-table th {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--text-subtle);
-  font-weight: 600;
-  text-align: left;
-  padding: 4px 4px;
-  white-space: nowrap;
-}
-
-.exp-table td { padding: 2px 3px; }
-
-.exp-cell {
-  padding: 4px 5px;
-  font-size: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  color: inherit;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-}
-
-.exp-cell:focus { outline: none; border-color: var(--ct-gold); }
-.exp-cell-job { width: 78px; }
-.exp-cell-desc { width: 116px; }
-.exp-cell-money { width: 56px; text-align: right; }
-.exp-cell-miles { width: 42px; text-align: right; }
-
-.exp-computed {
-  font-size: 12px;
-  text-align: right;
-  white-space: nowrap;
-  color: var(--text-subtle);
-  padding-right: 6px;
-}
-
-.exp-grand-label { text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
-.exp-grand { color: var(--ct-gold); font-weight: 600; font-size: 13px; }
-
 .exp-attach { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 10px 0 2px; cursor: pointer; }
+
+/* ============ On-sheet form editor ============ */
+
+.sheet-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+
+.sheet-rate { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.sheet-rate-in { width: 64px; }
+
+/* The form itself, at 1pt = 1px so shared layout coordinates apply
+   directly. Wider than the window — scrolls horizontally. */
+.sheet-wrap { overflow-x: auto; padding-bottom: 4px; }
+
+.sheet {
+  position: relative;
+  width: 1134px;
+  height: 792px;
+  background-size: 1134px 792px;
+  background-repeat: no-repeat;
+  background-color: #fff;
+  border-radius: 3px;
+  box-shadow: 0 3px 16px rgba(0, 0, 0, 0.55);
+  margin-bottom: 14px;
+}
+
+/* Edit fields sitting inside the form's own cells. Dark ink on paper. */
+.sheet-in {
+  position: absolute;
+  height: 17px;
+  padding: 0 2px;
+  font-family: Verdana, -apple-system, sans-serif;
+  font-size: 10px;
+  color: #141414;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+}
+
+.sheet-in:hover { border-color: rgba(0, 0, 0, 0.22); }
+
+.sheet-in:focus {
+  outline: none;
+  border-color: var(--ct-gold);
+  background: #fff;
+}
+
+.sheet-in-right { text-align: right; }
+.sheet-in-center { text-align: center; }
+
+.sheet-static {
+  position: absolute;
+  font-family: Verdana, -apple-system, sans-serif;
+  font-size: 10px;
+  color: #141414;
+  line-height: 17px;
+}
+
+/* Computed cells — painted in the cell's own fill, like the export. */
+.sheet-cell {
+  position: absolute;
+  height: 15.5px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 5px;
+  font-family: Verdana, -apple-system, sans-serif;
+  font-size: 10px;
+  color: #141414;
+}
+
+.sheet-cell.is-peach { background: #f8cbad; }
+.sheet-cell.is-pink { background: #ff99ff; }
+
+.sheet-x {
+  position: absolute;
+  width: 18px;
+  height: 17px;
+  padding: 0;
+  font-size: 13px;
+  line-height: 1;
+  color: rgba(20, 20, 20, 0.45);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.sheet-x:hover { color: #c33; }
+
+.sheet-area {
+  position: absolute;
+  padding: 1px 2px;
+  font-family: Verdana, -apple-system, sans-serif;
+  font-size: 10px;
+  line-height: 1.35;
+  color: #141414;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  resize: none;
+}
+
+.sheet-area:hover { border-color: rgba(0, 0, 0, 0.22); }
+.sheet-area:focus { outline: none; border-color: var(--ct-gold); background: #fff; }
+.sheet-area::placeholder { color: rgba(20, 20, 20, 0.3); }

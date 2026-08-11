@@ -4,61 +4,17 @@ import type { ExpenseReport, ExpenseRow } from '../shared/types';
 // Fills the CT Expense Reimbursement Form. The template
 // (resources/expense-template.pdf, exported once from the official Numbers
 // sheet) is a FLAT pdf — no AcroForm — so every value is drawn at measured
-// coordinates. The numbers below were extracted programmatically from the
-// template's own text items and grid lines (pdfjs text positions + raster
-// line detection); if the template asset is ever regenerated, re-run that
-// measurement rather than nudging constants by eye.
-//
-// Page space: 1134 × 792 pt, origin bottom-left (pdf-lib convention).
+// coordinates from shared/expense-form-layout (one source of truth with the
+// renderer's on-sheet editor). Page space: 1134 × 792 pt, origin
+// bottom-left (pdf-lib convention).
 
-type Col = { l: number; r: number };
+import {
+  COL, COMMENTS_BOX as COMMENTS, FILL_PEACH, FILL_PINK, FINAL_Y, GRAND_Y, HDR,
+  NOTES_BOX as NOTES, PAD_DOLLAR, PAD_RIGHT, ROW_Y, TOTALS_Y, type Col,
+} from '../shared/expense-form-layout';
 
-// Vertical grid lines of the expense table.
-const COL: Record<string, Col> = {
-  job:       { l: 80.0,  r: 224.8 },
-  desc:      { l: 224.8, r: 331.8 },
-  lodging:   { l: 331.8, r: 410.8 },
-  airfare:   { l: 410.8, r: 491.8 },
-  parking:   { l: 491.8, r: 596.8 },
-  carRental: { l: 596.8, r: 677.8 },
-  miles:     { l: 677.8, r: 758.8 },
-  mileage:   { l: 758.8, r: 839.8 },   // computed: miles × rate
-  rideshare: { l: 839.8, r: 924.8 },   // "Uber/Lyft/Taxi"
-  misc:      { l: 924.8, r: 990.8 },
-  total:     { l: 990.8, r: 1059.8 },
-};
-
-// Text baselines of the ten data rows, top to bottom (measured off the
-// template's seeded "$ -" placeholders in the Mileage column).
-const ROW_Y = [439.6, 424.5, 407.5, 390.4, 373.3, 356.2, 339.1, 322.0, 304.9, 287.8];
-const TOTALS_Y = 270.7;   // pink per-column totals row
-const GRAND_Y = 253.6;    // pink grand-total cell under the Misc column
-const FINAL_Y = 219.4;    // pink reimbursement-total cell beside NOTES
-
-// The template's own accounting format: "$" sits 5.8pt in from the cell's
-// left line, the amount right-aligns 13.7pt in from the right line.
-const PAD_DOLLAR = 5.8;
-const PAD_RIGHT = 13.7;
-
-// Header-field baselines (left-aligned into the gray/blue boxes).
-const HDR = {
-  date:       { x: 229.0, y: 614.4 },
-  name:       { x: 229.0, y: 563.1 },
-  employeeId: { x: 229.0, y: 546.6 },
-  pm:         { x: 600.5, y: 563.1 },
-  lc:         { x: 600.5, y: 530.8 },
-  state:      { x: 229.0, y: 512.5 },
-  country:    { x: 229.0, y: 495.4 },
-};
-
-const COMMENTS = { x: 229.0, y: 236.3, maxWidth: 178, lineHeight: 11, maxLines: 5 };
-const NOTES =    { x: 496.5, y: 236.3, maxWidth: 424, lineHeight: 11, maxLines: 5 };
-
-// Cell fills, sampled from the template raster — placeholder "$ -" glyphs are
-// baked into the flat pdf, so cells we write get repainted in their own fill
-// color first.
-const PEACH = rgb(248 / 255, 203 / 255, 173 / 255);
-const PINK = rgb(255 / 255, 153 / 255, 255 / 255);
+const PEACH = rgb(FILL_PEACH[0] / 255, FILL_PEACH[1] / 255, FILL_PEACH[2] / 255);
+const PINK = rgb(FILL_PINK[0] / 255, FILL_PINK[1] / 255, FILL_PINK[2] / 255);
 
 const SIZE_CELL = 8.5;
 const SIZE_HDR = 9;
