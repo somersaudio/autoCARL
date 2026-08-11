@@ -449,8 +449,6 @@ button.link:hover:not(:disabled) {
   height: 32px;
   object-fit: contain;
   border-radius: 4px;
-  background: #fff;
-  padding: 2px;
 }
 
 .booking-main {
@@ -531,8 +529,6 @@ button.link:hover:not(:disabled) {
   height: 64px;
   object-fit: contain;
   border-radius: 8px;
-  background: #fff;
-  padding: 4px;
   flex-shrink: 0;
 }
 
@@ -1848,8 +1844,6 @@ a.featured-venue:hover .featured-venue-name {
   height: 40px;
   object-fit: contain;
   border-radius: 6px;
-  background: #fff;
-  padding: 2px;
   flex-shrink: 0;
 }
 
