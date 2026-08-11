@@ -60,10 +60,14 @@ export default function ExpensesTab({ bookings }: Props) {
   const [armedId, setArmedId] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
   const armTimer = useRef<number | null>(null);
+  // Latest cache for effect closures that must not re-run on cache changes.
+  const cacheRef = useRef<ExpensesCache | null>(null);
   // The form renders at 1134pt native and scales down to whatever width the
   // card offers, so the whole sheet is visible at the default window size.
   const sheetWrapRef = useRef<HTMLDivElement | null>(null);
   const [sheetScale, setSheetScale] = useState(1);
+
+  cacheRef.current = cache;
 
   useEffect(() => {
     window.api.expenses.getCached().then(setCache)
@@ -88,25 +92,39 @@ export default function ExpensesTab({ bookings }: Props) {
   }, [selectedGig, cache, bookings]);
 
   // The picker drives the workspace: switching gigs swaps in that gig's
-  // saved report (or none). Same-gig runs are left alone so in-flight edits
-  // and auto-saves never get clobbered.
+  // saved report — or builds one on the spot, so the sheet simply always
+  // exists for the selected gig. Same-gig runs are left alone so in-flight
+  // edits and auto-saves never get clobbered.
   useEffect(() => {
     if (!cache || !selectedGig) return;
     if (draft && draftGigId(draft) === selectedGig) return;
     const rep = cache.reports.find((r) => draftGigId(r) === selectedGig) || null;
-    // Reports saved before the gig link existed get stamped on open —
-    // without this, deleting every row erases the report's inferred
-    // identity mid-edit and this effect resurrects the stale saved copy.
-    setDraft(rep && !rep.bookingId ? { ...rep, bookingId: selectedGig } : rep);
-    setExportedPath(null);
+    if (rep) {
+      // Reports saved before the gig link existed get stamped on open —
+      // without this, deleting every row erases the report's inferred
+      // identity mid-edit and this effect resurrects the stale saved copy.
+      setDraft(rep.bookingId ? rep : { ...rep, bookingId: selectedGig });
+      setExportedPath(null);
+      return;
+    }
+    let cancelled = false;
+    window.api.expenses.buildDraft([selectedGig])
+      .then((d) => { if (!cancelled) { setDraft(d); setExportedPath(null); } })
+      .catch((e) => { if (!cancelled) setError(friendlyError(e, !navigator.onLine)); });
+    return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGig, cache]);
 
   // Draft edits persist automatically (debounced) so flipping to Timesheet to
-  // check something doesn't throw away a half-adjusted report.
+  // check something doesn't throw away a half-adjusted report. A sheet the
+  // user has merely LOOKED at — auto-built, still empty, never saved — is
+  // not persisted, so browsing gigs doesn't mint hollow reports; once a
+  // report exists on disk it always saves, so emptying it sticks too.
   useEffect(() => {
     if (!draft) return;
     const t = window.setTimeout(() => {
+      const saved = (cacheRef.current?.reports ?? []).some((r) => r.id === draft.id);
+      if (!saved && draft.rows.length === 0 && !draft.comments && !draft.notes) return;
       window.api.expenses.saveReport(draft).then(setCache).catch(() => {});
     }, 700);
     return () => window.clearTimeout(t);
@@ -273,17 +291,6 @@ export default function ExpensesTab({ bookings }: Props) {
 
   // ---- report drafting ----
 
-  const buildDraft = async () => {
-    if (!selectedGig || !bookingById.has(selectedGig)) return;
-    setError(null);
-    try {
-      setDraft(await window.api.expenses.buildDraft([selectedGig]));
-      setExportedPath(null);
-    } catch (e) {
-      setError(friendlyError(e, !navigator.onLine));
-    }
-  };
-
   const patchDraft = (patch: Partial<ExpenseReport>) => {
     setDraft((d) => (d ? { ...d, ...patch } : d));
   };
@@ -435,21 +442,8 @@ export default function ExpensesTab({ bookings }: Props) {
         </div>
       )}
 
-      {/* ---- report builder / editor ---- */}
-      {!(draft && draftGigId(draft) === selectedGig) ? (
-        <div className="card">
-          <h3>New Expense Report</h3>
-          <div className="subtle exp-hint">
-            This gig's receipts fill the form's columns — one line each — and miles
-            come from your timesheets. Everything is editable before export.
-          </div>
-          <div className="exp-actions">
-            <button className="primary" onClick={buildDraft} disabled={!selectedGig || !bookingById.has(selectedGig)}>
-              Build report
-            </button>
-          </div>
-        </div>
-      ) : (
+      {/* ---- the report sheet — always present for the selected gig ---- */}
+      {draft && draftGigId(draft) === selectedGig && (
         <div className="card">
           <h3>CT Expense Reimbursement Form</h3>
           <div className="sheet-wrap" ref={sheetWrapRef}>
@@ -474,7 +468,11 @@ export default function ExpensesTab({ bookings }: Props) {
             <button className="primary" onClick={exportPdf} disabled={exportBusy}>
               {exportBusy ? 'Exporting…' : 'Export Report & Receipts'}
             </button>
-            <button className="link exp-x" onClick={discardDraft}>Delete report</button>
+            <button
+              className="link exp-x"
+              title="Discard edits and rebuild this sheet from the receipts"
+              onClick={discardDraft}
+            >Reset report</button>
             {exportedPath && <span className="subtle exp-exported">Exported — folder opened</span>}
           </div>
         </div>
