@@ -1457,7 +1457,9 @@ a.featured-venue:hover .featured-venue-name {
   top: calc(100% + 6px);
   left: 0;
   z-index: 30;
-  background: var(--panel-2);
+  /* Frosted like the expense tab's gig menu. */
+  background: rgba(31, 34, 42, 0.72);
+  backdrop-filter: blur(14px);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 10px 12px;
