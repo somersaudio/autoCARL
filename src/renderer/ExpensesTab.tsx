@@ -413,14 +413,6 @@ export default function ExpensesTab({ bookings }: Props) {
       ) : (
         <div className="card">
           <h3>CT Expense Reimbursement Form</h3>
-          <div className="sheet-toolbar">
-            <button className="link" onClick={() => patchDraft({
-              rows: [...draft.rows, {
-                jobNumber: '', description: '', lodging: 0, airfare: 0, parking: 0,
-                carRental: 0, miles: 0, rideshare: 0, misc: 0, receiptIds: [],
-              }],
-            })}>+ add row</button>
-          </div>
           <div className="sheet-wrap" ref={sheetWrapRef}>
             {(() => {
               const pages = Math.max(1, Math.ceil(draft.rows.length / ROWS_PER_PAGE));

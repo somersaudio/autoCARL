@@ -1829,13 +1829,6 @@ a.featured-venue:hover .featured-venue-name {
 
 /* ============ On-sheet form editor ============ */
 
-.sheet-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 10px;
-}
-
 /* The form lays out at 1pt = 1px so shared layout coordinates apply
    directly, then scales down as one unit to fit the card width. */
 .sheet-wrap { overflow: hidden; }
