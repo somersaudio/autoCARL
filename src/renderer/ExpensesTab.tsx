@@ -506,7 +506,6 @@ export default function ExpensesTab({ bookings }: Props) {
       {/* ---- the report sheet — always present for the selected gig ---- */}
       {draft && draftGigId(draft) === selectedGig && (
         <div className="card">
-          <h3>CT Expense Reimbursement Form</h3>
           <div className="sheet-wrap" ref={sheetWrapRef}>
             {(() => {
               const pages = Math.max(1, Math.ceil(draft.rows.length / ROWS_PER_PAGE));
