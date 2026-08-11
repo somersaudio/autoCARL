@@ -86,15 +86,6 @@ export function rowTotal(row: ExpenseRow, rate: number): number {
   return row.lodging + row.airfare + row.parking + row.carRental + mileageDollars(row, rate) + row.rideshare + row.misc;
 }
 
-// One receipt to append after the form. Images get their own captioned page;
-// PDFs are merged in verbatim.
-export type ReceiptAttachment = {
-  bytes: Uint8Array;
-  kind: 'image' | 'pdf';
-  isPng: boolean;           // images only — picks embedPng vs embedJpg
-  caption: string;          // "Hampton Inn — 2026-09-06 — $1,332.20 (CTLA025403)"
-};
-
 /**
  * Fill the CT form with a report and return the finished PDF bytes.
  * Rows overflow onto extra copies of the template page (10 per page);
@@ -103,7 +94,6 @@ export type ReceiptAttachment = {
 export async function fillExpensePdf(
   templateBytes: Uint8Array,
   report: ExpenseReport,
-  attachments: ReceiptAttachment[],
 ): Promise<Uint8Array> {
   const doc = await PDFDocument.load(templateBytes);
   const font = await doc.embedFont(StandardFonts.Helvetica);
@@ -162,32 +152,6 @@ export async function fillExpensePdf(
   writeMoney(last, font, COL.misc, FINAL_Y, grand, PINK);
   writeWrapped(last, font, COMMENTS, report.comments);
   writeWrapped(last, font, NOTES, report.notes);
-
-  // Receipts, appended after the form pages.
-  for (const att of attachments) {
-    try {
-      if (att.kind === 'pdf') {
-        const donor = await PDFDocument.load(att.bytes);
-        const copied = await doc.copyPages(donor, donor.getPageIndices());
-        for (const pg of copied) doc.addPage(pg);
-        continue;
-      }
-      const img = att.isPng ? await doc.embedPng(att.bytes) : await doc.embedJpg(att.bytes);
-      const page = doc.addPage([612, 792]);   // letter portrait
-      const maxW = 612 - 72;
-      const maxH = 792 - 108;                 // room for the caption line
-      const scale = Math.min(maxW / img.width, maxH / img.height, 1);
-      const w = img.width * scale;
-      const h = img.height * scale;
-      page.drawImage(img, { x: (612 - w) / 2, y: 792 - 36 - h, width: w, height: h });
-      page.drawText(att.caption, {
-        x: 36, y: 30, size: 10, font, color: rgb(0.25, 0.25, 0.25),
-      });
-    } catch (e) {
-      // A single unreadable receipt shouldn't sink the whole export.
-      console.warn('[expenses] skipped attachment:', e instanceof Error ? e.message : e);
-    }
-  }
 
   return doc.save();
 }

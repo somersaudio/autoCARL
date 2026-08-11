@@ -439,20 +439,12 @@ export default function ExpensesTab({ bookings }: Props) {
               ));
             })()}
           </div>
-          <label className="exp-attach">
-            <input
-              type="checkbox"
-              checked={draft.attachReceipts}
-              onChange={(e) => patchDraft({ attachReceipts: e.target.checked })}
-            />
-            Attach receipts as pages after the form
-          </label>
           <div className="exp-actions">
             <button className="primary" onClick={exportPdf} disabled={exportBusy}>
-              {exportBusy ? 'Exporting…' : 'Export PDF'}
+              {exportBusy ? 'Exporting…' : 'Export PDFs'}
             </button>
             <button className="link exp-x" onClick={discardDraft}>Delete report</button>
-            {exportedPath && <span className="subtle exp-exported">Saved — revealed in Finder</span>}
+            {exportedPath && <span className="subtle exp-exported">Exported — folder opened</span>}
           </div>
         </div>
       )}

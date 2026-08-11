@@ -234,7 +234,6 @@ export type ExpenseReport = {
   mileageRate: number;      // $/mile — the 2025 form says 70¢; editable when IRS moves it
   comments: string;
   notes: string;
-  attachReceipts: boolean;  // append receipt images/PDFs as pages after the form
   rows: ExpenseRow[];
 };
 
@@ -342,7 +341,9 @@ export type Api = {
     buildDraft: (bookingIds: string[]) => Promise<ExpenseReport>;
     saveReport: (report: ExpenseReport) => Promise<ExpensesCache>;
     removeReport: (id: string) => Promise<ExpensesCache>;
-    // Save dialog → fill the CT form PDF → reveal in Finder. Null = cancelled.
+    // Folder picker → the filled CT form PDF plus every referenced receipt
+    // as its own PDF (images converted), written into that folder, which is
+    // then opened. Null = cancelled.
     exportReport: (report: ExpenseReport) => Promise<{ path: string } | null>;
     // Electron ≥32 removed File.path — this wraps webUtils.getPathForFile so
     // drag-and-dropped receipts resolve to real filesystem paths.

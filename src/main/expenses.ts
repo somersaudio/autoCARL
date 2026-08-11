@@ -7,7 +7,8 @@ import { promisify } from 'node:util';
 import type { Booking, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache } from '../shared/types';
 import { extractText } from './flight-parser';
 import { parseReceiptText } from './receipt-parse';
-import { fillExpensePdf, type ReceiptAttachment } from './expense-pdf';
+import { PDFDocument } from '@cantoo/pdf-lib';
+import { fillExpensePdf } from './expense-pdf';
 import { readCachedBookings, readContactsCache, readSswWeeksCache } from './store';
 
 const execFileP = promisify(execFile);
@@ -275,7 +276,6 @@ export async function buildDraftReport(bookingIds: string[]): Promise<ExpenseRep
     mileageRate: 0.70,
     comments: '',
     notes: '',
-    attachReceipts: true,
     rows,
   };
 }
@@ -297,7 +297,6 @@ function sanitizeReport(report: ExpenseReport): ExpenseReport {
       ? Math.min(report.mileageRate, 10) : 0.70,
     comments: str(report.comments, 600),
     notes: str(report.notes, 1200),
-    attachReceipts: report.attachReceipts !== false,
     rows: (Array.isArray(report.rows) ? report.rows : []).slice(0, 60).map((r) => ({
       jobNumber: str(r.jobNumber, 20),
       description: str(r.description, 120),
@@ -329,37 +328,81 @@ export async function removeReport(id: string): Promise<ExpensesCache> {
 
 // ---- export ----
 
+// Wrap a receipt image in a single-page letter PDF, fitted within margins.
+async function imageToPdf(imagePath: string, outPath: string): Promise<void> {
+  const bytes = new Uint8Array(await fs.readFile(imagePath));
+  const doc = await PDFDocument.create();
+  const img = imagePath.toLowerCase().endsWith('.png')
+    ? await doc.embedPng(bytes)
+    : await doc.embedJpg(bytes);
+  const page = doc.addPage([612, 792]);
+  const maxW = 612 - 72;
+  const maxH = 792 - 72;
+  const scale = Math.min(maxW / img.width, maxH / img.height, 1);
+  const w = img.width * scale;
+  const h = img.height * scale;
+  page.drawImage(img, { x: (612 - w) / 2, y: (792 - h) / 2, width: w, height: h });
+  await fs.writeFile(outPath, await doc.save());
+}
+
+const FILE_LABEL: Record<string, string> = {
+  lodging: 'Lodging', airfare: 'Airfare', parking: 'Parking',
+  carRental: 'Car Rental', rideshare: 'Uber-Lyft-Taxi', misc: 'Misc',
+};
+
+function safeName(s: string): string {
+  return s.replace(/[\/\\:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Export into a folder of the user's choice: the filled CT form PDF plus
+ * every receipt referenced by the report as its own PDF — images converted,
+ * PDF receipts copied — numbered in form-line order so file 03 is line 3's
+ * receipt. Opens the folder when done.
+ */
 export async function exportReport(report: ExpenseReport): Promise<{ path: string } | null> {
   const clean = sanitizeReport(report);
-  const { canceled, filePath } = await dialog.showSaveDialog({
-    title: 'Export expense report',
-    defaultPath: join(app.getPath('downloads'), `CT Expense Report ${clean.date.replace(/\//g, '-') || 'draft'}.pdf`),
-    filters: [{ name: 'PDF', extensions: ['pdf'] }],
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Choose a folder for the report and receipts',
+    buttonLabel: 'Export Here',
+    defaultPath: app.getPath('downloads'),
+    properties: ['openDirectory', 'createDirectory'],
   });
-  if (canceled || !filePath) return null;
+  const dir = filePaths?.[0];
+  if (canceled || !dir) return null;
 
+  const template = new Uint8Array(await fs.readFile(resourcePath('expense-template.pdf')));
+  const formBytes = await fillExpensePdf(template, clean);
+  await fs.writeFile(join(dir, `CT Expense Report ${safeName(clean.date.replace(/\//g, '-')) || 'draft'}.pdf`), formBytes);
+
+  // Receipts in form-line order, numbered to match their lines.
   const cache = await readExpensesCache();
-  const attachments: ReceiptAttachment[] = [];
-  if (clean.attachReceipts) {
-    const wanted = new Set(clean.rows.flatMap((r) => r.receiptIds));
-    for (const r of cache.receipts) {
-      if (!wanted.has(r.id)) continue;
-      try {
-        attachments.push({
-          bytes: new Uint8Array(await fs.readFile(r.file)),
-          kind: r.kind,
-          isPng: r.file.toLowerCase().endsWith('.png'),
-          caption: [r.merchant, r.date, r.amount ? `$${r.amount.toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '']
-            .filter(Boolean).join('  —  '),
-        });
-      } catch { /* stored copy missing — skip, the form itself still exports */ }
+  const ordered: ExpenseReceipt[] = [];
+  for (const row of clean.rows) {
+    for (const id of row.receiptIds) {
+      const r = cache.receipts.find((x) => x.id === id);
+      if (r) ordered.push(r);
+    }
+  }
+  let n = 0;
+  for (const r of ordered) {
+    n += 1;
+    const desc = (r.description || r.merchant || '').trim();
+    const name = safeName(
+      `Receipt ${String(n).padStart(2, '0')} - ${FILE_LABEL[r.category] || 'Receipt'} $${r.amount.toFixed(2)}`
+      + (desc ? ` - ${desc.slice(0, 40)}` : ''),
+    ) + '.pdf';
+    try {
+      if (r.kind === 'pdf') await fs.copyFile(r.file, join(dir, name));
+      else await imageToPdf(r.file, join(dir, name));
+    } catch (e) {
+      // A missing stored copy shouldn't sink the export — the form and the
+      // other receipts still land.
+      console.warn('[expenses] receipt export failed:', name, e instanceof Error ? e.message : e);
     }
   }
 
-  const template = new Uint8Array(await fs.readFile(resourcePath('expense-template.pdf')));
-  const bytes = await fillExpensePdf(template, clean, attachments);
-  await fs.writeFile(filePath, bytes);
   await saveReport(clean);                        // exported = worth keeping
-  shell.showItemInFolder(filePath);
-  return { path: filePath };
+  await shell.openPath(dir);
+  return { path: dir };
 }
