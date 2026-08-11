@@ -32,29 +32,72 @@ const MONEY = /\$?\s?(\d{1,3}(?:,\d{3})*|\d+)\.(\d{2})\b/g;
 const TOTAL_LINE = /\b(grand total|amount due|balance due|total charged|total paid|payment received|total)\b/i;
 const NOT_TOTAL = /\b(sub-?total|total savings|total items|total qty)\b/i;
 
+// Reward/credit noise. Uber prints "$2.24 / Uber One credits earned" right
+// beside the total, and Vision's line order for that two-column layout is
+// unstable — the credits amount can land directly AFTER the "Total" label
+// while the real total lands BEFORE it. So any amount whose own line OR a
+// neighboring line talks about earned credits/rewards is disqualified.
+const KILL_NEAR = /\b(credits? earned|uber (one|cash) credits?|rewards?|cash ?back|points earned|you saved|savings)\b/i;
+// Card-authorization scrawl ("AX AUTH: 172272 $45.80 ...") — the auth amount
+// can differ from the printed total; never read money off these lines.
+const KILL_LINE = /\b(auth|authoriz)/i;
+
+// Positive dollar amounts on a line. Amounts preceded by a minus (applied
+// credits/refunds, "-$4.41") are not charges and are skipped.
 function moneyIn(line: string): number[] {
   const out: number[] = [];
   for (const m of line.matchAll(MONEY)) {
+    const before = line.slice(0, m.index).trimEnd().slice(-1);
+    if (before === '-' || before === '−' || before === '(') continue;
     out.push(parseFloat(`${m[1].replace(/,/g, '')}.${m[2]}`));
   }
   return out;
 }
 
+// Pick the amount that is most plausibly the receipt's total. OCR of
+// two-column receipts interleaves labels and values in unreliable order, so
+// instead of trusting sequence, every candidate amount is scored by the
+// company it keeps:
+//   100  a total keyword on its own line
+//    60  a total-keyword label on the line directly above or below
+//    50  a "Payments" anchor on the line above (Uber repeats the total there)
+//     0  nothing — falls back to the largest surviving amount
+// Ties go to the larger amount (a total is never smaller than a line item).
 function parseAmount(lines: string[]): number {
-  // Prefer the LAST total-looking line — receipts put the real total at the
-  // bottom, after tax lines that also say "total".
-  for (let i = lines.length - 1; i >= 0; i--) {
-    const line = lines[i];
-    if (!TOTAL_LINE.test(line) || NOT_TOTAL.test(line)) continue;
-    // The amount may sit on the same line or (OCR column splits) the next one.
-    const here = moneyIn(line);
-    if (here.length) return Math.max(...here);
-    const next = lines[i + 1] ? moneyIn(lines[i + 1]) : [];
-    if (next.length) return Math.max(...next);
+  type Cand = { amount: number; i: number };
+  const cands: Cand[] = [];
+  lines.forEach((line, i) => {
+    if (KILL_LINE.test(line)) return;
+    for (const amount of moneyIn(line)) {
+      if (amount > 0) cands.push({ amount, i });
+    }
+  });
+  const nearKill = (i: number) =>
+    KILL_NEAR.test(lines[i])
+    || (i > 0 && KILL_NEAR.test(lines[i - 1]))
+    || (i + 1 < lines.length && KILL_NEAR.test(lines[i + 1]));
+  const alive = cands.filter((c) => !nearKill(c.i));
+  const pool = alive.length ? alive : cands;
+  if (!pool.length) return 0;
+
+  const isTotalLabel = (s: string) => TOTAL_LINE.test(s) && !NOT_TOTAL.test(s);
+  let best = pool[0];
+  let bestScore = -1;
+  for (const c of pool) {
+    let score = 0;
+    if (isTotalLabel(lines[c.i])) score = 100;
+    else if (
+      (c.i > 0 && isTotalLabel(lines[c.i - 1]))
+      || (c.i + 1 < lines.length && isTotalLabel(lines[c.i + 1]))
+    ) score = 60;
+    else if (c.i > 0 && /\bpayments?\b/i.test(lines[c.i - 1])) score = 50;
+    if (score > bestScore || (score === bestScore && c.amount > best.amount)) {
+      best = c;
+      bestScore = score;
+    }
   }
-  // No labelled total — fall back to the largest dollar figure anywhere.
-  const all = lines.flatMap(moneyIn);
-  return all.length ? Math.max(...all) : 0;
+  if (bestScore > 0) return best.amount;
+  return Math.max(...pool.map((c) => c.amount));
 }
 
 const MONTHS: Record<string, number> = {
