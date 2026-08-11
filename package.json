@@ -1,6 +1,6 @@
 {
   "name": "autocarl",
-  "version": "0.9.33",
+  "version": "0.9.34",
   "description": "AUTOcarl — instant schedule via iCal, direct-POST timesheet writes",
   "main": "out/main/index.js",
   "author": "Creative Technology Crew",
