@@ -272,8 +272,11 @@ export default function ExpensesTab({ bookings }: Props) {
   // receipts — switching the dropdown switches the list. Receipts from
   // before this flow (no gig recorded) surface below with a one-click adopt.
   const activeBooking = bookingById.get(activeBookingId);
-  const activeReceipts = receipts.filter((r) => r.bookingId === activeBookingId);
-  const unassigned = receipts.filter((r) => !r.bookingId);
+  // Category A→Z (as labeled), then price low→high within each category.
+  const receiptOrder = (a: ExpenseReceipt, b: ExpenseReceipt) =>
+    CATEGORY_LABEL[a.category].localeCompare(CATEGORY_LABEL[b.category]) || a.amount - b.amount;
+  const activeReceipts = receipts.filter((r) => r.bookingId === activeBookingId).sort(receiptOrder);
+  const unassigned = receipts.filter((r) => !r.bookingId).sort(receiptOrder);
 
   // Adopt a gig-less receipt onto the active gig — and into the open
   // report, exactly as if it had just been dropped.
@@ -517,8 +520,7 @@ function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel }: {
   adoptLabel?: string;
 }) {
   return (
-    <div className="exp-receipt-row">
-      <span className="exp-kind" title={r.merchant ? `${r.merchant} — ${r.originalName}` : r.originalName}>{r.kind === 'pdf' ? '📄' : '🧾'}</span>
+    <div className="exp-receipt-row" title={r.merchant ? `${r.merchant} — ${r.originalName}` : r.originalName}>
       <select
         className="exp-in exp-in-cat"
         value={r.category}

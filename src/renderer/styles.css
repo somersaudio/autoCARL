@@ -1802,8 +1802,6 @@ a.featured-venue:hover .featured-venue-name {
 
 .exp-receipt-row:last-child { border-bottom: none; }
 
-.exp-kind { font-size: 14px; text-align: center; cursor: default; }
-
 .exp-in {
   padding: 4px 6px;
   font-size: 12px;
