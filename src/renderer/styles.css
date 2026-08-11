@@ -1846,16 +1846,77 @@ a.featured-venue:hover .featured-venue-name {
   flex-shrink: 0;
 }
 
-/* Half again the size of a standard control — this is the tab's steering
-   wheel, it can afford the presence. */
-.exp-gig-select {
-  width: auto;
-  max-width: 690px;
-  flex: 1;
-  font-size: 15px;
+/* Custom gig dropdown — half again the size of a standard control (it's
+   the tab's steering wheel): gig name left, receipt count pinned right. */
+.gigpick { position: relative; flex: 1; max-width: 690px; }
+
+.gigpick-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
   padding: 9px 12px;
+  font: inherit;
+  font-size: 15px;
+  color: inherit;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
   border-radius: 7px;
+  cursor: pointer;
+  text-align: left;
 }
+
+.gigpick-btn:focus-visible { outline: none; border-color: var(--ct-gold); }
+
+.gigpick-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gigpick-count {
+  color: var(--text-subtle);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.gigpick-chev { color: var(--text-subtle); font-size: 11px; }
+
+.gigpick-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+  z-index: 60;
+  padding: 4px;
+}
+
+.gigpick-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 13.5px;
+  color: inherit;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.gigpick-row:hover { background: rgba(255, 255, 255, 0.07); }
+.gigpick-row.is-current .gigpick-name { color: var(--ct-gold); }
 
 .exp-hint-inline { font-size: 12px; }
 

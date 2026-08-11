@@ -54,6 +54,8 @@ export default function ExpensesTab({ bookings }: Props) {
   const [busy, setBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
   const [mailBusy, setMailBusy] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const pickerRef = useRef<HTMLDivElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ExpenseReport | null>(null);
@@ -69,6 +71,21 @@ export default function ExpensesTab({ bookings }: Props) {
   const [sheetScale, setSheetScale] = useState(1);
 
   cacheRef.current = cache;
+
+  // Close the gig menu on outside click or Escape.
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) setPickerOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setPickerOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [pickerOpen]);
 
   // Errors announce themselves and then get out of the way — visible long
   // enough to read (10s, with a fade at the end), gone without tab-hopping.
@@ -402,33 +419,47 @@ export default function ExpensesTab({ bookings }: Props) {
         {gigLogo
           ? <img src={gigLogo} alt="" className="exp-gig-logo" />
           : <span className="exp-gig-label subtle">Gig</span>}
-        <select
-          className="exp-in exp-gig-select"
-          value={selectedGig}
-          onChange={(e) => setSelectedGig(e.target.value)}
-          // Hovering the closed control shows the selected gig's dates —
-          // same-named bookings (split for billing) tell apart this way
-          // without cluttering the labels.
-          title={(() => {
-            const b = bookingById.get(selectedGig);
-            return b ? `${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}` : undefined;
-          })()}
-        >
-          {gigOptions.length === 0 && <option value="">No gigs on the calendar yet</option>}
-          {gigOptions.map((b) => {
-            const n = receiptCountFor(b.bookingId);
-            const hasReport = (cache?.reports ?? []).some((r) => draftGigId(r) === b.bookingId);
-            return (
-              <option
-                key={b.bookingId}
-                value={b.bookingId}
-                title={`${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}`}
-              >
-                {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}{hasReport ? ' · report' : ''}
-              </option>
-            );
-          })}
-        </select>
+        {/* Custom dropdown — a native <option> can't right-justify its
+            receipt count, so the menu is ours. Hover shows job# + dates. */}
+        <div className="gigpick" ref={pickerRef}>
+          <button
+            className="gigpick-btn"
+            onClick={() => setPickerOpen((o) => !o)}
+            disabled={gigOptions.length === 0}
+            title={(() => {
+              const b = bookingById.get(selectedGig);
+              return b ? `${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}` : undefined;
+            })()}
+          >
+            <span className="gigpick-name">
+              {bookingById.get(selectedGig)?.jobName ?? 'No gigs on the calendar yet'}
+            </span>
+            {receiptCountFor(selectedGig) > 0 && (
+              <span className="gigpick-count">
+                {receiptCountFor(selectedGig)} receipt{receiptCountFor(selectedGig) === 1 ? '' : 's'}
+              </span>
+            )}
+            <span className="gigpick-chev">▾</span>
+          </button>
+          {pickerOpen && (
+            <div className="gigpick-menu">
+              {gigOptions.map((b) => {
+                const n = receiptCountFor(b.bookingId);
+                return (
+                  <button
+                    key={b.bookingId}
+                    className={`gigpick-row${b.bookingId === selectedGig ? ' is-current' : ''}`}
+                    title={`${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}`}
+                    onClick={() => { setSelectedGig(b.bookingId); setPickerOpen(false); }}
+                  >
+                    <span className="gigpick-name">{b.jobName}</span>
+                    {n > 0 && <span className="gigpick-count">{n} receipt{n === 1 ? '' : 's'}</span>}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* ---- receipt intake ---- */}
