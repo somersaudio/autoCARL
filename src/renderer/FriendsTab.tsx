@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import type { Booking, FriendEntry, FriendGig, FriendsList } from '../shared/types';
+import runnerLogo from './assets/aim-runner.png';
 
 // The Friends tab, dressed as a 1999 buddy list — beveled chrome, blue title
 // bar, groups with (n/total) counts, and away messages. The joke is loving:
@@ -189,8 +190,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         <span>{myName ? `${myName}'s Buddy List` : 'Buddy List'} ...</span>
       </div>
       <div className="aim-menubar">
-        <span>My C.A.R.L.</span><span>People</span>
-        <span title="Have you tried asking John?">Help</span>
+        <span>My C.A.R.L.</span>
       </div>
       <AimBanner />
       <div className="aim-tabs">
@@ -339,22 +339,23 @@ function AimBanner() {
       <RunnerIcon size={44} />
       <div className="aim-banner-text">
         <span className="aim-banner-carl">C.A.R.L.</span>
-        <span className="aim-banner-sub">Instant<br />Messenger<span className="aim-tm">™</span></span>
+        <span className="aim-banner-sub">Buddy<br />List<span className="aim-tm">™</span></span>
       </div>
     </div>
   );
 }
 
-// A yellow running figure in the spirit of a certain 1999 icon — drawn fresh,
-// mid-sprint, allegedly late for load-in.
+// The yellow running man, allegedly late for load-in. Sized by height and left
+// to work out its own width so the artwork's 250x279 proportions survive at
+// both call sites — the 12px titlebar and the 44px banner.
 function RunnerIcon({ size }: { size: number }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
-      <g fill="#ffcc00">
-        <circle cx="14.2" cy="3.4" r="2.6" />
-        <path d="M10.5 6.5 L15.5 6.8 L17.8 10.2 L21 11.4 L20.2 13.4 L16.4 12.1 L14.6 9.8 L13.2 13.6 L16 16.2 L14.8 21.5 L12.4 21 L13.3 17.2 L10 14.4 L8.2 17.6 L3.4 19.8 L2.4 17.9 L6.6 15.9 L8.6 12 L9.9 8.4 L6.2 9.6 L4.6 12.4 L2.7 11.4 L4.8 7.8 Z" />
-      </g>
-    </svg>
+    <img
+      src={runnerLogo}
+      alt=""
+      aria-hidden="true"
+      style={{ height: size, width: 'auto', display: 'block' }}
+    />
   );
 }
 
