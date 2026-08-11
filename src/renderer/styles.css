@@ -1829,8 +1829,23 @@ a.featured-venue:hover .featured-venue-name {
 .exp-x:hover:not(:disabled) { color: #e66; }
 .exp-x.is-armed { color: #e66; font-weight: 600; }
 
-/* Gig dropdown for a new report. */
-.exp-gig-select { width: auto; max-width: 420px; flex: 1; }
+/* Gig picker bar — the tab's master selector. */
+.exp-gig-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 18px;
+}
+
+.exp-gig-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.exp-gig-select { width: auto; max-width: 460px; flex: 1; }
+
+.exp-hint-inline { font-size: 12px; }
 
 .exp-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .exp-exported { font-size: 12px; color: #7cd9a0; }

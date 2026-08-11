@@ -264,6 +264,7 @@ export async function buildDraftReport(bookingIds: string[]): Promise<ExpenseRep
   return {
     id: randomUUID(),
     createdAt: new Date().toISOString(),
+    bookingId: chosen[0]?.bookingId ?? '',
     date: todayMDY(),
     name: latestWeek?.name || '',
     // SSW's employeeId field actually stores the user's EMAIL; the numeric
@@ -286,6 +287,7 @@ function sanitizeReport(report: ExpenseReport): ExpenseReport {
   return {
     id: str(report.id, 40) || randomUUID(),
     createdAt: str(report.createdAt, 40) || new Date().toISOString(),
+    bookingId: str(report.bookingId, 64),
     date: str(report.date, 20),
     name: str(report.name, 60),
     employeeId: str(report.employeeId, 30),

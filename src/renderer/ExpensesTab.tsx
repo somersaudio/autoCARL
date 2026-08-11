@@ -79,10 +79,15 @@ export default function ExpensesTab({ bookings }: Props) {
   // leaves the user's choice alone.
   useEffect(() => {
     if (selectedGig || !cache || !bookings.length) return;
+    // The open report's gig wins; then the newest gig holding receipts; then
+    // simply the newest gig.
+    const fromDraft = cache.reports[0] ? draftGigId(cache.reports[0]) : '';
+    if (fromDraft) { setSelectedGig(fromDraft); return; }
     const withReceipts = new Set(cache.receipts.map((r) => r.bookingId).filter(Boolean));
     const sorted = bookings.slice().sort((a, b) => b.startDate.localeCompare(a.startDate));
     const pick = sorted.find((b) => withReceipts.has(b.bookingId)) || sorted[0];
     if (pick) setSelectedGig(pick.bookingId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGig, cache, bookings]);
 
   // Draft edits persist automatically (debounced) so flipping to Timesheet to
@@ -111,19 +116,22 @@ export default function ExpensesTab({ bookings }: Props) {
     return m;
   }, [bookings]);
 
+  // The gig a report belongs to: the stored link, with a jobNumber fallback
+  // for reports saved before the link existed.
+  const draftGigId = (rep: ExpenseReport): string => {
+    if (rep.bookingId) return rep.bookingId;
+    for (const row of rep.rows) {
+      const b = bookings.find((x) => x.jobNumber && x.jobNumber === row.jobNumber);
+      if (b) return b.bookingId;
+    }
+    return '';
+  };
+
   const receipts = cache?.receipts ?? [];
 
-  // The gig receipts get filed under: the open draft's gig if one is open,
-  // otherwise the builder dropdown's selection.
-  const activeBookingId = useMemo(() => {
-    if (draft) {
-      for (const row of draft.rows) {
-        const b = bookings.find((x) => x.jobNumber && x.jobNumber === row.jobNumber);
-        if (b) return b.bookingId;
-      }
-    }
-    return selectedGig;
-  }, [draft, bookings, selectedGig]);
+  // The picker at the top of the tab is the single source of truth for
+  // which gig receipts get filed under and shown for.
+  const activeBookingId = selectedGig;
 
   // Mirror a receipt change into the open draft. Rows and receipts are 1:1
   // — every receipt owns exactly one form line — so: a fresh drop appends a
@@ -152,7 +160,7 @@ export default function ExpensesTab({ bookings }: Props) {
       }
       if (after) {                              // fresh drop → new line
         const b = bookings.find((x) => x.bookingId === after.bookingId);
-        if (!b) return d;
+        if (!b || draftGigId(d) !== after.bookingId) return d;
         rows.push({
           jobNumber: b.jobNumber,
           description: after.description || '',
@@ -324,6 +332,37 @@ export default function ExpensesTab({ bookings }: Props) {
     <div className="expenses">
       {error && <div className="banner error">{error}</div>}
 
+      {/* ---- gig picker: everything below follows this choice ---- */}
+      <div className="card exp-gig-bar">
+        <span className="exp-gig-label subtle">Gig</span>
+        <select
+          className="exp-in exp-gig-select"
+          value={selectedGig}
+          onChange={(e) => setSelectedGig(e.target.value)}
+          // Hovering the closed control shows the selected gig's dates —
+          // same-named bookings (split for billing) tell apart this way
+          // without cluttering the labels.
+          title={(() => {
+            const b = bookingById.get(selectedGig);
+            return b ? `${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}` : undefined;
+          })()}
+        >
+          {gigOptions.length === 0 && <option value="">No gigs on the calendar yet</option>}
+          {gigOptions.map((b) => {
+            const n = receiptCountFor(b.bookingId);
+            return (
+              <option
+                key={b.bookingId}
+                value={b.bookingId}
+                title={`${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}`}
+              >
+                {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
+              </option>
+            );
+          })}
+        </select>
+      </div>
+
       {/* ---- receipt intake ---- */}
       <div
         className={`card exp-drop ${dragOver ? 'is-over' : ''}`}
@@ -370,44 +409,25 @@ export default function ExpensesTab({ bookings }: Props) {
       )}
 
       {/* ---- report builder / editor ---- */}
-      {!draft ? (
+      {!(draft && draftGigId(draft) === selectedGig) ? (
         <div className="card">
           <h3>New Expense Report</h3>
           <div className="subtle exp-hint">
-            Pick a gig — its receipts fill the form's columns and miles come from your
-            timesheets. Everything is editable before export, and rows for more gigs
-            can be added in the editor.
+            This gig's receipts fill the form's columns — one line each — and miles
+            come from your timesheets. Everything is editable before export.
           </div>
           <div className="exp-actions">
-            <select
-              className="exp-in exp-gig-select"
-              value={selectedGig}
-              onChange={(e) => setSelectedGig(e.target.value)}
-              // Hovering the closed control shows the selected gig's dates —
-              // same-named bookings (split for billing) tell apart this way
-              // without cluttering the labels.
-              title={(() => {
-                const b = bookingById.get(selectedGig);
-                return b ? `${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}` : undefined;
-              })()}
-            >
-              {gigOptions.length === 0 && <option value="">No gigs on the calendar yet</option>}
-              {gigOptions.map((b) => {
-                const n = receiptCountFor(b.bookingId);
-                return (
-                  <option
-                    key={b.bookingId}
-                    value={b.bookingId}
-                    title={`${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}`}
-                  >
-                    {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
-                  </option>
-                );
-              })}
-            </select>
             <button className="primary" onClick={buildDraft} disabled={!selectedGig || !bookingById.has(selectedGig)}>
               Build report
             </button>
+            {draft && (
+              <span className="subtle exp-hint-inline">
+                replaces the current report{(() => {
+                  const b = bookingById.get(draftGigId(draft));
+                  return b ? ` (${b.jobNumber})` : '';
+                })()}
+              </span>
+            )}
           </div>
         </div>
       ) : (
@@ -433,7 +453,7 @@ export default function ExpensesTab({ bookings }: Props) {
           </div>
           <div className="exp-actions">
             <button className="primary" onClick={exportPdf} disabled={exportBusy}>
-              {exportBusy ? 'Exporting…' : 'Export PDFs'}
+              {exportBusy ? 'Exporting…' : 'Export Report & Receipts'}
             </button>
             <button className="link exp-x" onClick={discardDraft}>Delete report</button>
             {exportedPath && <span className="subtle exp-exported">Exported — folder opened</span>}

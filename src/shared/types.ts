@@ -224,6 +224,9 @@ export type ExpenseRow = {
 export type ExpenseReport = {
   id: string;
   createdAt: string;        // ISO timestamp
+  // The gig this report was built for — keeps the picker, receipts list and
+  // sheet in agreement. '' on reports saved before this field existed.
+  bookingId: string;
   date: string;             // form DATE field, MM/DD/YYYY
   name: string;
   employeeId: string;
