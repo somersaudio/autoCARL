@@ -26,8 +26,12 @@ import {
 } from './friends';
 import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
+import {
+  addReceiptFiles, buildDraftReport, exportReport, openReceipt, pickReceiptFiles,
+  readExpensesCache, removeReceipt, removeReport, saveReport, updateReceipt,
+} from './expenses';
 import type {
-  Booking, BookingContactsCache, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress,
+  Booking, BookingContactsCache, ExpenseReceipt, ExpenseReport, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress,
   UserSettings,
 } from '../shared/types';
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
@@ -520,6 +524,21 @@ function registerIpc(): void {
   ipcMain.handle('ssw:fetchWeek', (_e, weekStartDate: string) => fetchWeek(weekStartDate));
   ipcMain.handle('ssw:createWeek', (_e, weekStartDate: string) => createWeek(weekStartDate));
   ipcMain.handle('ssw:pushWeek', (_e, week: SswWeek) => pushWeek(week));
+
+  // ---- expense reports ----
+  ipcMain.handle('expenses:getCached', () => readExpensesCache());
+  ipcMain.handle('expenses:addFiles', (_e, paths: string[]) =>
+    addReceiptFiles((Array.isArray(paths) ? paths : []).filter((p): p is string => typeof p === 'string')));
+  ipcMain.handle('expenses:pickFiles', () => pickReceiptFiles());
+  ipcMain.handle('expenses:updateReceipt', (_e, id: string, patch: Partial<ExpenseReceipt>) =>
+    updateReceipt(String(id ?? ''), patch ?? {}));
+  ipcMain.handle('expenses:removeReceipt', (_e, id: string) => removeReceipt(String(id ?? '')));
+  ipcMain.handle('expenses:openReceipt', (_e, id: string) => openReceipt(String(id ?? '')));
+  ipcMain.handle('expenses:buildDraft', (_e, bookingIds: string[]) =>
+    buildDraftReport((Array.isArray(bookingIds) ? bookingIds : []).filter((p): p is string => typeof p === 'string')));
+  ipcMain.handle('expenses:saveReport', (_e, report: ExpenseReport) => saveReport(report));
+  ipcMain.handle('expenses:removeReport', (_e, id: string) => removeReport(String(id ?? '')));
+  ipcMain.handle('expenses:exportReport', (_e, report: ExpenseReport) => exportReport(report));
 
   ipcMain.handle('logo:forJob', (_e, jobName: string) => getJobLogo(jobName));
 

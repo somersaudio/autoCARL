@@ -1,6 +1,6 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
-  Api, Booking, BookingContactsCache, FlightsCache,
+  Api, Booking, BookingContactsCache, ExpenseReport, ExpensesCache, FlightsCache,
   FriendsList, FriendsStatus, RefreshResult, SetupStatus, SswPushResult, SswWeek, UpdateProgress, UserSettings,
 } from '../shared/types';
 
@@ -67,6 +67,21 @@ const api: Api = {
     request: (email) => ipcRenderer.invoke('friends:request', email) as Promise<void>,
     respond: (email, accept) => ipcRenderer.invoke('friends:respond', email, accept) as Promise<void>,
     remove: (email) => ipcRenderer.invoke('friends:remove', email) as Promise<void>,
+  },
+  expenses: {
+    getCached: () => ipcRenderer.invoke('expenses:getCached') as Promise<ExpensesCache>,
+    addFiles: (paths) => ipcRenderer.invoke('expenses:addFiles', paths) as Promise<ExpensesCache>,
+    pickFiles: () => ipcRenderer.invoke('expenses:pickFiles') as Promise<ExpensesCache | null>,
+    updateReceipt: (id, patch) => ipcRenderer.invoke('expenses:updateReceipt', id, patch) as Promise<ExpensesCache>,
+    removeReceipt: (id) => ipcRenderer.invoke('expenses:removeReceipt', id) as Promise<ExpensesCache>,
+    openReceipt: (id) => ipcRenderer.invoke('expenses:openReceipt', id) as Promise<void>,
+    buildDraft: (bookingIds) => ipcRenderer.invoke('expenses:buildDraft', bookingIds) as Promise<ExpenseReport>,
+    saveReport: (report) => ipcRenderer.invoke('expenses:saveReport', report) as Promise<ExpensesCache>,
+    removeReport: (id) => ipcRenderer.invoke('expenses:removeReport', id) as Promise<ExpensesCache>,
+    exportReport: (report) => ipcRenderer.invoke('expenses:exportReport', report) as Promise<{ path: string } | null>,
+    // Synchronous, preload-local — no IPC. Dropped File objects only resolve
+    // to paths here, where webUtils is available.
+    pathForFile: (file) => webUtils.getPathForFile(file),
   },
   updater: {
     onProgress: (handler) => {

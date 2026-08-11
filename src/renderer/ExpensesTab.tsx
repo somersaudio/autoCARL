@@ -1,0 +1,461 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type {
+  Booking, ExpenseCategory, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache,
+} from '../shared/types';
+import { friendlyError } from '../shared/errors';
+
+// The Expense Reports tab: drop receipts in, the app reads them (on-device
+// OCR for photos, text extraction for PDF receipts), sorts them into the CT
+// form's categories, matches them to gigs by date — then builds the official
+// CT Expense Reimbursement Form as a PDF, with the receipts attached as
+// pages. Every parsed value stays editable; the OCR is a head start, not an
+// authority.
+
+type Props = { bookings: Booking[] };
+
+const CATEGORY_LABEL: Record<ExpenseCategory, string> = {
+  lodging: 'Lodging',
+  airfare: 'Airfare',
+  parking: 'Parking',
+  carRental: 'Car Rental',
+  rideshare: 'Uber/Lyft/Taxi',
+  misc: 'Misc.',
+};
+
+const MONEY_COLS = ['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc'] as const;
+
+function usd(n: number): string {
+  return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+
+function mileageDollars(row: ExpenseRow, rate: number): number {
+  return Math.round(row.miles * rate * 100) / 100;
+}
+
+function rowTotal(row: ExpenseRow, rate: number): number {
+  return MONEY_COLS.reduce((a, k) => a + row[k], 0) + mileageDollars(row, rate);
+}
+
+export default function ExpensesTab({ bookings }: Props) {
+  const [cache, setCache] = useState<ExpensesCache | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [exportBusy, setExportBusy] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [draft, setDraft] = useState<ExpenseReport | null>(null);
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [armedId, setArmedId] = useState<string | null>(null);
+  const [exportedPath, setExportedPath] = useState<string | null>(null);
+  const armTimer = useRef<number | null>(null);
+
+  useEffect(() => {
+    window.api.expenses.getCached().then((c) => {
+      setCache(c);
+      // Preselect the gigs that already have receipts on them.
+      const pre: Record<string, boolean> = {};
+      for (const r of c.receipts) if (r.bookingId) pre[r.bookingId] = true;
+      setSelected(pre);
+    }).catch((e) => setError(friendlyError(e, !navigator.onLine)));
+  }, []);
+
+  // Draft edits persist automatically (debounced) so flipping to Timesheet to
+  // check something doesn't throw away a half-adjusted report.
+  useEffect(() => {
+    if (!draft) return;
+    const t = window.setTimeout(() => {
+      window.api.expenses.saveReport(draft).then(setCache).catch(() => {});
+    }, 700);
+    return () => window.clearTimeout(t);
+  }, [draft]);
+
+  const bookingById = useMemo(() => {
+    const m = new Map<string, Booking>();
+    for (const b of bookings) m.set(b.bookingId, b);
+    return m;
+  }, [bookings]);
+
+  const receipts = cache?.receipts ?? [];
+  const unassignedCount = receipts.filter((r) => !r.bookingId).length;
+
+  // ---- intake ----
+
+  const ingest = async (paths: string[]) => {
+    if (!paths.length) return;
+    setBusy(true);
+    setError(null);
+    try {
+      setCache(await window.api.expenses.addFiles(paths));
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    const paths = Array.from(e.dataTransfer.files)
+      .map((f) => { try { return window.api.expenses.pathForFile(f); } catch { return ''; } })
+      .filter(Boolean);
+    void ingest(paths);
+  };
+
+  const browse = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const c = await window.api.expenses.pickFiles();
+      if (c) setCache(c);
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // ---- receipt edits ----
+
+  const patchReceipt = (id: string, patch: Partial<ExpenseReceipt>) => {
+    window.api.expenses.updateReceipt(id, patch).then(setCache).catch(() => {});
+  };
+
+  const armRemove = (id: string) => {
+    if (armedId === id) {
+      if (armTimer.current) window.clearTimeout(armTimer.current);
+      setArmedId(null);
+      window.api.expenses.removeReceipt(id).then(setCache).catch(() => {});
+      return;
+    }
+    setArmedId(id);
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    armTimer.current = window.setTimeout(() => setArmedId(null), 3500);
+  };
+
+  // ---- report drafting ----
+
+  const buildDraft = async () => {
+    const ids = Object.keys(selected).filter((id) => selected[id] && bookingById.has(id));
+    setError(null);
+    try {
+      setDraft(await window.api.expenses.buildDraft(ids));
+      setExportedPath(null);
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    }
+  };
+
+  const patchDraft = (patch: Partial<ExpenseReport>) => {
+    setDraft((d) => (d ? { ...d, ...patch } : d));
+  };
+
+  const patchRow = (i: number, patch: Partial<ExpenseRow>) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const rows = d.rows.slice();
+      rows[i] = { ...rows[i], ...patch };
+      return { ...d, rows };
+    });
+  };
+
+  const exportPdf = async () => {
+    if (!draft) return;
+    setExportBusy(true);
+    setError(null);
+    try {
+      const res = await window.api.expenses.exportReport(draft);
+      if (res) {
+        setExportedPath(res.path);
+        setCache(await window.api.expenses.getCached());
+      }
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    } finally {
+      setExportBusy(false);
+    }
+  };
+
+  const discardDraft = () => {
+    if (draft) window.api.expenses.removeReport(draft.id).then(setCache).catch(() => {});
+    setDraft(null);
+    setExportedPath(null);
+  };
+
+  // ---- receipt grouping for display ----
+
+  const groups = useMemo(() => {
+    const byBooking = new Map<string, ExpenseReceipt[]>();
+    for (const r of receipts) {
+      const key = r.bookingId && bookingById.has(r.bookingId) ? r.bookingId
+        : r.bookingId ? 'stale' : '';
+      if (!byBooking.has(key)) byBooking.set(key, []);
+      byBooking.get(key)!.push(r);
+    }
+    const ordered: Array<{ key: string; label: string; items: ExpenseReceipt[] }> = [];
+    if (byBooking.has('')) ordered.push({ key: '', label: 'Unassigned — pick a gig', items: byBooking.get('')! });
+    const withBookings = [...byBooking.keys()].filter((k) => k && k !== 'stale');
+    withBookings.sort((a, b) => (bookingById.get(b)?.startDate || '').localeCompare(bookingById.get(a)?.startDate || ''));
+    for (const k of withBookings) {
+      const b = bookingById.get(k)!;
+      ordered.push({ key: k, label: `${b.jobName} · ${b.startDate.slice(5)} – ${b.endDate.slice(5)}`, items: byBooking.get(k)! });
+    }
+    if (byBooking.has('stale')) ordered.push({ key: 'stale', label: 'Past gigs (no longer on the calendar)', items: byBooking.get('stale')! });
+    return ordered;
+  }, [receipts, bookingById]);
+
+  const gigOptions = useMemo(
+    () => bookings.slice().sort((a, b) => b.startDate.localeCompare(a.startDate)),
+    [bookings],
+  );
+
+  const receiptCountFor = (bookingId: string) => receipts.filter((r) => r.bookingId === bookingId).length;
+
+  if (!cache) {
+    return <div className="expenses"><p className="subtle">{error ?? 'Loading…'}</p></div>;
+  }
+
+  return (
+    <div className="expenses">
+      {error && <div className="banner error">{error}</div>}
+
+      {/* ---- receipt intake ---- */}
+      <div
+        className={`card exp-drop ${dragOver ? 'is-over' : ''}`}
+        onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={onDrop}
+      >
+        <div className="exp-drop-title">{busy ? 'Reading receipts…' : 'Drop receipts here'}</div>
+        <div className="subtle exp-drop-sub">
+          Photos or PDFs — hotel folios, Uber/Lyft receipts, parking stubs. The app reads each one,
+          fills in what it can, and matches it to a gig by date.
+        </div>
+        <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
+      </div>
+
+      {/* ---- receipt list ---- */}
+      {receipts.length > 0 && (
+        <div className="card">
+          <h3>Receipts</h3>
+          {unassignedCount > 0 && (
+            <div className="subtle exp-hint">
+              {unassignedCount} receipt{unassignedCount === 1 ? '' : 's'} without a gig — assign them so they land on a report.
+            </div>
+          )}
+          {groups.map((g) => (
+            <div key={g.key || 'unassigned'} className="exp-group">
+              <div className="exp-group-h">{g.label}</div>
+              {g.items.map((r) => (
+                <div key={r.id} className="exp-receipt-row">
+                  <span className="exp-kind" title={r.originalName}>{r.kind === 'pdf' ? '📄' : '🧾'}</span>
+                  <input
+                    className="exp-in"
+                    defaultValue={r.merchant}
+                    placeholder="Merchant"
+                    onBlur={(e) => { if (e.target.value !== r.merchant) patchReceipt(r.id, { merchant: e.target.value }); }}
+                  />
+                  <input
+                    className="exp-in exp-in-date"
+                    defaultValue={r.date}
+                    placeholder="YYYY-MM-DD"
+                    onBlur={(e) => { if (e.target.value !== r.date) patchReceipt(r.id, { date: e.target.value.trim() }); }}
+                  />
+                  <select
+                    className="exp-in"
+                    value={r.category}
+                    onChange={(e) => patchReceipt(r.id, { category: e.target.value as ExpenseCategory })}
+                  >
+                    {Object.entries(CATEGORY_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                  </select>
+                  <input
+                    className="exp-in exp-in-amount"
+                    defaultValue={r.amount ? r.amount.toFixed(2) : ''}
+                    placeholder="0.00"
+                    inputMode="decimal"
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
+                      if (isFinite(v) && v >= 0 && v !== r.amount) patchReceipt(r.id, { amount: v });
+                    }}
+                  />
+                  <select
+                    className="exp-in"
+                    value={bookingById.has(r.bookingId) ? r.bookingId : ''}
+                    onChange={(e) => patchReceipt(r.id, { bookingId: e.target.value })}
+                  >
+                    <option value="">No gig</option>
+                    {gigOptions.map((b) => (
+                      <option key={b.bookingId} value={b.bookingId}>{b.jobName} · {b.startDate.slice(5)}</option>
+                    ))}
+                  </select>
+                  <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
+                  <button
+                    className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}
+                    title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}
+                    onClick={() => armRemove(r.id)}
+                  >{armedId === r.id ? 'sure?' : '×'}</button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ---- report builder / editor ---- */}
+      {!draft ? (
+        <div className="card">
+          <h3>New Expense Report</h3>
+          <div className="subtle exp-hint">
+            Pick the gig(s) to report. One form row per gig — receipts fill the columns,
+            miles come from your timesheets. Everything is editable before export.
+          </div>
+          <div className="exp-gig-picks">
+            {gigOptions.map((b) => {
+              const n = receiptCountFor(b.bookingId);
+              return (
+                <label key={b.bookingId} className="exp-gig-pick">
+                  <input
+                    type="checkbox"
+                    checked={!!selected[b.bookingId]}
+                    onChange={(e) => setSelected((s) => ({ ...s, [b.bookingId]: e.target.checked }))}
+                  />
+                  <span>{b.jobName} <span className="subtle">· {b.startDate.slice(5)} – {b.endDate.slice(5)}</span></span>
+                  {n > 0 && <span className="exp-badge">{n} receipt{n === 1 ? '' : 's'}</span>}
+                </label>
+              );
+            })}
+            {gigOptions.length === 0 && <div className="subtle">No gigs on the calendar yet.</div>}
+          </div>
+          <div className="exp-actions">
+            <button className="primary" onClick={buildDraft} disabled={!Object.values(selected).some(Boolean)}>
+              Build report
+            </button>
+            {cache.reports.length > 0 && (
+              <span className="exp-saved">
+                {cache.reports.slice().reverse().map((rep) => (
+                  <button key={rep.id} className="link" onClick={() => { setDraft(rep); setExportedPath(null); }}>
+                    {rep.date || 'draft'} · {rep.rows.map((r) => r.jobNumber).filter(Boolean).slice(0, 2).join(', ') || 'empty'}
+                  </button>
+                ))}
+              </span>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          <h3>CT Expense Reimbursement Form</h3>
+          <div className="exp-form-grid">
+            <div className="field"><label>Date</label>
+              <input value={draft.date} onChange={(e) => patchDraft({ date: e.target.value })} /></div>
+            <div className="field"><label>Name</label>
+              <input value={draft.name} onChange={(e) => patchDraft({ name: e.target.value })} /></div>
+            <div className="field"><label>Employee ID</label>
+              <input value={draft.employeeId} onChange={(e) => patchDraft({ employeeId: e.target.value })} /></div>
+            <div className="field"><label>Project Manager</label>
+              <input value={draft.projectManager} onChange={(e) => patchDraft({ projectManager: e.target.value })} /></div>
+            <div className="field"><label>Labor Coordinator</label>
+              <input value={draft.laborCoordinator} onChange={(e) => patchDraft({ laborCoordinator: e.target.value })} /></div>
+            <div className="field"><label>State Worked In</label>
+              <input value={draft.stateWorkedIn} onChange={(e) => patchDraft({ stateWorkedIn: e.target.value })} /></div>
+            <div className="field"><label>Country/Location</label>
+              <input value={draft.countryWorkedIn} onChange={(e) => patchDraft({ countryWorkedIn: e.target.value })} /></div>
+            <div className="field"><label>Mileage rate $/mi</label>
+              <input
+                defaultValue={draft.mileageRate.toFixed(2)}
+                inputMode="decimal"
+                onBlur={(e) => {
+                  const v = parseFloat(e.target.value);
+                  if (isFinite(v) && v >= 0) patchDraft({ mileageRate: v });
+                }}
+              /></div>
+          </div>
+
+          <div className="exp-table-wrap">
+            <table className="exp-table">
+              <thead>
+                <tr>
+                  <th>Job#</th><th>Description</th><th>Lodging</th><th>Airfare</th><th>Parking</th>
+                  <th>Car Rental</th><th title="Mileage $ is computed at miles × rate">Miles</th><th>Uber/Lyft/Taxi</th><th>Misc.</th>
+                  <th>Total</th><th />
+                </tr>
+              </thead>
+              <tbody>
+                {draft.rows.map((row, i) => (
+                  <tr key={`${draft.id}-${i}`}>
+                    <td><input className="exp-cell exp-cell-job" defaultValue={row.jobNumber}
+                      onBlur={(e) => patchRow(i, { jobNumber: e.target.value })} /></td>
+                    <td><input className="exp-cell exp-cell-desc" defaultValue={row.description}
+                      onBlur={(e) => patchRow(i, { description: e.target.value })} /></td>
+                    {MONEY_COLS.slice(0, 4).map((k) => (
+                      <td key={k}><input className="exp-cell exp-cell-money" defaultValue={row[k] ? row[k].toFixed(2) : ''}
+                        inputMode="decimal" placeholder="—"
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
+                          patchRow(i, { [k]: isFinite(v) && v >= 0 ? v : 0 } as Partial<ExpenseRow>);
+                        }} /></td>
+                    ))}
+                    <td><input className="exp-cell exp-cell-miles" defaultValue={row.miles || ''}
+                      inputMode="numeric" placeholder="—"
+                      title={row.miles ? `Mileage: ${usd(mileageDollars(row, draft.mileageRate))}` : 'Miles driven — mileage $ lands on the form'}
+                      onBlur={(e) => {
+                        const v = parseInt(e.target.value, 10);
+                        patchRow(i, { miles: isFinite(v) && v >= 0 ? v : 0 });
+                      }} /></td>
+                    {MONEY_COLS.slice(4).map((k) => (
+                      <td key={k}><input className="exp-cell exp-cell-money" defaultValue={row[k] ? row[k].toFixed(2) : ''}
+                        inputMode="decimal" placeholder="—"
+                        onBlur={(e) => {
+                          const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
+                          patchRow(i, { [k]: isFinite(v) && v >= 0 ? v : 0 } as Partial<ExpenseRow>);
+                        }} /></td>
+                    ))}
+                    <td className="exp-computed">{usd(rowTotal(row, draft.mileageRate))}</td>
+                    <td><button className="link exp-x" title="Remove row"
+                      onClick={() => patchDraft({ rows: draft.rows.filter((_, j) => j !== i) })}>×</button></td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td colSpan={9} className="exp-computed exp-grand-label">Total</td>
+                  <td className="exp-computed exp-grand">{usd(draft.rows.reduce((a, r) => a + rowTotal(r, draft.mileageRate), 0))}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+          <button className="link" onClick={() => patchDraft({
+            rows: [...draft.rows, {
+              jobNumber: '', description: '', lodging: 0, airfare: 0, parking: 0,
+              carRental: 0, miles: 0, rideshare: 0, misc: 0, receiptIds: [],
+            }],
+          })}>+ add row</button>
+
+          <div className="exp-form-grid exp-form-grid-wide">
+            <div className="field"><label>Comments</label>
+              <textarea rows={2} value={draft.comments} onChange={(e) => patchDraft({ comments: e.target.value })} /></div>
+            <div className="field"><label>Notes</label>
+              <textarea rows={2} value={draft.notes} onChange={(e) => patchDraft({ notes: e.target.value })} /></div>
+          </div>
+
+          <label className="exp-attach">
+            <input
+              type="checkbox"
+              checked={draft.attachReceipts}
+              onChange={(e) => patchDraft({ attachReceipts: e.target.checked })}
+            />
+            Attach receipts as pages after the form
+          </label>
+
+          <div className="exp-actions">
+            <button className="primary" onClick={exportPdf} disabled={exportBusy}>
+              {exportBusy ? 'Exporting…' : 'Export PDF'}
+            </button>
+            <button className="secondary" onClick={() => { setDraft(null); setExportedPath(null); }}>Close</button>
+            <button className="link exp-x" onClick={discardDraft}>Delete report</button>
+            {exportedPath && <span className="subtle exp-exported">Saved — revealed in Finder</span>}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

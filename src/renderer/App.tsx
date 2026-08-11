@@ -8,12 +8,13 @@ import BookingsList from './BookingsList';
 import TimesheetTab from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab from './FriendsTab';
+import ExpensesTab from './ExpensesTab';
 import MatrixRain from './MatrixRain';
 import Starfield from './Starfield';
 import { applyTheme, findTheme } from './themes';
 import logoCT from './assets/logoCT.png';
 
-type Tab = 'bookings' | 'timesheet' | 'friends';
+type Tab = 'bookings' | 'timesheet' | 'expenses' | 'friends';
 
 function mondayOfDate(d: Date): string {
   const day = d.getDay();
@@ -196,6 +197,10 @@ export default function App() {
             onClick={() => setTab('timesheet')}
           >Timesheet</button>
           <button
+            className={`tab ${tab === 'expenses' ? 'is-active' : ''}`}
+            onClick={() => setTab('expenses')}
+          >Expense Reports</button>
+          <button
             className={`tab ${tab === 'friends' ? 'is-active' : ''}`}
             onClick={() => setTab('friends')}
           >Friends</button>
@@ -222,6 +227,10 @@ export default function App() {
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />
+      )}
+
+      {tab === 'expenses' && (
+        <ExpensesTab bookings={bookings} />
       )}
 
       {tab === 'friends' && (

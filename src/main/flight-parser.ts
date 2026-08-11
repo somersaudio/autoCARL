@@ -30,8 +30,9 @@ export type ParsedLeg = {
 
 // Extracts raw text from every page of a PDF on disk. Uses pdfjs-dist's
 // legacy build (CommonJS-friendly) so it works in Electron's main process
-// without bundler gymnastics.
-async function extractText(localPath: string): Promise<string> {
+// without bundler gymnastics. Exported: expenses.ts reuses it for PDF
+// receipts (Uber/Lyft emailed receipts have a real text layer).
+export async function extractText(localPath: string): Promise<string> {
   const buf = await fs.readFile(localPath);
   // Dynamic import keeps pdfjs out of the cold-start path for users who
   // never open a booking with flights.

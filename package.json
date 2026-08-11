@@ -15,9 +15,11 @@
     "release": "electron-vite build && electron-builder --publish always",
     "postrelease": "electron-rebuild -f -w keytar --arch arm64",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
+    "build:ocr": "xcrun swiftc -O -target arm64-apple-macos11 tools/receipt-ocr.swift -o /tmp/receipt-ocr-arm64 && xcrun swiftc -O -target x86_64-apple-macos11 tools/receipt-ocr.swift -o /tmp/receipt-ocr-x64 && lipo -create -output resources/bin/receipt-ocr /tmp/receipt-ocr-arm64 /tmp/receipt-ocr-x64",
     "postinstall": "electron-builder install-app-deps"
   },
   "dependencies": {
+    "@cantoo/pdf-lib": "^2.8.1",
     "electron-updater": "^6.8.3",
     "keytar": "^7.9.0",
     "pdfjs-dist": "^4.7.76",
@@ -44,6 +46,9 @@
       "out/**/*",
       "!**/{.eslintrc.cjs,.prettierrc,.gitignore}"
     ],
+    "extraResources": [
+      { "from": "resources", "to": "." }
+    ],
     "publish": {
       "provider": "github",
       "owner": "somersaudio",
@@ -56,7 +61,8 @@
       ],
       "category": "public.app-category.productivity",
       "artifactName": "${productName}-${arch}.${ext}",
-      "notarize": true
+      "notarize": true,
+      "binaries": ["Contents/Resources/bin/receipt-ocr"]
     },
     "win": {
       "target": [

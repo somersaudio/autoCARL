@@ -174,6 +174,62 @@ export type FriendsList = {
 };
 export type FriendsStatus = { enrolled: boolean; email: string; name: string };
 
+// ----- Expense reports (receipts → CT reimbursement form; see main/expenses.ts) -----
+
+// The categories mirror the CT Expense Reimbursement Form's money columns
+// exactly — a receipt's category decides which column its amount lands in.
+// Mileage is deliberately absent: miles aren't a receipt, they come from
+// timesheets (SswDay.miles) or hand-entry on the report row.
+export type ExpenseCategory = 'lodging' | 'airfare' | 'parking' | 'carRental' | 'rideshare' | 'misc';
+
+export type ExpenseReceipt = {
+  id: string;
+  addedAt: string;          // ISO timestamp
+  file: string;             // absolute path of our stored copy in userData/receipts
+  originalName: string;     // filename as dropped, for display
+  kind: 'image' | 'pdf';
+  merchant: string;         // OCR-parsed; user-editable
+  date: string;             // ISO YYYY-MM-DD; '' = OCR couldn't find one
+  amount: number;           // USD
+  category: ExpenseCategory;
+  bookingId: string;        // matched gig; '' = unassigned
+  ocrText: string;          // raw extracted text, kept for debugging/re-parse
+};
+
+// One line on the form's expense table. Money fields map 1:1 onto columns;
+// mileage dollars are computed at export time as miles × report.mileageRate.
+export type ExpenseRow = {
+  jobNumber: string;
+  description: string;
+  lodging: number;
+  airfare: number;
+  parking: number;
+  carRental: number;
+  miles: number;
+  rideshare: number;
+  misc: number;
+  receiptIds: string[];     // receipts backing this row — attached to the exported PDF
+};
+
+export type ExpenseReport = {
+  id: string;
+  createdAt: string;        // ISO timestamp
+  date: string;             // form DATE field, MM/DD/YYYY
+  name: string;
+  employeeId: string;
+  projectManager: string;
+  laborCoordinator: string;
+  stateWorkedIn: string;
+  countryWorkedIn: string;
+  mileageRate: number;      // $/mile — the 2025 form says 70¢; editable when IRS moves it
+  comments: string;
+  notes: string;
+  attachReceipts: boolean;  // append receipt images/PDFs as pages after the form
+  rows: ExpenseRow[];
+};
+
+export type ExpensesCache = { receipts: ExpenseReceipt[]; reports: ExpenseReport[] };
+
 // Progress of an in-progress macOS auto-update. 'downloading' carries a 0–100
 // percent (when the server gives a Content-Length); 'installing' means the ZIP
 // is down and we're about to swap the bundle and relaunch.
@@ -253,6 +309,30 @@ export type Api = {
     request: (email: string) => Promise<void>;
     respond: (email: string, accept: boolean) => Promise<void>;
     remove: (email: string) => Promise<void>;
+  };
+  expenses: {
+    getCached: () => Promise<ExpensesCache>;
+    // Ingest receipt files (images or PDFs) by absolute path: copy into
+    // userData, OCR/extract text, parse merchant/date/amount/category, and
+    // auto-match to a booking by date. Returns the updated cache.
+    addFiles: (paths: string[]) => Promise<ExpensesCache>;
+    // Same pipeline behind a native open dialog. Null = user cancelled.
+    pickFiles: () => Promise<ExpensesCache | null>;
+    updateReceipt: (id: string, patch: Partial<ExpenseReceipt>) => Promise<ExpensesCache>;
+    removeReceipt: (id: string) => Promise<ExpensesCache>;
+    // Opens the stored receipt copy in the OS default viewer.
+    openReceipt: (id: string) => Promise<void>;
+    // Prefills a report from the chosen bookings: identity from SSW, PM/LC
+    // from the bookings, per-category sums from assigned receipts, miles from
+    // cached timesheets. Not persisted until saveReport/exportReport.
+    buildDraft: (bookingIds: string[]) => Promise<ExpenseReport>;
+    saveReport: (report: ExpenseReport) => Promise<ExpensesCache>;
+    removeReport: (id: string) => Promise<ExpensesCache>;
+    // Save dialog → fill the CT form PDF → reveal in Finder. Null = cancelled.
+    exportReport: (report: ExpenseReport) => Promise<{ path: string } | null>;
+    // Electron ≥32 removed File.path — this wraps webUtils.getPathForFile so
+    // drag-and-dropped receipts resolve to real filesystem paths.
+    pathForFile: (file: File) => string;
   };
   updater: {
     // Fires during a macOS auto-update so the renderer can show a progress

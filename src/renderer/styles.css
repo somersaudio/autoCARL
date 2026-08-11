@@ -1717,3 +1717,161 @@ a.featured-venue:hover .featured-venue-name {
   color: #7cd9a0;
   border: 1px solid rgba(80, 200, 120, 0.35);
 }
+
+/* ============ Expense Reports tab ============ */
+
+.expenses { display: flex; flex-direction: column; gap: 14px; }
+
+/* Receipt dropzone. */
+.exp-drop {
+  text-align: center;
+  border: 2px dashed var(--border);
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.exp-drop.is-over {
+  border-color: var(--ct-gold);
+  background: rgba(253, 184, 39, 0.06);
+}
+
+.exp-drop-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+.exp-drop-sub { max-width: 460px; margin: 0 auto 12px; font-size: 12px; }
+
+.exp-hint { font-size: 12px; margin-bottom: 10px; }
+
+/* Receipt list. */
+.exp-group { margin-bottom: 12px; }
+
+.exp-group-h {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-subtle);
+  margin: 8px 0 4px;
+}
+
+.exp-receipt-row {
+  display: grid;
+  grid-template-columns: 20px 1.3fr 96px 118px 80px 1.2fr 38px 44px;
+  gap: 8px;
+  align-items: center;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.exp-receipt-row:last-child { border-bottom: none; }
+
+.exp-kind { font-size: 14px; text-align: center; cursor: default; }
+
+.exp-in {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+}
+
+.exp-in:focus { outline: none; border-color: var(--ct-gold); }
+.exp-in-amount { text-align: right; }
+
+.exp-view { font-size: 11px; padding: 0; }
+
+.exp-x { color: var(--text-subtle); padding: 0 4px; }
+.exp-x:hover:not(:disabled) { color: #e66; }
+.exp-x.is-armed { color: #e66; font-weight: 600; }
+
+.exp-badge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 8px;
+  background: rgba(253, 184, 39, 0.15);
+  color: var(--ct-gold);
+  white-space: nowrap;
+}
+
+/* Gig picker for a new report. */
+.exp-gig-picks { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+
+.exp-gig-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.exp-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
+.exp-saved { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; }
+.exp-exported { font-size: 12px; color: #7cd9a0; }
+
+/* Report editor. */
+.exp-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px 12px;
+  margin-bottom: 12px;
+}
+
+.exp-form-grid .field { margin: 0; }
+.exp-form-grid-wide { grid-template-columns: 1fr 1fr; }
+
+.exp-form-grid textarea {
+  width: 100%;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  resize: vertical;
+}
+
+.exp-form-grid textarea:focus { outline: none; border-color: var(--ct-gold); }
+
+.exp-table-wrap { overflow-x: auto; margin-bottom: 6px; }
+
+.exp-table { border-collapse: collapse; width: 100%; }
+
+.exp-table th {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-subtle);
+  font-weight: 600;
+  text-align: left;
+  padding: 4px 4px;
+  white-space: nowrap;
+}
+
+.exp-table td { padding: 2px 3px; }
+
+.exp-cell {
+  padding: 4px 5px;
+  font-size: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+
+.exp-cell:focus { outline: none; border-color: var(--ct-gold); }
+.exp-cell-job { width: 78px; }
+.exp-cell-desc { width: 116px; }
+.exp-cell-money { width: 56px; text-align: right; }
+.exp-cell-miles { width: 42px; text-align: right; }
+
+.exp-computed {
+  font-size: 12px;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--text-subtle);
+  padding-right: 6px;
+}
+
+.exp-grand-label { text-transform: uppercase; font-size: 10px; letter-spacing: 0.06em; }
+.exp-grand { color: var(--ct-gold); font-weight: 600; font-size: 13px; }
+
+.exp-attach { display: flex; align-items: center; gap: 8px; font-size: 12px; margin: 10px 0 2px; cursor: pointer; }
