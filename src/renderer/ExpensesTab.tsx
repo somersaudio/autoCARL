@@ -382,9 +382,11 @@ export default function ExpensesTab({ bookings }: Props) {
   // receipts — switching the dropdown switches the list. Receipts from
   // before this flow (no gig recorded) surface below with a one-click adopt.
   const activeBooking = bookingById.get(activeBookingId);
-  // Category A→Z (as labeled), then price low→high within each category.
+  // Form-column order — Lodging, Airfare, Parking, Car Rental,
+  // Uber/Lyft/Taxi, Misc. — then price low→high within each category.
+  // (MONEY_COLS is declared in exactly that column order.)
   const receiptOrder = (a: ExpenseReceipt, b: ExpenseReceipt) =>
-    CATEGORY_LABEL[a.category].localeCompare(CATEGORY_LABEL[b.category]) || a.amount - b.amount;
+    MONEY_COLS.indexOf(a.category) - MONEY_COLS.indexOf(b.category) || a.amount - b.amount;
   const activeReceipts = receipts.filter((r) => r.bookingId === activeBookingId).sort(receiptOrder);
   const unassigned = receipts.filter((r) => !r.bookingId).sort(receiptOrder);
 

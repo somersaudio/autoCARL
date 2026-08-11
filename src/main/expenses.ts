@@ -275,9 +275,10 @@ export async function buildDraftReport(bookingIds: string[]): Promise<ExpenseRep
   const latestWeek = Object.values(weeks).sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))[0];
 
   // One form line per receipt — reports are itemized, never aggregated.
-  // Receipts order matches the receipts list: category (by its column
-  // label, A-Z), then amount low to high.
-  const CAT_ORDER = ['airfare', 'carRental', 'lodging', 'misc', 'parking', 'rideshare'];
+  // Receipts order matches the receipts list: the form's own column order
+  // (Lodging, Airfare, Parking, Car Rental, Uber/Lyft/Taxi, Misc.), then
+  // amount low to high.
+  const CAT_ORDER = ['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc'];
   const rows: ExpenseRow[] = [];
   const milesCounted = new Set<string>();   // one bookingId's jobNumber = count once
   for (const b of chosen) {
