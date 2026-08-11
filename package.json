@@ -62,7 +62,10 @@
       "category": "public.app-category.productivity",
       "artifactName": "${productName}-${arch}.${ext}",
       "notarize": true,
-      "binaries": ["Contents/Resources/bin/receipt-ocr"]
+      "binaries": ["Contents/Resources/bin/receipt-ocr"],
+      "extendInfo": {
+        "NSAppleEventsUsageDescription": "AUTOcarl drafts expense-report emails in Mail."
+      }
     },
     "win": {
       "target": [

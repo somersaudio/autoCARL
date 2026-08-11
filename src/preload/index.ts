@@ -80,6 +80,7 @@ const api: Api = {
     saveReport: (report) => ipcRenderer.invoke('expenses:saveReport', report) as Promise<ExpensesCache>,
     removeReport: (id) => ipcRenderer.invoke('expenses:removeReport', id) as Promise<ExpensesCache>,
     exportReport: (report) => ipcRenderer.invoke('expenses:exportReport', report) as Promise<{ path: string } | null>,
+    mailReport: (report) => ipcRenderer.invoke('expenses:mailReport', report) as Promise<void>,
     // Synchronous, preload-local — no IPC. Dropped File objects only resolve
     // to paths here, where webUtils is available.
     pathForFile: (file) => webUtils.getPathForFile(file),

@@ -53,6 +53,7 @@ export default function ExpensesTab({ bookings }: Props) {
   const [cache, setCache] = useState<ExpensesCache | null>(null);
   const [busy, setBusy] = useState(false);
   const [exportBusy, setExportBusy] = useState(false);
+  const [mailBusy, setMailBusy] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ExpenseReport | null>(null);
@@ -321,6 +322,21 @@ export default function ExpensesTab({ bookings }: Props) {
     }
   };
 
+  const mailIt = async () => {
+    if (!draft) return;
+    setMailBusy(true);
+    setError(null);
+    try {
+      await window.api.expenses.mailReport(draft);
+      setExportedPath('mailed');
+      setCache(await window.api.expenses.getCached());
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    } finally {
+      setMailBusy(false);
+    }
+  };
+
   const discardDraft = () => {
     if (!draft) return;
     window.api.expenses.removeReport(draft.id).then((c) => {
@@ -465,15 +481,22 @@ export default function ExpensesTab({ bookings }: Props) {
             })()}
           </div>
           <div className="exp-actions">
-            <button className="primary" onClick={exportPdf} disabled={exportBusy}>
+            <button className="primary" onClick={exportPdf} disabled={exportBusy || mailBusy}>
               {exportBusy ? 'Exporting…' : 'Export Report & Receipts'}
+            </button>
+            <button className="secondary" onClick={mailIt} disabled={mailBusy || exportBusy}>
+              {mailBusy ? 'Opening Mail…' : 'Export to Mail'}
             </button>
             <button
               className="link exp-x"
               title="Discard edits and rebuild this sheet from the receipts"
               onClick={discardDraft}
             >Reset report</button>
-            {exportedPath && <span className="subtle exp-exported">Exported — folder opened</span>}
+            {exportedPath && (
+              <span className="subtle exp-exported">
+                {exportedPath === 'mailed' ? 'Draft opened in Mail — review and send' : 'Exported — folder opened'}
+              </span>
+            )}
           </div>
         </div>
       )}

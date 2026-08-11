@@ -360,27 +360,18 @@ function safeName(s: string): string {
 }
 
 /**
- * Export into a folder of the user's choice: the filled CT form PDF plus
- * every receipt referenced by the report as its own PDF — images converted,
- * PDF receipts copied — numbered in form-line order so file 03 is line 3's
- * receipt. Opens the folder when done.
+ * Write the export bundle into `dir`: the filled CT form PDF plus every
+ * receipt referenced by the report as its own PDF — images converted, PDF
+ * receipts copied — numbered in form-line order so file 03 is line 3's
+ * receipt. Returns the written paths, form first.
  */
-export async function exportReport(report: ExpenseReport): Promise<{ path: string } | null> {
-  const clean = sanitizeReport(report);
-  const { canceled, filePaths } = await dialog.showOpenDialog({
-    title: 'Choose a folder for the report and receipts',
-    buttonLabel: 'Export Here',
-    defaultPath: app.getPath('downloads'),
-    properties: ['openDirectory', 'createDirectory'],
-  });
-  const dir = filePaths?.[0];
-  if (canceled || !dir) return null;
-
+async function writeReportBundle(clean: ExpenseReport, dir: string): Promise<string[]> {
   const template = new Uint8Array(await fs.readFile(resourcePath('expense-template.pdf')));
   const formBytes = await fillExpensePdf(template, clean);
-  await fs.writeFile(join(dir, `CT Expense Report ${safeName(clean.date.replace(/\//g, '-')) || 'draft'}.pdf`), formBytes);
+  const formPath = join(dir, `CT Expense Report ${safeName(clean.date.replace(/\//g, '-')) || 'draft'}.pdf`);
+  await fs.writeFile(formPath, formBytes);
+  const files = [formPath];
 
-  // Receipts in form-line order, numbered to match their lines.
   const cache = await readExpensesCache();
   const ordered: ExpenseReceipt[] = [];
   for (const row of clean.rows) {
@@ -400,14 +391,87 @@ export async function exportReport(report: ExpenseReport): Promise<{ path: strin
     try {
       if (r.kind === 'pdf') await fs.copyFile(r.file, join(dir, name));
       else await imageToPdf(r.file, join(dir, name));
+      files.push(join(dir, name));
     } catch (e) {
       // A missing stored copy shouldn't sink the export — the form and the
       // other receipts still land.
       console.warn('[expenses] receipt export failed:', name, e instanceof Error ? e.message : e);
     }
   }
+  return files;
+}
 
+export async function exportReport(report: ExpenseReport): Promise<{ path: string } | null> {
+  const clean = sanitizeReport(report);
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    title: 'Choose a folder for the report and receipts',
+    buttonLabel: 'Export Here',
+    defaultPath: app.getPath('downloads'),
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  const dir = filePaths?.[0];
+  if (canceled || !dir) return null;
+  await writeReportBundle(clean, dir);
   await saveReport(clean);                        // exported = worth keeping
   await shell.openPath(dir);
   return { path: dir };
+}
+
+/**
+ * Draft the report as an email in Apple Mail: recipients are the gig's PM
+ * and LC (emails the CARL sweep scraped) plus payroll, with the form PDF
+ * attached first and every receipt PDF after it, in form-line order. The
+ * draft opens visible in Mail for the user to review and send — nothing is
+ * sent automatically.
+ */
+const PAYROLL_EMAIL = 'payroll@ctus.com';
+
+export async function mailReport(report: ExpenseReport): Promise<void> {
+  const clean = sanitizeReport(report);
+  const dir = await fs.mkdtemp(join(app.getPath('temp'), 'autocarl-expense-'));
+  const files = await writeReportBundle(clean, dir);
+
+  const { bookings } = await readCachedBookings();
+  const booking = bookings.find((b) => b.bookingId === clean.bookingId);
+  const contacts = booking ? (await readContactsCache())[booking.bookingId] : undefined;
+  const recipients = [...new Set(
+    [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
+  )];
+
+  const showLabel = booking ? `${booking.jobName} (${booking.jobNumber})` : 'the show';
+  const subject = booking
+    ? `Expense Report - ${booking.jobNumber} ${booking.jobName} - ${clean.name}`
+    : `Expense Report - ${clean.name}`;
+  const body = `Hi,\n\nAttached is my expense report for ${showLabel}, with the receipts.\n\nThanks,\n${clean.name}\n\n`;
+
+  // AppleScript strings understand \n; escape backslashes + quotes and
+  // strip real newlines so nothing can break out of the literal.
+  const esc = (v: string) => v.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]/g, ' ');
+  const script = [
+    'tell application "Mail"',
+    `  set msg to make new outgoing message with properties {subject:"${esc(subject)}", content:"${body}", visible:true}`,
+    '  tell msg',
+    ...recipients.map((r) => `    make new to recipient at end of to recipients with properties {address:"${esc(r)}"}`),
+    '    tell content',
+    ...files.flatMap((f) => [
+      `      make new attachment with properties {file name:POSIX file "${esc(f)}"} at after the last paragraph`,
+      '      delay 0.2',
+    ]),
+    '    end tell',
+    '  end tell',
+    '  activate',
+    'end tell',
+  ].join('\n');
+  const scriptPath = join(dir, 'mail.applescript');
+  await fs.writeFile(scriptPath, script, 'utf8');
+  try {
+    await execFileP('/usr/bin/osascript', [scriptPath], { timeout: 60_000 });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/-1743|not authori[sz]ed/i.test(msg)) {
+      throw new Error('macOS blocked AUTOcarl from controlling Mail. Allow it under System Settings → Privacy & Security → Automation, then try again.');
+    }
+    throw new Error(`Couldn't create the Mail draft: ${msg}`);
+  }
+  await saveReport(clean);                        // mailed = worth keeping
 }

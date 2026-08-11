@@ -348,6 +348,9 @@ export type Api = {
     // as its own PDF (images converted), written into that folder, which is
     // then opened. Null = cancelled.
     exportReport: (report: ExpenseReport) => Promise<{ path: string } | null>;
+    // Opens a Mail draft to the gig's PM, LC and payroll with the form PDF
+    // attached first and every receipt PDF after it. Nothing auto-sends.
+    mailReport: (report: ExpenseReport) => Promise<void>;
     // Electron ≥32 removed File.path — this wraps webUtils.getPathForFile so
     // drag-and-dropped receipts resolve to real filesystem paths.
     pathForFile: (file: File) => string;
