@@ -57,6 +57,11 @@ type Config = {
   defaultEndTime: string;    // e.g. '6:00 pm'
   autofillPerDiem: boolean;  // when false, leave per-diem empty for user to fill
   defaultDailyRate: number;  // 0 = use SSW's stored iDailyRate; >0 overrides on every push
+  // Email submitted on the timesheet. '' = keep whatever SSW has stored
+  // (iEmail); anything else overwrites it on every save. Separate from
+  // sswEmail, which is the LOGIN — some crew log in with one address and
+  // want a different one on the paperwork.
+  timesheetEmail: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // Earnings-estimate inputs. Display only — never written back to SSW.
   basePayDayRate: number;    // day rate for projections; 0 = unset, estimate hidden
@@ -82,6 +87,7 @@ const DEFAULT_CONFIG: Config = {
   defaultEndTime: '6:00 pm',
   autofillPerDiem: true,
   defaultDailyRate: 0,
+  timesheetEmail: '',
   theme: 'constellation',
   basePayDayRate: 0,
   subtractTaxes: false,

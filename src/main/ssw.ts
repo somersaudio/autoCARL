@@ -447,7 +447,9 @@ function hourlyFromDaily(dailyRateStr: string): string {
   return `$ ${(daily / 11).toFixed(2)}`;
 }
 
-function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: Record<string, string>): SswInput[] {
+// `emailForSave` is the address that lands in SSW's own record: the user's
+// Settings override when they set one, else whatever SSW already had.
+function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: Record<string, string>, emailForSave: string): SswInput[] {
   const inputs: SswInput[] = [];
   const date = isoToPaddedMDY(week.weekStartDate);
   const saveDays = week.days.map((d) => isFutureISO(d.date) ? blankFutureDay(d) : d);
@@ -460,11 +462,11 @@ function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: R
   inputs.push(mkInput('iPhone', week.phone));
   inputs.push(mkInput('iLaborCoordinator', week.laborCoordinator));
   inputs.push(mkInput('iProjectManager', week.projectManager));
-  inputs.push(mkInput('iEmail', week.email));
+  inputs.push(mkInput('iEmail', emailForSave));
   inputs.push(mkInput('iUserId', week.userId));
   inputs.push(mkInput('iDate', date));
   inputs.push(mkInput('iComments', week.comments));
-  inputs.push(mkInput('iEmployee_User_Name', week.email));
+  inputs.push(mkInput('iEmployee_User_Name', emailForSave));
   inputs.push(mkInput('iEmployeeId', week.userId));
   inputs.push(mkInput('iRate', ''));
   inputs.push(mkInput('iDailyRate', originalDailyRate));
@@ -623,7 +625,7 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
 
     // 3. POST Calculate with Save:true and no RecordId — SSW inserts a new row
     //    and returns the new RecordId in oRecordId.
-    const Inputs = buildInputs(draft, dailyRate, {});
+    const Inputs = buildInputs(draft, dailyRate, {}, cfg.timesheetEmail || draft.email);
     const body = {
       request: {
         ApplicationKey: APP_KEY,
@@ -682,6 +684,9 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       // Settings.defaultDailyRate (when >0) overrides whatever SSW has stored.
       // This is the user's escape hatch when SSW's stored rate is wrong or
       // missing — they can correct it in our Settings and every save fixes it.
+      // Settings.timesheetEmail does the same for the address on the sheet:
+      // blank keeps SSW's stored iEmail, anything else replaces it.
+      const emailForSave = cfg.timesheetEmail || week.email;
       const dailyRate = cfg.defaultDailyRate > 0
         ? cfg.defaultDailyRate.toFixed(2)
         : String(pt.iDailyRate || '');
@@ -692,7 +697,7 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
         if (r) originalRates[dayName] = fmtRate(num(r));
       }
 
-      const Inputs = buildInputs(week, dailyRate, originalRates);
+      const Inputs = buildInputs(week, dailyRate, originalRates, emailForSave);
       const body = {
         request: {
           ApplicationKey: APP_KEY,

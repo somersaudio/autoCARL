@@ -23,6 +23,9 @@ export type UserSettings = {
   defaultEndTime: string;    // e.g. '6:00 pm'
   autofillPerDiem: boolean;  // when false, the app leaves per-diem empty for the user to fill manually
   defaultDailyRate: number;  // 0 = use whatever SSW has stored; >0 overwrites SSW's iDailyRate on every save
+  // Email that goes onto the timesheet. '' = keep SSW's stored address;
+  // anything else overwrites it on every save. Not the login address.
+  timesheetEmail: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // ----- earnings estimates (display only — never pushed to SSW) -----
   // Deliberately separate from defaultDailyRate above: that one rewrites your

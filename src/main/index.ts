@@ -412,6 +412,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     defaultEndTime: cfg.defaultEndTime,
     autofillPerDiem: cfg.autofillPerDiem,
     defaultDailyRate: cfg.defaultDailyRate,
+    timesheetEmail: cfg.timesheetEmail,
     theme: cfg.theme,
     basePayDayRate: cfg.basePayDayRate,
     subtractTaxes: cfg.subtractTaxes,
@@ -577,6 +578,12 @@ function registerIpc(): void {
     if (typeof patch?.defaultEndTime === 'string') allowed.defaultEndTime = patch.defaultEndTime.trim();
     if (typeof patch?.autofillPerDiem === 'boolean') allowed.autofillPerDiem = patch.autofillPerDiem;
     if (nonNegative(patch?.defaultDailyRate)) allowed.defaultDailyRate = patch.defaultDailyRate as number;
+    // '' clears the override; otherwise it must look like an email, since
+    // this value lands in SSW's own record on the next save.
+    if (typeof patch?.timesheetEmail === 'string') {
+      const e = patch.timesheetEmail.trim();
+      if (!e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) allowed.timesheetEmail = e.slice(0, 120);
+    }
     if (typeof patch?.theme === 'string' && patch.theme.trim()) allowed.theme = patch.theme.trim();
     if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate as number;
     if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;

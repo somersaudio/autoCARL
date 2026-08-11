@@ -16,6 +16,9 @@ type Props = {
   defaultStartTime: string;
   defaultEndTime: string;
   autofillPerDiem: boolean;
+  // Settings override for the address submitted on the sheet; '' = whatever
+  // SSW has stored. Shown in the identity panel so what you see is what saves.
+  timesheetEmail: string;
   onOpenSettings: () => void;
 };
 
@@ -229,7 +232,7 @@ function weekTotals(days: SswDay[]) {
 
 export default function TimesheetTab({
   bookings, contacts, weekMonday, onWeekChange, week, loading, error, onLocalEdit, onReload,
-  defaultStartTime, defaultEndTime, autofillPerDiem, onOpenSettings,
+  defaultStartTime, defaultEndTime, autofillPerDiem, timesheetEmail, onOpenSettings,
 }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -369,7 +372,7 @@ export default function TimesheetTab({
             </div>
           )}
 
-          <IdentityPanel week={week} />
+          <IdentityPanel week={week} timesheetEmail={timesheetEmail} />
         </div>
       )}
 
@@ -542,14 +545,15 @@ function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, auto
 // SSW and submits verbatim on every save. Surfaces these so the user can see
 // exactly what's being attached to their timesheet (and notice if anything is
 // stale on the server side).
-function IdentityPanel({ week }: { week: SswWeek }) {
+function IdentityPanel({ week, timesheetEmail }: { week: SswWeek; timesheetEmail: string }) {
   const rateNum = parseFloat(week.dailyRate);
   const rateDisplay = Number.isFinite(rateNum) && rateNum > 0
     ? `$${rateNum.toFixed(2)} / day`
     : '';
   const rows: Array<[string, string]> = [
     ['Name', week.name],
-    ['Email', week.email],
+    // The override wins on save, so show it here rather than SSW's stale copy.
+    ['Email', timesheetEmail || week.email],
     ['Phone', week.phone],
     ['Position', week.position],
     ['Daily Rate', rateDisplay],

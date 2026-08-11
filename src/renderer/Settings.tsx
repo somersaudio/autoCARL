@@ -23,6 +23,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
   const [end, setEnd] = useState('');
   const [autofillPerDiem, setAutofillPerDiem] = useState(true);
   const [dailyRate, setDailyRate] = useState('');  // empty string = use SSW's value
+  const [tsEmail, setTsEmail] = useState('');      // empty string = use SSW's value
   const [theme, setTheme] = useState('default');
   const [busy, setBusy] = useState(false);
 
@@ -49,6 +50,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       setEnd(s.defaultEndTime);
       setAutofillPerDiem(s.autofillPerDiem);
       setDailyRate(s.defaultDailyRate > 0 ? String(s.defaultDailyRate) : '');
+      setTsEmail(s.timesheetEmail);
       setTheme(s.theme);
       setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
       setSubtractTaxes(s.subtractTaxes);
@@ -84,6 +86,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       defaultEndTime: end,
       autofillPerDiem,
       defaultDailyRate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0,
+      timesheetEmail: tsEmail.trim(),
     });
     setBusy(false);
     onSaved(next);
@@ -203,6 +206,21 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
             disabled={busy}
           />
         </div>
+        <div className="field" style={{ margin: '10px 0 0' }}>
+          <label>Email on the timesheet</label>
+          <input
+            type="email"
+            value={tsEmail}
+            onChange={(e) => setTsEmail(e.target.value)}
+            placeholder={sswEmail || 'leave blank to keep SSW\u2019s address'}
+            disabled={busy}
+          />
+        </div>
+        <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
+          Goes in the Email field of every timesheet you save. Leave it blank to keep
+          whatever SSW already has on your record — this is separate from the address
+          you log in with.
+        </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           <button className="primary" onClick={saveDefaults} disabled={busy || !start || !end}>
             {busy ? 'Saving…' : 'Save'}
