@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { promisify } from 'node:util';
-import type { Booking, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache } from '../shared/types';
+import type { Booking, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache, IngestOutcome } from '../shared/types';
 import { extractText } from './flight-parser';
 import { parseReceiptText } from './receipt-parse';
 import { PDFDocument } from '@cantoo/pdf-lib';
@@ -83,6 +83,9 @@ function matchBooking(date: string, bookings: Booking[]): string {
   return best?.bookingId || '';
 }
 
+// A file refused on purpose — the message is shown to the user verbatim.
+class SkipFile extends Error {}
+
 async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string): Promise<ExpenseReceipt | null> {
   const ext = extname(srcPath).toLowerCase();
   const id = randomUUID();
@@ -92,9 +95,23 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
   let kind: 'image' | 'pdf';
   let text: string;
   if (ext === '.pdf') {
+    // One receipt per file, enforced: a multi-page PDF is almost always a
+    // combined statement of many receipts, and parsing it as one receipt
+    // produces a single junk amount. Refuse it with an explanation instead.
+    const bytes = new Uint8Array(await fs.readFile(srcPath));
+    let pages = 1;
+    try {
+      const { PDFDocument: PDFDoc } = await import('@cantoo/pdf-lib');
+      pages = (await PDFDoc.load(bytes, { ignoreEncryption: true })).getPageCount();
+    } catch { /* unreadable structure — let text extraction have a try */ }
+    if (pages > 1) {
+      throw new SkipFile(
+        `has ${pages} pages — that looks like several receipts combined into one file. Add each receipt as its own photo or PDF so every line gets the right amount.`,
+      );
+    }
     kind = 'pdf';
     file = join(receiptsDir(), `${id}.pdf`);
-    await fs.copyFile(srcPath, file);
+    await fs.writeFile(file, bytes);
     text = await extractText(file).catch(() => '');
   } else if (IMAGE_EXTS.has(ext)) {
     kind = 'image';
@@ -107,7 +124,7 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
     await execFileP('/usr/bin/sips', ['-s', 'format', 'jpeg', srcPath, '--out', file], { timeout: 30_000 });
     text = await ocrImage(file);
   } else {
-    return null;                                            // not a receipt format we know
+    throw new SkipFile(`isn't a format the app can read — use a photo (JPG, PNG, HEIC) or a PDF.`);
   }
 
   const parsed = parseReceiptText(text, basename(srcPath));
@@ -131,21 +148,29 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
   };
 }
 
-export async function addReceiptFiles(paths: string[], assignTo?: string): Promise<ExpensesCache> {
+export async function addReceiptFiles(paths: string[], assignTo?: string): Promise<IngestOutcome> {
   const { bookings } = await readCachedBookings();
   const cache = await readExpensesCache();
+  const skipped: Array<{ name: string; reason: string }> = [];
   for (const p of paths) {
-    const receipt = await ingestOne(p, bookings, assignTo).catch((e) => {
-      console.warn('[expenses] ingest failed for', p, e instanceof Error ? e.message : e);
-      return null;
-    });
-    if (receipt) cache.receipts.push(receipt);
+    try {
+      const receipt = await ingestOne(p, bookings, assignTo);
+      if (receipt) cache.receipts.push(receipt);
+    } catch (e) {
+      const name = basename(p);
+      if (e instanceof SkipFile) {
+        skipped.push({ name, reason: e.message });
+      } else {
+        console.warn('[expenses] ingest failed for', p, e instanceof Error ? e.message : e);
+        skipped.push({ name, reason: `couldn't be read (${e instanceof Error ? e.message : 'unknown error'}).` });
+      }
+    }
   }
   await writeExpensesCache(cache);
-  return cache;
+  return { cache, skipped };
 }
 
-export async function pickReceiptFiles(assignTo?: string): Promise<ExpensesCache | null> {
+export async function pickReceiptFiles(assignTo?: string): Promise<IngestOutcome | null> {
   const res = await dialog.showOpenDialog({
     title: 'Add receipts',
     properties: ['openFile', 'multiSelections'],

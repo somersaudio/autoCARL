@@ -242,6 +242,14 @@ export type ExpenseReport = {
 
 export type ExpensesCache = { receipts: ExpenseReceipt[]; reports: ExpenseReport[] };
 
+// Result of a receipt-intake run. Files that were refused (a combined
+// multi-receipt PDF, an unreadable file, an unknown format) come back with
+// a human reason so the renderer can say WHY instead of silently dropping.
+export type IngestOutcome = {
+  cache: ExpensesCache;
+  skipped: Array<{ name: string; reason: string }>;
+};
+
 // Progress of an in-progress macOS auto-update. 'downloading' carries a 0–100
 // percent (when the server gives a Content-Length); 'installing' means the ZIP
 // is down and we're about to swap the bundle and relaunch.
@@ -331,9 +339,9 @@ export type Api = {
     // userData, OCR/extract text, parse amount + category. assignTo pins
     // every dropped receipt to that booking (the gig selected in the UI);
     // without it, date-matching decides. Returns the updated cache.
-    addFiles: (paths: string[], assignTo?: string) => Promise<ExpensesCache>;
+    addFiles: (paths: string[], assignTo?: string) => Promise<IngestOutcome>;
     // Same pipeline behind a native open dialog. Null = user cancelled.
-    pickFiles: (assignTo?: string) => Promise<ExpensesCache | null>;
+    pickFiles: (assignTo?: string) => Promise<IngestOutcome | null>;
     updateReceipt: (id: string, patch: Partial<ExpenseReceipt>) => Promise<ExpensesCache>;
     removeReceipt: (id: string) => Promise<ExpensesCache>;
     // Opens the stored receipt copy in the OS default viewer.

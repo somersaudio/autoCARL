@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
-  Api, Booking, BookingContactsCache, ExpenseReport, ExpensesCache, FlightsCache,
+  Api, Booking, BookingContactsCache, ExpenseReport, ExpensesCache, FlightsCache, IngestOutcome,
   FriendsList, FriendsStatus, RefreshResult, SetupStatus, SswPushResult, SswWeek, UpdateProgress, UserSettings,
 } from '../shared/types';
 
@@ -71,8 +71,8 @@ const api: Api = {
   },
   expenses: {
     getCached: () => ipcRenderer.invoke('expenses:getCached') as Promise<ExpensesCache>,
-    addFiles: (paths, assignTo) => ipcRenderer.invoke('expenses:addFiles', paths, assignTo) as Promise<ExpensesCache>,
-    pickFiles: (assignTo) => ipcRenderer.invoke('expenses:pickFiles', assignTo) as Promise<ExpensesCache | null>,
+    addFiles: (paths, assignTo) => ipcRenderer.invoke('expenses:addFiles', paths, assignTo) as Promise<IngestOutcome>,
+    pickFiles: (assignTo) => ipcRenderer.invoke('expenses:pickFiles', assignTo) as Promise<IngestOutcome | null>,
     updateReceipt: (id, patch) => ipcRenderer.invoke('expenses:updateReceipt', id, patch) as Promise<ExpensesCache>,
     removeReceipt: (id) => ipcRenderer.invoke('expenses:removeReceipt', id) as Promise<ExpensesCache>,
     openReceipt: (id) => ipcRenderer.invoke('expenses:openReceipt', id) as Promise<void>,

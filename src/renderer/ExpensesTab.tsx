@@ -227,9 +227,12 @@ export default function ExpensesTab({ bookings }: Props) {
     setError(null);
     try {
       const prevIds = new Set(receipts.map((r) => r.id));
-      const c = await window.api.expenses.addFiles(paths, activeBookingId || undefined);
-      setCache(c);
-      for (const r of c.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
+      const out = await window.api.expenses.addFiles(paths, activeBookingId || undefined);
+      setCache(out.cache);
+      for (const r of out.cache.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
+      if (out.skipped.length) {
+        setError(out.skipped.map((f) => `${f.name} wasn't added — ${f.reason}`).join('  •  '));
+      }
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
     } finally {
@@ -251,10 +254,13 @@ export default function ExpensesTab({ bookings }: Props) {
     setError(null);
     try {
       const prevIds = new Set(receipts.map((r) => r.id));
-      const c = await window.api.expenses.pickFiles(activeBookingId || undefined);
-      if (c) {
-        setCache(c);
-        for (const r of c.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
+      const out = await window.api.expenses.pickFiles(activeBookingId || undefined);
+      if (out) {
+        setCache(out.cache);
+        for (const r of out.cache.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
+        if (out.skipped.length) {
+          setError(out.skipped.map((f) => `${f.name} wasn't added — ${f.reason}`).join('  •  '));
+        }
       }
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
