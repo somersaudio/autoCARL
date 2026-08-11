@@ -1926,6 +1926,7 @@ a.featured-venue:hover .featured-venue-name {
 
 .exp-actions { display: flex; align-items: center; gap: 10px; margin-top: 12px; flex-wrap: wrap; }
 .exp-exported { font-size: 12px; color: #7cd9a0; }
+.exp-reset { margin-left: auto; }
 
 
 /* ============ On-sheet form editor ============ */

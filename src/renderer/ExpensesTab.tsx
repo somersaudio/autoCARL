@@ -533,16 +533,18 @@ export default function ExpensesTab({ bookings }: Props) {
             <button className="secondary" onClick={exportPdf} disabled={exportBusy || mailBusy}>
               {exportBusy ? 'Exporting…' : 'Export to Folder'}
             </button>
-            <button
-              className="link exp-x"
-              title="Discard edits and rebuild this sheet from the receipts"
-              onClick={discardDraft}
-            >Reset report</button>
             {exportedPath && (
               <span className="subtle exp-exported">
                 {exportedPath === 'mailed' ? 'Draft opened in Mail — review and send' : 'Exported — folder opened'}
               </span>
             )}
+            {/* Destructive, so it sits apart from the exports — pushed to
+                the far edge of the same row. */}
+            <button
+              className="link exp-x exp-reset"
+              title="Discard edits and rebuild this sheet from the receipts"
+              onClick={discardDraft}
+            >Reset report</button>
           </div>
         </div>
       )}
