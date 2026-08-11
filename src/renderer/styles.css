@@ -1962,3 +1962,16 @@ a.featured-venue:hover .featured-venue-name {
 .sheet-area:hover { border-color: rgba(0, 0, 0, 0.22); }
 .sheet-area:focus { outline: none; border-color: var(--ct-gold); background: #fff; }
 .sheet-area::placeholder { color: rgba(20, 20, 20, 0.3); }
+
+/* Expense-tab errors hold for ~8.5s then fade out; the element is removed
+   at 10s by the timer in ExpensesTab. Keyed by message, so a fresh error
+   restarts the clock at full opacity. */
+.exp-fading {
+  animation: exp-banner-fade 10s forwards;
+}
+
+@keyframes exp-banner-fade {
+  0%   { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { opacity: 0; }
+}

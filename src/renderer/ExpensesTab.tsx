@@ -70,6 +70,14 @@ export default function ExpensesTab({ bookings }: Props) {
 
   cacheRef.current = cache;
 
+  // Errors announce themselves and then get out of the way — visible long
+  // enough to read (10s, with a fade at the end), gone without tab-hopping.
+  useEffect(() => {
+    if (!error) return;
+    const t = window.setTimeout(() => setError(null), 10_000);
+    return () => window.clearTimeout(t);
+  }, [error]);
+
   useEffect(() => {
     window.api.expenses.getCached().then(setCache)
       .catch((e) => setError(friendlyError(e, !navigator.onLine)));
@@ -387,7 +395,7 @@ export default function ExpensesTab({ bookings }: Props) {
 
   return (
     <div className="expenses">
-      {error && <div className="banner error">{error}</div>}
+      {error && <div className="banner error exp-fading" key={error}>{error}</div>}
 
       {/* ---- gig picker: everything below follows this choice ---- */}
       <div className="card exp-gig-bar">
