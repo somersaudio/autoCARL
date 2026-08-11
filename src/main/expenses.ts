@@ -82,7 +82,7 @@ function matchBooking(date: string, bookings: Booking[]): string {
   return best?.bookingId || '';
 }
 
-async function ingestOne(srcPath: string, bookings: Booking[]): Promise<ExpenseReceipt | null> {
+async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string): Promise<ExpenseReceipt | null> {
   const ext = extname(srcPath).toLowerCase();
   const id = randomUUID();
   await fs.mkdir(receiptsDir(), { recursive: true });
@@ -110,6 +110,10 @@ async function ingestOne(srcPath: string, bookings: Booking[]): Promise<ExpenseR
   }
 
   const parsed = parseReceiptText(text, basename(srcPath));
+  // The gig the user has selected in the UI wins outright — dropping a
+  // receipt while a gig is chosen IS the assignment. Date-matching is the
+  // fallback for the no-selection path.
+  const pinned = assignTo && bookings.some((b) => b.bookingId === assignTo) ? assignTo : '';
   return {
     id,
     addedAt: new Date().toISOString(),
@@ -120,16 +124,16 @@ async function ingestOne(srcPath: string, bookings: Booking[]): Promise<ExpenseR
     date: parsed.date,
     amount: parsed.amount,
     category: parsed.category,
-    bookingId: matchBooking(parsed.date, bookings),
+    bookingId: pinned || matchBooking(parsed.date, bookings),
     ocrText: text,
   };
 }
 
-export async function addReceiptFiles(paths: string[]): Promise<ExpensesCache> {
+export async function addReceiptFiles(paths: string[], assignTo?: string): Promise<ExpensesCache> {
   const { bookings } = await readCachedBookings();
   const cache = await readExpensesCache();
   for (const p of paths) {
-    const receipt = await ingestOne(p, bookings).catch((e) => {
+    const receipt = await ingestOne(p, bookings, assignTo).catch((e) => {
       console.warn('[expenses] ingest failed for', p, e instanceof Error ? e.message : e);
       return null;
     });
@@ -139,14 +143,14 @@ export async function addReceiptFiles(paths: string[]): Promise<ExpensesCache> {
   return cache;
 }
 
-export async function pickReceiptFiles(): Promise<ExpensesCache | null> {
+export async function pickReceiptFiles(assignTo?: string): Promise<ExpensesCache | null> {
   const res = await dialog.showOpenDialog({
     title: 'Add receipts',
     properties: ['openFile', 'multiSelections'],
     filters: [{ name: 'Receipts', extensions: ['pdf', 'jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'tif', 'tiff', 'bmp'] }],
   });
   if (res.canceled || !res.filePaths.length) return null;
-  return addReceiptFiles(res.filePaths);
+  return addReceiptFiles(res.filePaths, assignTo);
 }
 
 const CATEGORIES = new Set(['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc']);

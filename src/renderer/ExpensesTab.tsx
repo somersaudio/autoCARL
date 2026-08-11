@@ -83,6 +83,58 @@ export default function ExpensesTab({ bookings }: Props) {
   const receipts = cache?.receipts ?? [];
   const unassignedCount = receipts.filter((r) => !r.bookingId).length;
 
+  // The gig receipts get filed under: the open draft's gig if one is open,
+  // otherwise the builder dropdown's selection.
+  const activeBookingId = useMemo(() => {
+    if (draft) {
+      for (const row of draft.rows) {
+        const b = bookings.find((x) => x.jobNumber && x.jobNumber === row.jobNumber);
+        if (b) return b.bookingId;
+      }
+    }
+    return selectedGig;
+  }, [draft, bookings, selectedGig]);
+
+  // Mirror a receipt change into the open draft so the form row tracks the
+  // receipt list live: subtract the old contribution, add the new one.
+  // `before` null = freshly dropped receipt; `after` null = deleted.
+  // Edits only re-apply if the receipt was already counted in some row —
+  // receipts outside this draft stay outside it.
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const syncDraft = (before: ExpenseReceipt | null, after: ExpenseReceipt | null) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const rows = d.rows.slice();
+      let touched = false;
+      let hadSlot = !before;
+      if (before) {
+        const i = rows.findIndex((r) => r.receiptIds.includes(before.id));
+        if (i >= 0) {
+          hadSlot = true;
+          rows[i] = {
+            ...rows[i],
+            [before.category]: Math.max(0, round2(rows[i][before.category] - before.amount)),
+            receiptIds: rows[i].receiptIds.filter((x) => x !== before.id),
+          };
+          touched = true;
+        }
+      }
+      if (after && hadSlot) {
+        const b = bookings.find((x) => x.bookingId === after.bookingId);
+        const i = b ? rows.findIndex((r) => r.jobNumber === b.jobNumber) : -1;
+        if (i >= 0) {
+          rows[i] = {
+            ...rows[i],
+            [after.category]: round2(rows[i][after.category] + after.amount),
+            receiptIds: [...rows[i].receiptIds, after.id],
+          };
+          touched = true;
+        }
+      }
+      return touched ? { ...d, rows } : d;
+    });
+  };
+
   // ---- intake ----
 
   const ingest = async (paths: string[]) => {
@@ -90,7 +142,10 @@ export default function ExpensesTab({ bookings }: Props) {
     setBusy(true);
     setError(null);
     try {
-      setCache(await window.api.expenses.addFiles(paths));
+      const prevIds = new Set(receipts.map((r) => r.id));
+      const c = await window.api.expenses.addFiles(paths, activeBookingId || undefined);
+      setCache(c);
+      for (const r of c.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
     } finally {
@@ -111,8 +166,12 @@ export default function ExpensesTab({ bookings }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const c = await window.api.expenses.pickFiles();
-      if (c) setCache(c);
+      const prevIds = new Set(receipts.map((r) => r.id));
+      const c = await window.api.expenses.pickFiles(activeBookingId || undefined);
+      if (c) {
+        setCache(c);
+        for (const r of c.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
+      }
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
     } finally {
@@ -123,14 +182,23 @@ export default function ExpensesTab({ bookings }: Props) {
   // ---- receipt edits ----
 
   const patchReceipt = (id: string, patch: Partial<ExpenseReceipt>) => {
-    window.api.expenses.updateReceipt(id, patch).then(setCache).catch(() => {});
+    const before = receipts.find((r) => r.id === id) || null;
+    window.api.expenses.updateReceipt(id, patch).then((c) => {
+      setCache(c);
+      const after = c.receipts.find((r) => r.id === id) || null;
+      if (before && after) syncDraft(before, after);
+    }).catch(() => {});
   };
 
   const armRemove = (id: string) => {
     if (armedId === id) {
       if (armTimer.current) window.clearTimeout(armTimer.current);
       setArmedId(null);
-      window.api.expenses.removeReceipt(id).then(setCache).catch(() => {});
+      const before = receipts.find((r) => r.id === id) || null;
+      window.api.expenses.removeReceipt(id).then((c) => {
+        setCache(c);
+        if (before) syncDraft(before, null);
+      }).catch(() => {});
       return;
     }
     setArmedId(id);
@@ -233,78 +301,11 @@ export default function ExpensesTab({ bookings }: Props) {
       >
         <div className="exp-drop-title">{busy ? 'Reading receipts…' : 'Drop receipts here'}</div>
         <div className="subtle exp-drop-sub">
-          Photos or PDFs — hotel folios, Uber/Lyft receipts, parking stubs. The app reads each one,
-          fills in what it can, and matches it to a gig by date.
+          Photos or PDFs — hotel folios, Uber/Lyft receipts, parking stubs. The app reads
+          each one, sets the amount and column, and files it under the gig chosen below.
         </div>
         <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
       </div>
-
-      {/* ---- receipt list ---- */}
-      {receipts.length > 0 && (
-        <div className="card">
-          <h3>Receipts</h3>
-          {unassignedCount > 0 && (
-            <div className="subtle exp-hint">
-              {unassignedCount} receipt{unassignedCount === 1 ? '' : 's'} without a gig — assign them so they land on a report.
-            </div>
-          )}
-          {groups.map((g) => (
-            <div key={g.key || 'unassigned'} className="exp-group">
-              <div className="exp-group-h">{g.label}</div>
-              {g.items.map((r) => (
-                <div key={r.id} className="exp-receipt-row">
-                  <span className="exp-kind" title={r.originalName}>{r.kind === 'pdf' ? '📄' : '🧾'}</span>
-                  <input
-                    className="exp-in"
-                    defaultValue={r.merchant}
-                    placeholder="Merchant"
-                    onBlur={(e) => { if (e.target.value !== r.merchant) patchReceipt(r.id, { merchant: e.target.value }); }}
-                  />
-                  <input
-                    className="exp-in exp-in-date"
-                    defaultValue={r.date}
-                    placeholder="YYYY-MM-DD"
-                    onBlur={(e) => { if (e.target.value !== r.date) patchReceipt(r.id, { date: e.target.value.trim() }); }}
-                  />
-                  <select
-                    className="exp-in"
-                    value={r.category}
-                    onChange={(e) => patchReceipt(r.id, { category: e.target.value as ExpenseCategory })}
-                  >
-                    {Object.entries(CATEGORY_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-                  </select>
-                  <input
-                    className="exp-in exp-in-amount"
-                    defaultValue={r.amount ? r.amount.toFixed(2) : ''}
-                    placeholder="0.00"
-                    inputMode="decimal"
-                    onBlur={(e) => {
-                      const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
-                      if (isFinite(v) && v >= 0 && v !== r.amount) patchReceipt(r.id, { amount: v });
-                    }}
-                  />
-                  <select
-                    className="exp-in"
-                    value={bookingById.has(r.bookingId) ? r.bookingId : ''}
-                    onChange={(e) => patchReceipt(r.id, { bookingId: e.target.value })}
-                  >
-                    <option value="">No gig</option>
-                    {gigOptions.map((b) => (
-                      <option key={b.bookingId} value={b.bookingId}>{b.jobName} · {b.startDate.slice(5)}</option>
-                    ))}
-                  </select>
-                  <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
-                  <button
-                    className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}
-                    title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}
-                    onClick={() => armRemove(r.id)}
-                  >{armedId === r.id ? 'sure?' : '×'}</button>
-                </div>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
 
       {/* ---- report builder / editor ---- */}
       {!draft ? (
@@ -461,6 +462,61 @@ export default function ExpensesTab({ bookings }: Props) {
           </div>
         </div>
       )}
+      {/* ---- receipt list ---- */}
+      {receipts.length > 0 && (
+        <div className="card">
+          <h3>Receipts</h3>
+          {unassignedCount > 0 && (
+            <div className="subtle exp-hint">
+              {unassignedCount} receipt{unassignedCount === 1 ? '' : 's'} without a gig — assign them so they land on a report.
+            </div>
+          )}
+          {groups.map((g) => (
+            <div key={g.key || 'unassigned'} className="exp-group">
+              <div className="exp-group-h">{g.label}</div>
+              {g.items.map((r) => (
+                <div key={r.id} className="exp-receipt-row">
+                  <span className="exp-kind" title={r.merchant ? `${r.merchant} — ${r.originalName}` : r.originalName}>{r.kind === 'pdf' ? '📄' : '🧾'}</span>
+                  <select
+                    className="exp-in"
+                    value={r.category}
+                    onChange={(e) => patchReceipt(r.id, { category: e.target.value as ExpenseCategory })}
+                  >
+                    {Object.entries(CATEGORY_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+                  </select>
+                  <input
+                    className="exp-in exp-in-amount"
+                    defaultValue={r.amount ? r.amount.toFixed(2) : ''}
+                    placeholder="0.00"
+                    inputMode="decimal"
+                    onBlur={(e) => {
+                      const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
+                      if (isFinite(v) && v >= 0 && v !== r.amount) patchReceipt(r.id, { amount: v });
+                    }}
+                  />
+                  <select
+                    className="exp-in"
+                    value={bookingById.has(r.bookingId) ? r.bookingId : ''}
+                    onChange={(e) => patchReceipt(r.id, { bookingId: e.target.value })}
+                  >
+                    <option value="">No gig</option>
+                    {gigOptions.map((b) => (
+                      <option key={b.bookingId} value={b.bookingId}>{b.jobNumber} · {b.jobName}</option>
+                    ))}
+                  </select>
+                  <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
+                  <button
+                    className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}
+                    title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}
+                    onClick={() => armRemove(r.id)}
+                  >{armedId === r.id ? 'sure?' : '×'}</button>
+                </div>
+              ))}
+            </div>
+          ))}
+        </div>
+      )}
+
     </div>
   );
 }

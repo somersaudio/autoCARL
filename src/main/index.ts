@@ -538,9 +538,13 @@ function registerIpc(): void {
 
   // ---- expense reports ----
   ipcMain.handle('expenses:getCached', () => readExpensesCache());
-  ipcMain.handle('expenses:addFiles', (_e, paths: string[]) =>
-    addReceiptFiles((Array.isArray(paths) ? paths : []).filter((p): p is string => typeof p === 'string')));
-  ipcMain.handle('expenses:pickFiles', () => pickReceiptFiles());
+  ipcMain.handle('expenses:addFiles', (_e, paths: string[], assignTo?: string) =>
+    addReceiptFiles(
+      (Array.isArray(paths) ? paths : []).filter((p): p is string => typeof p === 'string'),
+      typeof assignTo === 'string' ? assignTo : undefined,
+    ));
+  ipcMain.handle('expenses:pickFiles', (_e, assignTo?: string) =>
+    pickReceiptFiles(typeof assignTo === 'string' ? assignTo : undefined));
   ipcMain.handle('expenses:updateReceipt', (_e, id: string, patch: Partial<ExpenseReceipt>) =>
     updateReceipt(String(id ?? ''), patch ?? {}));
   ipcMain.handle('expenses:removeReceipt', (_e, id: string) => removeReceipt(String(id ?? '')));

@@ -71,8 +71,8 @@ const api: Api = {
   },
   expenses: {
     getCached: () => ipcRenderer.invoke('expenses:getCached') as Promise<ExpensesCache>,
-    addFiles: (paths) => ipcRenderer.invoke('expenses:addFiles', paths) as Promise<ExpensesCache>,
-    pickFiles: () => ipcRenderer.invoke('expenses:pickFiles') as Promise<ExpensesCache | null>,
+    addFiles: (paths, assignTo) => ipcRenderer.invoke('expenses:addFiles', paths, assignTo) as Promise<ExpensesCache>,
+    pickFiles: (assignTo) => ipcRenderer.invoke('expenses:pickFiles', assignTo) as Promise<ExpensesCache | null>,
     updateReceipt: (id, patch) => ipcRenderer.invoke('expenses:updateReceipt', id, patch) as Promise<ExpensesCache>,
     removeReceipt: (id) => ipcRenderer.invoke('expenses:removeReceipt', id) as Promise<ExpensesCache>,
     openReceipt: (id) => ipcRenderer.invoke('expenses:openReceipt', id) as Promise<void>,

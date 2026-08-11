@@ -1789,7 +1789,7 @@ a.featured-venue:hover .featured-venue-name {
 
 .exp-receipt-row {
   display: grid;
-  grid-template-columns: 20px 1.3fr 96px 118px 80px 1.2fr 38px 44px;
+  grid-template-columns: 20px 150px 96px 1.4fr 38px 44px;
   gap: 8px;
   align-items: center;
   padding: 4px 0;

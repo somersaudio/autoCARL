@@ -323,11 +323,12 @@ export type Api = {
   expenses: {
     getCached: () => Promise<ExpensesCache>;
     // Ingest receipt files (images or PDFs) by absolute path: copy into
-    // userData, OCR/extract text, parse merchant/date/amount/category, and
-    // auto-match to a booking by date. Returns the updated cache.
-    addFiles: (paths: string[]) => Promise<ExpensesCache>;
+    // userData, OCR/extract text, parse amount + category. assignTo pins
+    // every dropped receipt to that booking (the gig selected in the UI);
+    // without it, date-matching decides. Returns the updated cache.
+    addFiles: (paths: string[], assignTo?: string) => Promise<ExpensesCache>;
     // Same pipeline behind a native open dialog. Null = user cancelled.
-    pickFiles: () => Promise<ExpensesCache | null>;
+    pickFiles: (assignTo?: string) => Promise<ExpensesCache | null>;
     updateReceipt: (id: string, patch: Partial<ExpenseReceipt>) => Promise<ExpensesCache>;
     removeReceipt: (id: string) => Promise<ExpensesCache>;
     // Opens the stored receipt copy in the OS default viewer.
