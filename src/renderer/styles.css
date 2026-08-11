@@ -1837,15 +1837,15 @@ a.featured-venue:hover .featured-venue-name {
   margin-bottom: 10px;
 }
 
-.sheet-rate { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.sheet-rate-in { width: 64px; }
+/* The form lays out at 1pt = 1px so shared layout coordinates apply
+   directly, then scales down as one unit to fit the card width. */
+.sheet-wrap { overflow: hidden; }
 
-/* The form itself, at 1pt = 1px so shared layout coordinates apply
-   directly. Wider than the window — scrolls horizontally. */
-.sheet-wrap { overflow-x: auto; padding-bottom: 4px; }
+.sheet-outer { position: relative; }
 
 .sheet {
   position: relative;
+  transform-origin: top left;
   width: 1134px;
   height: 792px;
   background-size: 1134px 792px;
@@ -1853,7 +1853,6 @@ a.featured-venue:hover .featured-venue-name {
   background-color: #fff;
   border-radius: 3px;
   box-shadow: 0 3px 16px rgba(0, 0, 0, 0.55);
-  margin-bottom: 14px;
 }
 
 /* Edit fields sitting inside the form's own cells. Dark ink on paper. */

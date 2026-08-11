@@ -60,6 +60,10 @@ export default function ExpensesTab({ bookings }: Props) {
   const [armedId, setArmedId] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
   const armTimer = useRef<number | null>(null);
+  // The form renders at 1134pt native and scales down to whatever width the
+  // card offers, so the whole sheet is visible at the default window size.
+  const sheetWrapRef = useRef<HTMLDivElement | null>(null);
+  const [sheetScale, setSheetScale] = useState(1);
 
   useEffect(() => {
     window.api.expenses.getCached().then((c) => {
@@ -90,6 +94,16 @@ export default function ExpensesTab({ bookings }: Props) {
     }, 700);
     return () => window.clearTimeout(t);
   }, [draft]);
+
+  useEffect(() => {
+    const el = sheetWrapRef.current;
+    if (!el) return;
+    const measure = () => setSheetScale(Math.min(1, el.clientWidth / PAGE.width));
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [draft?.id]);
 
   const bookingById = useMemo(() => {
     const m = new Map<string, Booking>();
@@ -323,6 +337,36 @@ export default function ExpensesTab({ bookings }: Props) {
         <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
       </div>
 
+      {/* ---- receipt list: the active gig's receipts only ---- */}
+      {(activeReceipts.length > 0 || unassigned.length > 0) && (
+        <div className="card">
+          <h3>
+            Receipts
+            {activeBooking && (
+              <span className="exp-h-gig subtle"> — {activeBooking.jobNumber} · {activeBooking.jobName}</span>
+            )}
+          </h3>
+          {activeReceipts.map((r) => (
+            <ReceiptRow key={r.id} r={r} armedId={armedId}
+              onPatch={patchReceipt} onRemove={armRemove} />
+          ))}
+          {activeReceipts.length === 0 && (
+            <div className="subtle exp-hint">None on this gig yet — drop some above.</div>
+          )}
+          {unassigned.length > 0 && (
+            <>
+              <div className="exp-group-h">From before — not on a gig</div>
+              {unassigned.map((r) => (
+                <ReceiptRow key={r.id} r={r} armedId={armedId}
+                  onPatch={patchReceipt} onRemove={armRemove}
+                  onAdopt={activeBooking ? () => adoptReceipt(r.id) : undefined}
+                  adoptLabel={activeBooking ? `add to ${activeBooking.jobNumber}` : undefined} />
+              ))}
+            </>
+          )}
+        </div>
+      )}
+
       {/* ---- report builder / editor ---- */}
       {!draft ? (
         <div className="card">
@@ -368,18 +412,6 @@ export default function ExpensesTab({ bookings }: Props) {
         <div className="card">
           <h3>CT Expense Reimbursement Form</h3>
           <div className="sheet-toolbar">
-            <label className="sheet-rate subtle">Mileage rate $/mi
-              <input
-                key={`rate-${draft.mileageRate}`}
-                className="exp-in exp-in-amount sheet-rate-in"
-                defaultValue={draft.mileageRate.toFixed(2)}
-                inputMode="decimal"
-                onBlur={(e) => {
-                  const v = parseFloat(e.target.value);
-                  if (isFinite(v) && v >= 0) patchDraft({ mileageRate: v });
-                }}
-              />
-            </label>
             <button className="link" onClick={() => patchDraft({
               rows: [...draft.rows, {
                 jobNumber: '', description: '', lodging: 0, airfare: 0, parking: 0,
@@ -387,7 +419,7 @@ export default function ExpensesTab({ bookings }: Props) {
               }],
             })}>+ add row</button>
           </div>
-          <div className="sheet-wrap">
+          <div className="sheet-wrap" ref={sheetWrapRef}>
             {(() => {
               const pages = Math.max(1, Math.ceil(draft.rows.length / ROWS_PER_PAGE));
               return Array.from({ length: pages }, (_, p) => (
@@ -397,6 +429,7 @@ export default function ExpensesTab({ bookings }: Props) {
                   startIndex={p * ROWS_PER_PAGE}
                   isFirst={p === 0}
                   isLast={p === pages - 1}
+                  scale={sheetScale}
                   onPatchDraft={patchDraft}
                   onPatchRow={patchRow}
                   onRemoveRow={(gi) => patchDraft({ rows: draft.rows.filter((_, k) => k !== gi) })}
@@ -421,36 +454,6 @@ export default function ExpensesTab({ bookings }: Props) {
           </div>
         </div>
       )}
-      {/* ---- receipt list: the active gig's receipts only ---- */}
-      {(activeReceipts.length > 0 || unassigned.length > 0) && (
-        <div className="card">
-          <h3>
-            Receipts
-            {activeBooking && (
-              <span className="exp-h-gig subtle"> — {activeBooking.jobNumber} · {activeBooking.jobName}</span>
-            )}
-          </h3>
-          {activeReceipts.map((r) => (
-            <ReceiptRow key={r.id} r={r} armedId={armedId}
-              onPatch={patchReceipt} onRemove={armRemove} />
-          ))}
-          {activeReceipts.length === 0 && (
-            <div className="subtle exp-hint">None on this gig yet — drop some above.</div>
-          )}
-          {unassigned.length > 0 && (
-            <>
-              <div className="exp-group-h">From before — not on a gig</div>
-              {unassigned.map((r) => (
-                <ReceiptRow key={r.id} r={r} armedId={armedId}
-                  onPatch={patchReceipt} onRemove={armRemove}
-                  onAdopt={activeBooking ? () => adoptReceipt(r.id) : undefined}
-                  adoptLabel={activeBooking ? `add to ${activeBooking.jobNumber}` : undefined} />
-              ))}
-            </>
-          )}
-        </div>
-      )}
-
     </div>
   );
 }
@@ -546,11 +549,12 @@ function SheetMoneyInput({ col, y, value, onCommit }: {
   );
 }
 
-function FormSheet({ draft, startIndex, isFirst, isLast, onPatchDraft, onPatchRow, onRemoveRow }: {
+function FormSheet({ draft, startIndex, isFirst, isLast, scale, onPatchDraft, onPatchRow, onRemoveRow }: {
   draft: ExpenseReport;
   startIndex: number;
   isFirst: boolean;
   isLast: boolean;
+  scale: number;
   onPatchDraft: (patch: Partial<ExpenseReport>) => void;
   onPatchRow: (i: number, patch: Partial<ExpenseRow>) => void;
   onRemoveRow: (i: number) => void;
@@ -582,7 +586,8 @@ function FormSheet({ draft, startIndex, isFirst, isLast, onPatchDraft, onPatchRo
   ];
 
   return (
-    <div className="sheet" style={{ backgroundImage: `url(${sheetPng})` }}>
+    <div className="sheet-outer" style={{ height: PAGE.height * scale + 14 }}>
+    <div className="sheet" style={{ backgroundImage: `url(${sheetPng})`, transform: `scale(${scale})` }}>
       {hdr('date', 182, draft.date, (v) => onPatchDraft({ date: v }))}
       {hdr('name', 182, draft.name, (v) => onPatchDraft({ name: v }))}
       {hdr('employeeId', 182, draft.employeeId, (v) => onPatchDraft({ employeeId: v }))}
@@ -663,6 +668,7 @@ function FormSheet({ draft, startIndex, isFirst, isLast, onPatchDraft, onPatchRo
           />
         </>
       )}
+    </div>
     </div>
   );
 }
