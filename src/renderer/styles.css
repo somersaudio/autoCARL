@@ -1788,20 +1788,23 @@ a.featured-venue:hover .featured-venue-name {
 }
 
 .exp-receipt-row {
-  display: grid;
-  grid-template-columns: 20px 150px 96px 1.4fr 38px 44px;
+  display: flex;
   gap: 8px;
   align-items: center;
   padding: 4px 0;
   border-bottom: 1px solid var(--border);
 }
 
+.exp-in-cat { width: 150px; }
+.exp-row-spacer { flex: 1; }
+.exp-adopt { font-size: 11px; padding: 0; white-space: nowrap; }
+.exp-h-gig { font-size: 12px; text-transform: none; letter-spacing: 0; }
+
 .exp-receipt-row:last-child { border-bottom: none; }
 
 .exp-kind { font-size: 14px; text-align: center; cursor: default; }
 
 .exp-in {
-  width: 100%;
   padding: 4px 6px;
   font-size: 12px;
   background: rgba(255, 255, 255, 0.04);
@@ -1811,7 +1814,7 @@ a.featured-venue:hover .featured-venue-name {
 }
 
 .exp-in:focus { outline: none; border-color: var(--ct-gold); }
-.exp-in-amount { text-align: right; }
+.exp-in-amount { width: 96px; text-align: right; }
 
 .exp-view { font-size: 11px; padding: 0; }
 

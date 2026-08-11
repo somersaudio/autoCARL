@@ -81,7 +81,6 @@ export default function ExpensesTab({ bookings }: Props) {
   }, [bookings]);
 
   const receipts = cache?.receipts ?? [];
-  const unassignedCount = receipts.filter((r) => !r.bookingId).length;
 
   // The gig receipts get filed under: the open draft's gig if one is open,
   // otherwise the builder dropdown's selection.
@@ -255,27 +254,24 @@ export default function ExpensesTab({ bookings }: Props) {
     setExportedPath(null);
   };
 
-  // ---- receipt grouping for display ----
+  // ---- receipts for display ----
+  // Reports are always per-gig, so the list shows just the active gig's
+  // receipts — switching the dropdown switches the list. Receipts from
+  // before this flow (no gig recorded) surface below with a one-click adopt.
+  const activeBooking = bookingById.get(activeBookingId);
+  const activeReceipts = receipts.filter((r) => r.bookingId === activeBookingId);
+  const unassigned = receipts.filter((r) => !r.bookingId);
 
-  const groups = useMemo(() => {
-    const byBooking = new Map<string, ExpenseReceipt[]>();
-    for (const r of receipts) {
-      const key = r.bookingId && bookingById.has(r.bookingId) ? r.bookingId
-        : r.bookingId ? 'stale' : '';
-      if (!byBooking.has(key)) byBooking.set(key, []);
-      byBooking.get(key)!.push(r);
-    }
-    const ordered: Array<{ key: string; label: string; items: ExpenseReceipt[] }> = [];
-    if (byBooking.has('')) ordered.push({ key: '', label: 'Unassigned — pick a gig', items: byBooking.get('')! });
-    const withBookings = [...byBooking.keys()].filter((k) => k && k !== 'stale');
-    withBookings.sort((a, b) => (bookingById.get(b)?.startDate || '').localeCompare(bookingById.get(a)?.startDate || ''));
-    for (const k of withBookings) {
-      const b = bookingById.get(k)!;
-      ordered.push({ key: k, label: `${b.jobName} · ${b.startDate.slice(5)} – ${b.endDate.slice(5)}`, items: byBooking.get(k)! });
-    }
-    if (byBooking.has('stale')) ordered.push({ key: 'stale', label: 'Past gigs (no longer on the calendar)', items: byBooking.get('stale')! });
-    return ordered;
-  }, [receipts, bookingById]);
+  // Adopt a gig-less receipt onto the active gig — and into the open
+  // report, exactly as if it had just been dropped.
+  const adoptReceipt = (id: string) => {
+    if (!activeBookingId) return;
+    window.api.expenses.updateReceipt(id, { bookingId: activeBookingId }).then((c) => {
+      setCache(c);
+      const after = c.receipts.find((r) => r.id === id) || null;
+      if (after) syncDraft(null, after);
+    }).catch(() => {});
+  };
 
   const gigOptions = useMemo(
     () => bookings.slice().sort((a, b) => b.startDate.localeCompare(a.startDate)),
@@ -462,61 +458,78 @@ export default function ExpensesTab({ bookings }: Props) {
           </div>
         </div>
       )}
-      {/* ---- receipt list ---- */}
-      {receipts.length > 0 && (
+      {/* ---- receipt list: the active gig's receipts only ---- */}
+      {(activeReceipts.length > 0 || unassigned.length > 0) && (
         <div className="card">
-          <h3>Receipts</h3>
-          {unassignedCount > 0 && (
-            <div className="subtle exp-hint">
-              {unassignedCount} receipt{unassignedCount === 1 ? '' : 's'} without a gig — assign them so they land on a report.
-            </div>
-          )}
-          {groups.map((g) => (
-            <div key={g.key || 'unassigned'} className="exp-group">
-              <div className="exp-group-h">{g.label}</div>
-              {g.items.map((r) => (
-                <div key={r.id} className="exp-receipt-row">
-                  <span className="exp-kind" title={r.merchant ? `${r.merchant} — ${r.originalName}` : r.originalName}>{r.kind === 'pdf' ? '📄' : '🧾'}</span>
-                  <select
-                    className="exp-in"
-                    value={r.category}
-                    onChange={(e) => patchReceipt(r.id, { category: e.target.value as ExpenseCategory })}
-                  >
-                    {Object.entries(CATEGORY_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-                  </select>
-                  <input
-                    className="exp-in exp-in-amount"
-                    defaultValue={r.amount ? r.amount.toFixed(2) : ''}
-                    placeholder="0.00"
-                    inputMode="decimal"
-                    onBlur={(e) => {
-                      const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
-                      if (isFinite(v) && v >= 0 && v !== r.amount) patchReceipt(r.id, { amount: v });
-                    }}
-                  />
-                  <select
-                    className="exp-in"
-                    value={bookingById.has(r.bookingId) ? r.bookingId : ''}
-                    onChange={(e) => patchReceipt(r.id, { bookingId: e.target.value })}
-                  >
-                    <option value="">No gig</option>
-                    {gigOptions.map((b) => (
-                      <option key={b.bookingId} value={b.bookingId}>{b.jobNumber} · {b.jobName}</option>
-                    ))}
-                  </select>
-                  <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
-                  <button
-                    className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}
-                    title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}
-                    onClick={() => armRemove(r.id)}
-                  >{armedId === r.id ? 'sure?' : '×'}</button>
-                </div>
-              ))}
-            </div>
+          <h3>
+            Receipts
+            {activeBooking && (
+              <span className="exp-h-gig subtle"> — {activeBooking.jobNumber} · {activeBooking.jobName}</span>
+            )}
+          </h3>
+          {activeReceipts.map((r) => (
+            <ReceiptRow key={r.id} r={r} armedId={armedId}
+              onPatch={patchReceipt} onRemove={armRemove} />
           ))}
+          {activeReceipts.length === 0 && (
+            <div className="subtle exp-hint">None on this gig yet — drop some above.</div>
+          )}
+          {unassigned.length > 0 && (
+            <>
+              <div className="exp-group-h">From before — not on a gig</div>
+              {unassigned.map((r) => (
+                <ReceiptRow key={r.id} r={r} armedId={armedId}
+                  onPatch={patchReceipt} onRemove={armRemove}
+                  onAdopt={activeBooking ? () => adoptReceipt(r.id) : undefined}
+                  adoptLabel={activeBooking ? `add to ${activeBooking.jobNumber}` : undefined} />
+              ))}
+            </>
+          )}
         </div>
       )}
 
+    </div>
+  );
+}
+
+// One receipt line: what it is, what it cost, nothing else — the gig is
+// implied by the card it sits in. Unassigned leftovers get an adopt link.
+function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel }: {
+  r: ExpenseReceipt;
+  armedId: string | null;
+  onPatch: (id: string, patch: Partial<ExpenseReceipt>) => void;
+  onRemove: (id: string) => void;
+  onAdopt?: () => void;
+  adoptLabel?: string;
+}) {
+  return (
+    <div className="exp-receipt-row">
+      <span className="exp-kind" title={r.merchant ? `${r.merchant} — ${r.originalName}` : r.originalName}>{r.kind === 'pdf' ? '📄' : '🧾'}</span>
+      <select
+        className="exp-in exp-in-cat"
+        value={r.category}
+        onChange={(e) => onPatch(r.id, { category: e.target.value as ExpenseCategory })}
+      >
+        {Object.entries(CATEGORY_LABEL).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+      </select>
+      <input
+        className="exp-in exp-in-amount"
+        defaultValue={r.amount ? r.amount.toFixed(2) : ''}
+        placeholder="0.00"
+        inputMode="decimal"
+        onBlur={(e) => {
+          const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
+          if (isFinite(v) && v >= 0 && v !== r.amount) onPatch(r.id, { amount: v });
+        }}
+      />
+      {onAdopt && <button className="link exp-adopt" onClick={onAdopt}>{adoptLabel}</button>}
+      <span className="exp-row-spacer" />
+      <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
+      <button
+        className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}
+        title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}
+        onClick={() => onRemove(r.id)}
+      >{armedId === r.id ? 'sure?' : '×'}</button>
     </div>
   );
 }
