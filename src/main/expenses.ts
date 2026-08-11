@@ -83,6 +83,25 @@ function matchBooking(date: string, bookings: Booking[]): string {
   return best?.bookingId || '';
 }
 
+// macOS shows the "control Mail" consent prompt exactly ONCE per app — a
+// Don't Allow can never be re-asked from code. Closest thing to a second
+// chance: a dialog whose button lands the user directly on the Automation
+// pane, one toggle away from fixed.
+async function explainAutomationDenial(): Promise<never> {
+  const { response } = await dialog.showMessageBox({
+    type: 'warning',
+    buttons: ['Open System Settings', 'Cancel'],
+    defaultId: 0,
+    cancelId: 1,
+    message: 'AUTOcarl isn\'t allowed to control Mail',
+    detail: 'macOS only asks once, so flip the switch by hand: System Settings → Privacy & Security → Automation → AUTOcarl → Mail. Then click Export to Mail again.',
+  });
+  if (response === 0) {
+    await shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_Automation');
+  }
+  throw new Error('Mail access is switched off for AUTOcarl — enable it under Automation, then try again.');
+}
+
 // A file refused on purpose — the message is shown to the user verbatim.
 class SkipFile extends Error {}
 
@@ -498,7 +517,7 @@ export async function mailReport(report: ExpenseReport): Promise<void> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/-1743|not authori[sz]ed/i.test(msg)) {
-      throw new Error('macOS blocked AUTOcarl from controlling Mail. Allow it under System Settings → Privacy & Security → Automation, then try again.');
+      await explainAutomationDenial();
     }
     if (/no email account/i.test(msg)) throw e;
     // Any other pre-check hiccup: fall through and let the draft attempt
@@ -513,7 +532,7 @@ export async function mailReport(report: ExpenseReport): Promise<void> {
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     if (/-1743|not authori[sz]ed/i.test(msg)) {
-      throw new Error('macOS blocked AUTOcarl from controlling Mail. Allow it under System Settings → Privacy & Security → Automation, then try again.');
+      await explainAutomationDenial();
     }
     throw new Error(`Couldn't create the Mail draft: ${msg}`);
   }
