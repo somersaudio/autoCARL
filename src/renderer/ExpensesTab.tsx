@@ -66,12 +66,8 @@ export default function ExpensesTab({ bookings }: Props) {
   const [sheetScale, setSheetScale] = useState(1);
 
   useEffect(() => {
-    window.api.expenses.getCached().then((c) => {
-      setCache(c);
-      // There is at most one report, and if it exists it IS the work in
-      // progress — reopen it, surviving tab switches and app restarts.
-      if (c.reports[0]) setDraft(c.reports[0]);
-    }).catch((e) => setError(friendlyError(e, !navigator.onLine)));
+    window.api.expenses.getCached().then(setCache)
+      .catch((e) => setError(friendlyError(e, !navigator.onLine)));
   }, []);
 
   // Default the gig dropdown to the most recent gig holding receipts (falling
@@ -79,16 +75,29 @@ export default function ExpensesTab({ bookings }: Props) {
   // leaves the user's choice alone.
   useEffect(() => {
     if (selectedGig || !cache || !bookings.length) return;
-    // The open report's gig wins; then the newest gig holding receipts; then
-    // simply the newest gig.
-    const fromDraft = cache.reports[0] ? draftGigId(cache.reports[0]) : '';
-    if (fromDraft) { setSelectedGig(fromDraft); return; }
-    const withReceipts = new Set(cache.receipts.map((r) => r.bookingId).filter(Boolean));
+    // Default to the newest gig that has anything going — receipts or a
+    // saved report — else simply the newest gig.
+    const busy = new Set([
+      ...cache.receipts.map((r) => r.bookingId),
+      ...cache.reports.map((r) => draftGigId(r)),
+    ].filter(Boolean));
     const sorted = bookings.slice().sort((a, b) => b.startDate.localeCompare(a.startDate));
-    const pick = sorted.find((b) => withReceipts.has(b.bookingId)) || sorted[0];
+    const pick = sorted.find((b) => busy.has(b.bookingId)) || sorted[0];
     if (pick) setSelectedGig(pick.bookingId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGig, cache, bookings]);
+
+  // The picker drives the workspace: switching gigs swaps in that gig's
+  // saved report (or none). Same-gig runs are left alone so in-flight edits
+  // and auto-saves never get clobbered.
+  useEffect(() => {
+    if (!cache || !selectedGig) return;
+    if (draft && draftGigId(draft) === selectedGig) return;
+    const rep = cache.reports.find((r) => draftGigId(r) === selectedGig) || null;
+    setDraft(rep);
+    setExportedPath(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedGig, cache]);
 
   // Draft edits persist automatically (debounced) so flipping to Timesheet to
   // check something doesn't throw away a half-adjusted report.
@@ -303,9 +312,12 @@ export default function ExpensesTab({ bookings }: Props) {
   };
 
   const discardDraft = () => {
-    if (draft) window.api.expenses.removeReport(draft.id).then(setCache).catch(() => {});
-    setDraft(null);
-    setExportedPath(null);
+    if (!draft) return;
+    window.api.expenses.removeReport(draft.id).then((c) => {
+      setCache(c);
+      setDraft(null);
+      setExportedPath(null);
+    }).catch(() => {});
   };
 
   // ---- receipts for display ----
@@ -365,13 +377,14 @@ export default function ExpensesTab({ bookings }: Props) {
           {gigOptions.length === 0 && <option value="">No gigs on the calendar yet</option>}
           {gigOptions.map((b) => {
             const n = receiptCountFor(b.bookingId);
+            const hasReport = (cache?.reports ?? []).some((r) => draftGigId(r) === b.bookingId);
             return (
               <option
                 key={b.bookingId}
                 value={b.bookingId}
                 title={`${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}`}
               >
-                {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
+                {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}{hasReport ? ' · report' : ''}
               </option>
             );
           })}
@@ -435,14 +448,6 @@ export default function ExpensesTab({ bookings }: Props) {
             <button className="primary" onClick={buildDraft} disabled={!selectedGig || !bookingById.has(selectedGig)}>
               Build report
             </button>
-            {draft && (
-              <span className="subtle exp-hint-inline">
-                replaces the current report{(() => {
-                  const b = bookingById.get(draftGigId(draft));
-                  return b ? ` (${b.jobNumber})` : '';
-                })()}
-              </span>
-            )}
           </div>
         </div>
       ) : (

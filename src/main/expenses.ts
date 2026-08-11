@@ -313,10 +313,13 @@ function sanitizeReport(report: ExpenseReport): ExpenseReport {
 export async function saveReport(report: ExpenseReport): Promise<ExpensesCache> {
   const clean = sanitizeReport(report);
   const cache = await readExpensesCache();
-  // One report at a time, by design: the in-progress draft IS the report
-  // list. Saving replaces whatever was there; the renderer restores it as
-  // the open draft on next visit.
-  cache.reports = [clean];
+  // One report PER GIG: saving upserts by bookingId (and by id, covering
+  // reports saved before the gig link existed). Every gig's in-progress
+  // report survives app restarts; the picker brings it back.
+  cache.reports = [
+    ...cache.reports.filter((r) => r.id !== clean.id && !(clean.bookingId && r.bookingId === clean.bookingId)),
+    clean,
+  ];
   await writeExpensesCache(cache);
   return cache;
 }
