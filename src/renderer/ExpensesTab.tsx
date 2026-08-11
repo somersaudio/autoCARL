@@ -94,7 +94,10 @@ export default function ExpensesTab({ bookings }: Props) {
     if (!cache || !selectedGig) return;
     if (draft && draftGigId(draft) === selectedGig) return;
     const rep = cache.reports.find((r) => draftGigId(r) === selectedGig) || null;
-    setDraft(rep);
+    // Reports saved before the gig link existed get stamped on open —
+    // without this, deleting every row erases the report's inferred
+    // identity mid-edit and this effect resurrects the stale saved copy.
+    setDraft(rep && !rep.bookingId ? { ...rep, bookingId: selectedGig } : rep);
     setExportedPath(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGig, cache]);
@@ -570,7 +573,11 @@ function SheetMoneyInput({ col, y, value, onCommit }: {
       inputMode="decimal"
       onBlur={(e) => {
         const v = parseFloat(e.target.value.replace(/[$,]/g, ''));
-        onCommit(isFinite(v) && v >= 0 ? v : 0);
+        const next = isFinite(v) && v >= 0 ? v : 0;
+        // Same-value blurs are dropped — a reused input unmounting during a
+        // row splice must not commit its stale contents into the row that
+        // shifted under it.
+        if (next !== value) onCommit(next);
       }}
     />
   );
@@ -627,18 +634,20 @@ function FormSheet({ draft, startIndex, isFirst, isLast, scale, onPatchDraft, on
         const gi = startIndex + i;
         const y = ROW_Y[i];
         return (
-          <span key={`${draft.id}-r${gi}`}>
+          <span key={row.receiptIds[0] ? `rc-${row.receiptIds[0]}` : `m-${gi}`}>
             <input
+              key={`j${row.jobNumber}`}
               className="sheet-in sheet-in-center"
               style={{ left: COL.job.l + 2, top: sheetTop(y), width: COL.job.r - COL.job.l - 4 }}
               defaultValue={row.jobNumber}
-              onBlur={(e) => onPatchRow(gi, { jobNumber: e.target.value })}
+              onBlur={(e) => { if (e.target.value !== row.jobNumber) onPatchRow(gi, { jobNumber: e.target.value }); }}
             />
             <input
+              key={`d${row.description}`}
               className="sheet-in"
               style={{ left: COL.desc.l + 3, top: sheetTop(y), width: COL.desc.r - COL.desc.l - 6 }}
               defaultValue={row.description}
-              onBlur={(e) => onPatchRow(gi, { description: e.target.value })}
+              onBlur={(e) => { if (e.target.value !== row.description) onPatchRow(gi, { description: e.target.value }); }}
             />
             {MONEY.map(([col, k]) => (
               <SheetMoneyInput key={k} col={col} y={y} value={row[k]}
@@ -653,7 +662,8 @@ function FormSheet({ draft, startIndex, isFirst, isLast, scale, onPatchDraft, on
               title={row.miles ? `Mileage: $${fmt2(mileageDollars(row, rate))}` : 'Miles driven'}
               onBlur={(e) => {
                 const v = parseInt(e.target.value, 10);
-                onPatchRow(gi, { miles: isFinite(v) && v >= 0 ? v : 0 });
+                const next = isFinite(v) && v >= 0 ? v : 0;
+                if (next !== row.miles) onPatchRow(gi, { miles: next });
               }}
             />
             <SheetComputed col={COL.mileage} y={y} amount={mileageDollars(row, rate)} />
