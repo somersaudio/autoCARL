@@ -5,7 +5,7 @@ import { promises as fs } from 'node:fs';
 import { basename, extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Booking, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache, IngestOutcome } from '../shared/types';
-import { extractText } from './flight-parser';
+import { extractLayoutText } from './flight-parser';
 import { parseReceiptText } from './receipt-parse';
 import { PDFDocument } from '@cantoo/pdf-lib';
 import { fillExpensePdf } from './expense-pdf';
@@ -123,7 +123,9 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
       const { PDFDocument: PDFDoc } = await import('@cantoo/pdf-lib');
       pages = (await PDFDoc.load(bytes, { ignoreEncryption: true })).getPageCount();
     } catch { /* unreadable structure — let text extraction have a try */ }
-    if (pages > 1) {
+    // A single receipt legitimately runs a page or three (Uber's PDFs add a
+    // trip-details page). Bigger stacks read as many receipts in one file.
+    if (pages > 3) {
       throw new SkipFile(
         `has ${pages} pages — that looks like several receipts combined into one file. Add each receipt as its own photo or PDF so every line gets the right amount.`,
       );
@@ -131,7 +133,7 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
     kind = 'pdf';
     file = join(receiptsDir(), `${id}.pdf`);
     await fs.writeFile(file, bytes);
-    text = await extractText(file).catch(() => '');
+    text = await extractLayoutText(file).catch(() => '');
   } else if (IMAGE_EXTS.has(ext)) {
     kind = 'image';
     file = join(receiptsDir(), `${id}${ext === '.jpeg' ? '.jpg' : ext}`);

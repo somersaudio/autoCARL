@@ -66,6 +66,64 @@ export async function extractText(localPath: string): Promise<string> {
   return lines.join('\n');
 }
 
+/**
+ * Layout-aware text extraction for receipt PDFs. Some generators (Uber's
+ * emailed receipts among them) atomize the text layer into one item PER
+ * GLYPH, so naive item-joining yields "T o t a l $ 1 9 . 1 9" and every
+ * keyword and amount pattern dies. This rebuilds visual lines from item
+ * coordinates: cluster by baseline y, sort by x, and insert spaces only at
+ * real horizontal gaps. Works equally for normal word-per-item PDFs.
+ */
+export async function extractLayoutText(localPath: string): Promise<string> {
+  const buf = await fs.readFile(localPath);
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  if (pdfjs.GlobalWorkerOptions && !pdfjs.GlobalWorkerOptions.workerSrc) {
+    try {
+      pdfjs.GlobalWorkerOptions.workerSrc = requireCJS.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs');
+    } catch {
+      pdfjs.GlobalWorkerOptions.workerSrc = requireCJS.resolve('pdfjs-dist/legacy/build/pdf.worker.js');
+    }
+  }
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buf),
+    useSystemFonts: true,
+    disableFontFace: true,
+    isEvalSupported: false,
+  }).promise;
+
+  type Bit = { str: string; x: number; y: number; w: number };
+  const out: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    const bits: Bit[] = (content.items as Array<{ str?: string; transform?: number[]; width?: number }>)
+      .filter((it) => it && typeof it.str === 'string' && it.str.length > 0 && Array.isArray(it.transform))
+      .map((it) => ({ str: it.str as string, x: it.transform![4], y: it.transform![5], w: it.width || 0 }));
+    // Cluster into visual lines: sort top-to-bottom, then left-to-right;
+    // a bit joins the current line while its baseline is within 2pt.
+    bits.sort((a, b) => b.y - a.y || a.x - b.x);
+    const rows: Bit[][] = [];
+    for (const bit of bits) {
+      const row = rows[rows.length - 1];
+      if (row && Math.abs(row[0].y - bit.y) <= 2) row.push(bit);
+      else rows.push([bit]);
+    }
+    for (const row of rows) {
+      row.sort((a, b) => a.x - b.x);
+      let line = '';
+      let prevEnd: number | null = null;
+      for (const bit of row) {
+        if (prevEnd !== null && bit.x - prevEnd > 1.5) line += ' ';
+        line += bit.str;
+        prevEnd = bit.x + bit.w;
+      }
+      const trimmed = line.trim();
+      if (trimmed) out.push(trimmed);
+    }
+  }
+  return out.join('\n');
+}
+
 // ----- heuristic extraction -----
 
 const AIRPORT_RE = /\b([A-Z]{3})\b/g;
