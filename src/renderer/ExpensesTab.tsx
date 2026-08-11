@@ -28,6 +28,15 @@ function usd(n: number): string {
   return n.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
+// "9/6 – 9/11" from a pair of ISO dates, for the gig-picker hover tooltips.
+function fmtRange(start: string, end: string): string {
+  const f = (iso: string) => {
+    const [, m, d] = iso.split('-');
+    return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
+  };
+  return start === end ? f(start) : `${f(start)} – ${f(end)}`;
+}
+
 function mileageDollars(row: ExpenseRow, rate: number): number {
   return Math.round(row.miles * rate * 100) / 100;
 }
@@ -317,12 +326,23 @@ export default function ExpensesTab({ bookings }: Props) {
               className="exp-in exp-gig-select"
               value={selectedGig}
               onChange={(e) => setSelectedGig(e.target.value)}
+              // Hovering the closed control shows the selected gig's dates —
+              // same-named bookings (split for billing) tell apart this way
+              // without cluttering the labels.
+              title={(() => {
+                const b = bookingById.get(selectedGig);
+                return b ? `${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}` : undefined;
+              })()}
             >
               {gigOptions.length === 0 && <option value="">No gigs on the calendar yet</option>}
               {gigOptions.map((b) => {
                 const n = receiptCountFor(b.bookingId);
                 return (
-                  <option key={b.bookingId} value={b.bookingId}>
+                  <option
+                    key={b.bookingId}
+                    value={b.bookingId}
+                    title={`${b.jobNumber} · ${fmtRange(b.startDate, b.endDate)}`}
+                  >
                     {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
                   </option>
                 );
