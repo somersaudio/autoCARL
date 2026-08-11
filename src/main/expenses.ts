@@ -301,9 +301,10 @@ function sanitizeReport(report: ExpenseReport): ExpenseReport {
 export async function saveReport(report: ExpenseReport): Promise<ExpensesCache> {
   const clean = sanitizeReport(report);
   const cache = await readExpensesCache();
-  const i = cache.reports.findIndex((r) => r.id === clean.id);
-  if (i >= 0) cache.reports[i] = clean;
-  else cache.reports.push(clean);
+  // One report at a time, by design: the in-progress draft IS the report
+  // list. Saving replaces whatever was there; the renderer restores it as
+  // the open draft on next visit.
+  cache.reports = [clean];
   await writeExpensesCache(cache);
   return cache;
 }

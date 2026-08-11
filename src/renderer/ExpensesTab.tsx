@@ -58,8 +58,12 @@ export default function ExpensesTab({ bookings }: Props) {
   const armTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    window.api.expenses.getCached().then(setCache)
-      .catch((e) => setError(friendlyError(e, !navigator.onLine)));
+    window.api.expenses.getCached().then((c) => {
+      setCache(c);
+      // There is at most one report, and if it exists it IS the work in
+      // progress — reopen it, surviving tab switches and app restarts.
+      if (c.reports[0]) setDraft(c.reports[0]);
+    }).catch((e) => setError(friendlyError(e, !navigator.onLine)));
   }, []);
 
   // Default the gig dropdown to the most recent gig holding receipts (falling
@@ -351,15 +355,6 @@ export default function ExpensesTab({ bookings }: Props) {
             <button className="primary" onClick={buildDraft} disabled={!selectedGig || !bookingById.has(selectedGig)}>
               Build report
             </button>
-            {cache.reports.length > 0 && (
-              <span className="exp-saved">
-                {cache.reports.slice().reverse().map((rep) => (
-                  <button key={rep.id} className="link" onClick={() => { setDraft(rep); setExportedPath(null); }}>
-                    {rep.date || 'draft'} · {rep.rows.map((r) => r.jobNumber).filter(Boolean).slice(0, 2).join(', ') || 'empty'}
-                  </button>
-                ))}
-              </span>
-            )}
           </div>
         </div>
       ) : (
@@ -472,7 +467,6 @@ export default function ExpensesTab({ bookings }: Props) {
             <button className="primary" onClick={exportPdf} disabled={exportBusy}>
               {exportBusy ? 'Exporting…' : 'Export PDF'}
             </button>
-            <button className="secondary" onClick={() => { setDraft(null); setExportedPath(null); }}>Close</button>
             <button className="link exp-x" onClick={discardDraft}>Delete report</button>
             {exportedPath && <span className="subtle exp-exported">Saved — revealed in Finder</span>}
           </div>
