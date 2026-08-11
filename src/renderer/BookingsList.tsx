@@ -185,6 +185,9 @@ function BookingCard({ booking, pdfs, contacts, onExpand }: BookingCardProps) {
           {booking.laborCoordinator && <span>· LC: {booking.laborCoordinator}</span>}
         </div>
       </div>
+      {notesUnseen(contacts) && (
+        <NoteIcon size={24} title="New booking notes — open the card to read them" />
+      )}
       {flightRequestOpen(contacts) && (
         <PlaneIcon size={34} title={contacts!.laborTravel} />
       )}
@@ -255,6 +258,18 @@ function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBo
     return () => { cancelled = true; };
   }, [booking.jobName]);
 
+  // The full card shows the note text, so having it open counts as reading
+  // it. A few seconds' grace keeps the shimmer visible long enough to
+  // register before the badge retires; collapsing sooner leaves it unread.
+  const unseen = notesUnseen(contacts);
+  useEffect(() => {
+    if (!unseen) return;
+    const t = window.setTimeout(() => {
+      window.api.contacts.markNotesSeen(booking.bookingId).catch(() => {});
+    }, 4000);
+    return () => window.clearTimeout(t);
+  }, [unseen, booking.bookingId]);
+
   return (
     <div className="card featured-booking">
       <div className="featured-top">
@@ -275,10 +290,15 @@ function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBo
             )}
           </div>
         </div>
-        {(pdfs.length > 0 || flightRequestOpen(contacts)) && (
+        {(pdfs.length > 0 || flightRequestOpen(contacts) || unseen) && (
           <div className="featured-flights">
-            {flightRequestOpen(contacts) && (
-              <FlightRequestButton booking={booking} contacts={contacts} />
+            {(unseen || flightRequestOpen(contacts)) && (
+              <span className="flight-request-wrap">
+                {unseen && <NoteIcon size={30} title="New booking notes" />}
+                {flightRequestOpen(contacts) && (
+                  <FlightRequestButton booking={booking} contacts={contacts} />
+                )}
+              </span>
             )}
             {pdfs.map((p, i) => (
               <div key={p.url} className="featured-flight">
@@ -311,6 +331,15 @@ function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBo
           {contacts.venue && contacts.venueAddress && <span> · </span>}
           {contacts.venueAddress && <span>{contacts.venueAddress}</span>}
         </a>
+      )}
+      {contacts.bookingNotes && (
+        <div className="featured-notes">
+          <div className="featured-notes-head">
+            <NoteIcon size={18} />
+            <span className="featured-field-label subtle">Booking Notes</span>
+          </div>
+          <div className="featured-notes-text">{contacts.bookingNotes}</div>
+        </div>
       )}
       <div className="featured-grid">
         {booking.position && <FeaturedField label="Position" value={booking.position} />}
@@ -451,6 +480,26 @@ function PlaneIcon({ size, title }: { size: number; title?: string }) {
   return (
     <span
       className="plane-icon"
+      style={{ width: size }}
+      title={title}
+      aria-hidden={title ? undefined : true}
+    />
+  );
+}
+
+// This booking has notes the user hasn't viewed yet — either the first note
+// to appear, or an edit since the full card was last opened.
+function notesUnseen(contacts?: BookingContacts): boolean {
+  return !!contacts?.bookingNotes && contacts.bookingNotes !== (contacts.notesSeen ?? '');
+}
+
+// The chat-bubbles glyph (user-supplied art → alpha mask), tinted through the
+// theme accent exactly like the plane. Shown while a booking's notes are
+// unseen; sits to the LEFT of the plane when both are present.
+function NoteIcon({ size, title }: { size: number; title?: string }) {
+  return (
+    <span
+      className="note-icon"
       style={{ width: size }}
       title={title}
       aria-hidden={title ? undefined : true}

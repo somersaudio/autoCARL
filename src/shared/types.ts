@@ -157,6 +157,13 @@ export type BookingContacts = {
   // CARL's laborTravel status, e.g. "Flight Requests Open to Crew". The
   // renderer keys the flight-request button off this.
   laborTravel?: string;
+  // The LC-authored "Booking Notes" text from the booking page. Refreshed on
+  // every sweep, so new notes show up on app open.
+  bookingNotes?: string;
+  // The note text as of the last time the user viewed it on the full card.
+  // Badge shows while bookingNotes !== notesSeen — i.e. first-ever note, or
+  // an edit since last viewing. Preserved across sweeps.
+  notesSeen?: string;
 };
 export type BookingContactsCache = Record<string, BookingContacts>;
 
@@ -275,6 +282,9 @@ export type Api = {
     // bookingId → { pmEmail, lcEmail } scraped from CARL booking detail page.
     getCached: () => Promise<BookingContactsCache>;
     subscribe: (handler: (cache: BookingContactsCache) => void) => () => void;
+    // Records the current bookingNotes text as viewed, clearing the
+    // new-note badge until the note changes again.
+    markNotesSeen: (bookingId: string) => Promise<void>;
   };
   ssw: {
     // Returns the last-known snapshot of a week from disk (sub-ms). Null if

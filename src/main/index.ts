@@ -17,7 +17,7 @@ import {
 } from './credentials';
 import {
   readCachedBookings, readConfig, updateConfig, writeCachedBookings,
-  readFlightsCache, readSswWeek, readSswWeeksCache, readContactsCache, migrateStoreFiles,
+  readFlightsCache, readSswWeek, readSswWeeksCache, readContactsCache, writeContactsCache, migrateStoreFiles,
 } from './store';
 import { sweepFlights } from './flight-fetcher';
 import {
@@ -507,6 +507,17 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('contacts:getCached', () => readContactsCache());
+  // The user viewed this booking's notes on the full card — remember the text
+  // so the new-note badge stays quiet until the LC edits it again.
+  ipcMain.handle('contacts:markNotesSeen', async (_e, bookingId: string) => {
+    if (typeof bookingId !== 'string' || !bookingId) return;
+    const cache = await readContactsCache();
+    const entry = cache[bookingId];
+    if (!entry || (entry.notesSeen ?? '') === (entry.bookingNotes ?? '')) return;
+    entry.notesSeen = entry.bookingNotes ?? '';
+    await writeContactsCache(cache);
+    broadcastContacts(cache);
+  });
 
   ipcMain.handle('ssw:getCached', (_e, weekStartDate: string) => readSswWeek(weekStartDate));
   // Whole week cache in one call — the paycheck estimator folds actual

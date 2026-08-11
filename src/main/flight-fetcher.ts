@@ -105,6 +105,7 @@ export async function sweepFlights(
           }
         }
 
+        const prevContacts = contacts[booking.bookingId];
         const next = {
           pmEmail,
           lcEmail,
@@ -115,8 +116,11 @@ export async function sweepFlights(
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
+          bookingNotes: scraped.bookingNotes,
+          // What the user has read is renderer state, not CARL state — carry
+          // it across sweeps so a refresh doesn't re-badge an already-seen note.
+          notesSeen: prevContacts?.notesSeen,
         };
-        const prevContacts = contacts[booking.bookingId];
         const contactsChanged = !prevContacts
           || prevContacts.pmEmail !== next.pmEmail
           || prevContacts.lcEmail !== next.lcEmail
@@ -125,7 +129,8 @@ export async function sweepFlights(
           || prevContacts.venueAddress !== next.venueAddress
           || prevContacts.venueZip !== next.venueZip
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
-          || prevContacts.laborTravel !== next.laborTravel;
+          || prevContacts.laborTravel !== next.laborTravel
+          || prevContacts.bookingNotes !== next.bookingNotes;
         if (contactsChanged) {
           contacts[booking.bookingId] = next;
           await writeContactsCache(contacts);

@@ -41,6 +41,7 @@ const api: Api = {
       ipcRenderer.on('contacts:update', listener);
       return () => ipcRenderer.removeListener('contacts:update', listener);
     },
+    markNotesSeen: (bookingId) => ipcRenderer.invoke('contacts:markNotesSeen', bookingId) as Promise<void>,
   },
   ssw: {
     getCached: (weekStartDate) =>

@@ -1190,6 +1190,18 @@ a.featured-venue:hover .featured-venue-name {
   flex-shrink: 0;
 }
 
+/* Chat-bubbles glyph for new booking notes — same alpha-mask + accent-tint
+   treatment as the plane, so it recolors with every theme automatically. */
+.note-icon {
+  display: inline-block;
+  /* Matches assets/note-glyph.png (256x236). */
+  aspect-ratio: 256 / 236;
+  background-color: var(--ct-gold);
+  -webkit-mask: url('./assets/note-glyph.png') no-repeat center / contain;
+  mask: url('./assets/note-glyph.png') no-repeat center / contain;
+  flex-shrink: 0;
+}
+
 .flight-request-wrap {
   display: inline-flex;
   align-items: center;
@@ -1221,6 +1233,7 @@ a.featured-venue:hover .featured-venue-name {
    layered over the accent background; on the plane the mask clips it to the
    silhouette, so the glint runs along the artwork itself. */
 .plane-icon,
+.note-icon,
 .flight-request-btn {
   background-image: linear-gradient(
     105deg,
@@ -1237,7 +1250,8 @@ a.featured-venue:hover .featured-venue-name {
 /* On collapsed rows the plane is the only cue and it's small — the subtle
    band vanishes at 34px. Brighter, wider band there; the expanded card keeps
    the quieter version. */
-.booking .plane-icon {
+.booking .plane-icon,
+.booking .note-icon {
   background-image: linear-gradient(
     105deg,
     rgba(255, 255, 255, 0) 34%,
@@ -1254,9 +1268,32 @@ a.featured-venue:hover .featured-venue-name {
 
 @media (prefers-reduced-motion: reduce) {
   .plane-icon,
+  .note-icon,
   .flight-request-btn {
     animation: none;
   }
+}
+
+/* Booking Notes block on the full card. */
+.featured-notes {
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(253, 184, 39, 0.04);
+}
+
+.featured-notes-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 5px;
+}
+
+.featured-notes-text {
+  font-size: 12.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
 }
 
 /* Per-PDF flight block (summary line + button) on the featured card. */

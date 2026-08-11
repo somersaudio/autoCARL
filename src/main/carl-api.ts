@@ -210,6 +210,9 @@ export type CarlBookingDetails = {
   // a string only on bookings where it's populated, which is what asString
   // keys on.
   laborTravel?: string;
+  // The "Booking Notes" text block from the booking page — LC instructions,
+  // schedule details, etc. Plain text after entity decoding.
+  bookingNotes?: string;
 };
 
 // Pull every encrypted handle the page would POST to /webapi/v1/app/g/.
@@ -343,6 +346,17 @@ function mergeResponse(resp: unknown, out: CarlBookingDetails): void {
     // ---- labor travel status (field_254, e.g. "Flight Requests Open to Crew") ----
     const laborTravel = asString(obj.field_254);
     if (laborTravel && !out.laborTravel) out.laborTravel = decodeEntities(laborTravel);
+
+    // ---- booking notes (field_162 — CARL's own metadata names it
+    // "bookingNotes", type Long Text). LC-authored, changes over a show's
+    // life, so every sweep refreshes it. Long Text may carry markup: <br>
+    // becomes a newline, any other tag is stripped.
+    const notes = asString(obj.field_162);
+    if (notes && !out.bookingNotes) {
+      out.bookingNotes = decodeEntities(
+        notes.replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]+>/g, ''),
+      );
+    }
 
     // ---- emails (shape: items containing { name, email }) ----
     // CARL returns each contact (PM, LC, etc.) as a separate single-item
