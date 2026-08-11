@@ -481,11 +481,11 @@ export default function ExpensesTab({ bookings }: Props) {
             })()}
           </div>
           <div className="exp-actions">
-            <button className="primary" onClick={exportPdf} disabled={exportBusy || mailBusy}>
-              {exportBusy ? 'Exporting…' : 'Export Report & Receipts'}
-            </button>
-            <button className="secondary" onClick={mailIt} disabled={mailBusy || exportBusy}>
+            <button className="primary" onClick={mailIt} disabled={mailBusy || exportBusy}>
               {mailBusy ? 'Opening Mail…' : 'Export to Mail'}
+            </button>
+            <button className="secondary" onClick={exportPdf} disabled={exportBusy || mailBusy}>
+              {exportBusy ? 'Exporting…' : 'Export to Folder'}
             </button>
             <button
               className="link exp-x"
