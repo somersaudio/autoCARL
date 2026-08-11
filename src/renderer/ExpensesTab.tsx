@@ -399,10 +399,6 @@ export default function ExpensesTab({ bookings }: Props) {
         onDrop={onDrop}
       >
         <div className="exp-drop-title">{busy ? 'Reading receipts…' : 'Drop receipts here'}</div>
-        <div className="subtle exp-drop-sub">
-          Photos or PDFs — hotel folios, Uber/Lyft receipts, parking stubs. The app reads
-          each one, sets the amount and column, and files it under the gig chosen below.
-        </div>
         <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
       </div>
 

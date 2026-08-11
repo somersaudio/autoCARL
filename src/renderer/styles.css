@@ -1776,8 +1776,7 @@ a.featured-venue:hover .featured-venue-name {
   background: rgba(253, 184, 39, 0.06);
 }
 
-.exp-drop-title { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
-.exp-drop-sub { max-width: 460px; margin: 0 auto 12px; font-size: 12px; }
+.exp-drop-title { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
 
 .exp-hint { font-size: 12px; margin-bottom: 10px; }
 
