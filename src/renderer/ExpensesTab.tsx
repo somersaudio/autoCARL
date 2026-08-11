@@ -323,7 +323,7 @@ export default function ExpensesTab({ bookings }: Props) {
                 const n = receiptCountFor(b.bookingId);
                 return (
                   <option key={b.bookingId} value={b.bookingId}>
-                    {b.jobName} · {b.startDate.slice(5)} – {b.endDate.slice(5)}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
+                    {b.jobName}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
                   </option>
                 );
               })}
