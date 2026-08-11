@@ -1757,7 +1757,16 @@ a.featured-venue:hover .featured-venue-name {
 
 /* ============ Expense Reports tab ============ */
 
-.expenses { display: flex; flex-direction: column; gap: 14px; }
+.expenses {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  /* Break out of .app's 880px column so the form sheet keeps growing with
+     the window — capped where the sheet reaches its native 1134px (plus
+     card padding), past which more width buys nothing. */
+  width: min(100vw - 40px, 1210px);
+  align-self: center;
+}
 
 /* Receipt dropzone. */
 .exp-drop {
