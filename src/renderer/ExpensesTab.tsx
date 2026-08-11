@@ -43,20 +43,26 @@ export default function ExpensesTab({ bookings }: Props) {
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<ExpenseReport | null>(null);
-  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const [selectedGig, setSelectedGig] = useState('');
   const [armedId, setArmedId] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
   const armTimer = useRef<number | null>(null);
 
   useEffect(() => {
-    window.api.expenses.getCached().then((c) => {
-      setCache(c);
-      // Preselect the gigs that already have receipts on them.
-      const pre: Record<string, boolean> = {};
-      for (const r of c.receipts) if (r.bookingId) pre[r.bookingId] = true;
-      setSelected(pre);
-    }).catch((e) => setError(friendlyError(e, !navigator.onLine)));
+    window.api.expenses.getCached().then(setCache)
+      .catch((e) => setError(friendlyError(e, !navigator.onLine)));
   }, []);
+
+  // Default the gig dropdown to the most recent gig holding receipts (falling
+  // back to the most recent gig). Runs until something is selected, then
+  // leaves the user's choice alone.
+  useEffect(() => {
+    if (selectedGig || !cache || !bookings.length) return;
+    const withReceipts = new Set(cache.receipts.map((r) => r.bookingId).filter(Boolean));
+    const sorted = bookings.slice().sort((a, b) => b.startDate.localeCompare(a.startDate));
+    const pick = sorted.find((b) => withReceipts.has(b.bookingId)) || sorted[0];
+    if (pick) setSelectedGig(pick.bookingId);
+  }, [selectedGig, cache, bookings]);
 
   // Draft edits persist automatically (debounced) so flipping to Timesheet to
   // check something doesn't throw away a half-adjusted report.
@@ -135,10 +141,10 @@ export default function ExpensesTab({ bookings }: Props) {
   // ---- report drafting ----
 
   const buildDraft = async () => {
-    const ids = Object.keys(selected).filter((id) => selected[id] && bookingById.has(id));
+    if (!selectedGig || !bookingById.has(selectedGig)) return;
     setError(null);
     try {
-      setDraft(await window.api.expenses.buildDraft(ids));
+      setDraft(await window.api.expenses.buildDraft([selectedGig]));
       setExportedPath(null);
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
@@ -305,28 +311,27 @@ export default function ExpensesTab({ bookings }: Props) {
         <div className="card">
           <h3>New Expense Report</h3>
           <div className="subtle exp-hint">
-            Pick the gig(s) to report. One form row per gig — receipts fill the columns,
-            miles come from your timesheets. Everything is editable before export.
-          </div>
-          <div className="exp-gig-picks">
-            {gigOptions.map((b) => {
-              const n = receiptCountFor(b.bookingId);
-              return (
-                <label key={b.bookingId} className="exp-gig-pick">
-                  <input
-                    type="checkbox"
-                    checked={!!selected[b.bookingId]}
-                    onChange={(e) => setSelected((s) => ({ ...s, [b.bookingId]: e.target.checked }))}
-                  />
-                  <span>{b.jobName} <span className="subtle">· {b.startDate.slice(5)} – {b.endDate.slice(5)}</span></span>
-                  {n > 0 && <span className="exp-badge">{n} receipt{n === 1 ? '' : 's'}</span>}
-                </label>
-              );
-            })}
-            {gigOptions.length === 0 && <div className="subtle">No gigs on the calendar yet.</div>}
+            Pick a gig — its receipts fill the form's columns and miles come from your
+            timesheets. Everything is editable before export, and rows for more gigs
+            can be added in the editor.
           </div>
           <div className="exp-actions">
-            <button className="primary" onClick={buildDraft} disabled={!Object.values(selected).some(Boolean)}>
+            <select
+              className="exp-in exp-gig-select"
+              value={selectedGig}
+              onChange={(e) => setSelectedGig(e.target.value)}
+            >
+              {gigOptions.length === 0 && <option value="">No gigs on the calendar yet</option>}
+              {gigOptions.map((b) => {
+                const n = receiptCountFor(b.bookingId);
+                return (
+                  <option key={b.bookingId} value={b.bookingId}>
+                    {b.jobName} · {b.startDate.slice(5)} – {b.endDate.slice(5)}{n > 0 ? ` · ${n} receipt${n === 1 ? '' : 's'}` : ''}
+                  </option>
+                );
+              })}
+            </select>
+            <button className="primary" onClick={buildDraft} disabled={!selectedGig || !bookingById.has(selectedGig)}>
               Build report
             </button>
             {cache.reports.length > 0 && (
