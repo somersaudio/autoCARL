@@ -487,6 +487,25 @@ export async function mailReport(report: ExpenseReport): Promise<void> {
     '  activate',
     'end tell',
   ].join('\n');
+  // Users who live in Outlook or webmail may have Mail.app with no account
+  // configured — drafting would dump them into Mail's setup wizard with a
+  // cryptic failure. Check first and explain, pointing at the folder export.
+  try {
+    const { stdout } = await execFileP('/usr/bin/osascript', ['-e', 'tell application "Mail" to count of accounts'], { timeout: 20_000 });
+    if (parseInt(stdout.trim(), 10) === 0) {
+      throw new Error('Apple Mail has no email account set up on this Mac. Add one in Mail → Settings → Accounts, or use Export to Folder and attach the files in the mail app you normally use.');
+    }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    if (/-1743|not authori[sz]ed/i.test(msg)) {
+      throw new Error('macOS blocked AUTOcarl from controlling Mail. Allow it under System Settings → Privacy & Security → Automation, then try again.');
+    }
+    if (/no email account/i.test(msg)) throw e;
+    // Any other pre-check hiccup: fall through and let the draft attempt
+    // speak for itself rather than blocking on a flaky probe.
+    console.warn('[expenses] Mail account pre-check inconclusive:', msg);
+  }
+
   const scriptPath = join(dir, 'mail.applescript');
   await fs.writeFile(scriptPath, script, 'utf8');
   try {
