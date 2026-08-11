@@ -371,6 +371,25 @@ export async function saveReport(report: ExpenseReport): Promise<ExpensesCache> 
   return cache;
 }
 
+/**
+ * Clean slate for one gig: delete every receipt filed under it (stored
+ * copies included) and its report. The renderer rebuilds an empty sheet
+ * immediately after, so the gig returns to its untouched state.
+ */
+export async function resetGig(bookingId: string, reportId?: string): Promise<ExpensesCache> {
+  const cache = await readExpensesCache();
+  if (!bookingId && !reportId) return cache;
+  for (const r of cache.receipts) {
+    if (bookingId && r.bookingId === bookingId) await fs.rm(r.file, { force: true }).catch(() => {});
+  }
+  cache.receipts = cache.receipts.filter((r) => !bookingId || r.bookingId !== bookingId);
+  cache.reports = cache.reports.filter(
+    (r) => !(reportId && r.id === reportId) && !(bookingId && r.bookingId === bookingId),
+  );
+  await writeExpensesCache(cache);
+  return cache;
+}
+
 export async function removeReport(id: string): Promise<ExpensesCache> {
   const cache = await readExpensesCache();
   cache.reports = cache.reports.filter((r) => r.id !== id);

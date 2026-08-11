@@ -28,7 +28,7 @@ import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
 import {
   addReceiptFiles, buildDraftReport, exportReport, mailReport, openReceipt, pickReceiptFiles,
-  readExpensesCache, removeReceipt, removeReport, saveReport, updateReceipt,
+  readExpensesCache, removeReceipt, removeReport, resetGig, saveReport, updateReceipt,
 } from './expenses';
 import type {
   Booking, BookingContactsCache, ExpenseReceipt, ExpenseReport, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress,
@@ -553,6 +553,8 @@ function registerIpc(): void {
     buildDraftReport((Array.isArray(bookingIds) ? bookingIds : []).filter((p): p is string => typeof p === 'string')));
   ipcMain.handle('expenses:saveReport', (_e, report: ExpenseReport) => saveReport(report));
   ipcMain.handle('expenses:removeReport', (_e, id: string) => removeReport(String(id ?? '')));
+  ipcMain.handle('expenses:resetGig', (_e, bookingId: string, reportId?: string) =>
+    resetGig(String(bookingId ?? ''), typeof reportId === 'string' ? reportId : undefined));
   ipcMain.handle('expenses:exportReport', (_e, report: ExpenseReport) => exportReport(report));
   ipcMain.handle('expenses:mailReport', (_e, report: ExpenseReport) => mailReport(report));
 

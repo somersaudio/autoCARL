@@ -55,6 +55,8 @@ export default function ExpensesTab({ bookings }: Props) {
   const [exportBusy, setExportBusy] = useState(false);
   const [mailBusy, setMailBusy] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [resetArmed, setResetArmed] = useState(false);
+  const resetTimer = useRef<number | null>(null);
   const pickerRef = useRef<HTMLDivElement | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -368,13 +370,23 @@ export default function ExpensesTab({ bookings }: Props) {
     }
   };
 
+  // Reset means clean slate: the gig's receipts (files and all) and its
+  // report both go. Irreversible, so it arms on the first click and only
+  // fires on a second within a few seconds.
   const discardDraft = () => {
-    if (!draft) return;
-    window.api.expenses.removeReport(draft.id).then((c) => {
+    if (!resetArmed) {
+      setResetArmed(true);
+      if (resetTimer.current) window.clearTimeout(resetTimer.current);
+      resetTimer.current = window.setTimeout(() => setResetArmed(false), 4000);
+      return;
+    }
+    if (resetTimer.current) window.clearTimeout(resetTimer.current);
+    setResetArmed(false);
+    window.api.expenses.resetGig(activeBookingId, draft?.id).then((c) => {
       setCache(c);
       setDraft(null);
       setExportedPath(null);
-    }).catch(() => {});
+    }).catch((e) => setError(friendlyError(e, !navigator.onLine)));
   };
 
   // ---- receipts for display ----
@@ -541,10 +553,14 @@ export default function ExpensesTab({ bookings }: Props) {
             {/* Destructive, so it sits apart from the exports — pushed to
                 the far edge of the same row. */}
             <button
-              className="link exp-x exp-reset"
-              title="Discard edits and rebuild this sheet from the receipts"
+              className={`link exp-x exp-reset${resetArmed ? ' is-armed' : ''}`}
+              title="Clear this gig: deletes its receipts and its report"
               onClick={discardDraft}
-            >Reset report</button>
+            >
+              {resetArmed
+                ? `Delete ${activeReceipts.length} receipt${activeReceipts.length === 1 ? '' : 's'} + report — sure?`
+                : 'Reset report'}
+            </button>
           </div>
         </div>
       )}

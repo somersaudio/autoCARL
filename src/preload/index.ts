@@ -79,6 +79,7 @@ const api: Api = {
     buildDraft: (bookingIds) => ipcRenderer.invoke('expenses:buildDraft', bookingIds) as Promise<ExpenseReport>,
     saveReport: (report) => ipcRenderer.invoke('expenses:saveReport', report) as Promise<ExpensesCache>,
     removeReport: (id) => ipcRenderer.invoke('expenses:removeReport', id) as Promise<ExpensesCache>,
+    resetGig: (bookingId, reportId) => ipcRenderer.invoke('expenses:resetGig', bookingId, reportId) as Promise<ExpensesCache>,
     exportReport: (report) => ipcRenderer.invoke('expenses:exportReport', report) as Promise<{ path: string } | null>,
     mailReport: (report) => ipcRenderer.invoke('expenses:mailReport', report) as Promise<void>,
     // Synchronous, preload-local — no IPC. Dropped File objects only resolve

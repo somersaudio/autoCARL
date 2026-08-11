@@ -352,6 +352,9 @@ export type Api = {
     buildDraft: (bookingIds: string[]) => Promise<ExpenseReport>;
     saveReport: (report: ExpenseReport) => Promise<ExpensesCache>;
     removeReport: (id: string) => Promise<ExpensesCache>;
+    // Clean slate for a gig: deletes its receipts (files and all) plus its
+    // report. The sheet rebuilds empty afterwards.
+    resetGig: (bookingId: string, reportId?: string) => Promise<ExpensesCache>;
     // Folder picker → the filled CT form PDF plus every referenced receipt
     // as its own PDF (images converted), written into that folder, which is
     // then opened. Null = cancelled.
