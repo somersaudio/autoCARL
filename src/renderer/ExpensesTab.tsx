@@ -125,43 +125,45 @@ export default function ExpensesTab({ bookings }: Props) {
     return selectedGig;
   }, [draft, bookings, selectedGig]);
 
-  // Mirror a receipt change into the open draft so the form row tracks the
-  // receipt list live: subtract the old contribution, add the new one.
-  // `before` null = freshly dropped receipt; `after` null = deleted.
-  // Edits only re-apply if the receipt was already counted in some row —
-  // receipts outside this draft stay outside it.
+  // Mirror a receipt change into the open draft. Rows and receipts are 1:1
+  // — every receipt owns exactly one form line — so: a fresh drop appends a
+  // line, an edit updates its line in place, a deletion takes the line with
+  // it. `before` null = freshly dropped; `after` null = deleted.
   const round2 = (n: number) => Math.round(n * 100) / 100;
   const syncDraft = (before: ExpenseReceipt | null, after: ExpenseReceipt | null) => {
     setDraft((d) => {
       if (!d) return d;
       const rows = d.rows.slice();
-      let touched = false;
-      let hadSlot = !before;
       if (before) {
         const i = rows.findIndex((r) => r.receiptIds.includes(before.id));
-        if (i >= 0) {
-          hadSlot = true;
-          rows[i] = {
-            ...rows[i],
-            [before.category]: Math.max(0, round2(rows[i][before.category] - before.amount)),
-            receiptIds: rows[i].receiptIds.filter((x) => x !== before.id),
-          };
-          touched = true;
+        if (i < 0) return d;                    // not on this draft
+        if (!after) {                           // deleted → its line goes too
+          rows.splice(i, 1);
+          return { ...d, rows };
         }
+        const r = { ...rows[i] };
+        r[before.category] = Math.max(0, round2(r[before.category] - before.amount));
+        r[after.category] = round2(r[after.category] + after.amount);
+        // The receipt's description box authors the line; sheet-side edits
+        // survive unless the receipt's own description actually changed.
+        if (before.description !== after.description) r.description = after.description;
+        rows[i] = r;
+        return { ...d, rows };
       }
-      if (after && hadSlot) {
+      if (after) {                              // fresh drop → new line
         const b = bookings.find((x) => x.bookingId === after.bookingId);
-        const i = b ? rows.findIndex((r) => r.jobNumber === b.jobNumber) : -1;
-        if (i >= 0) {
-          rows[i] = {
-            ...rows[i],
-            [after.category]: round2(rows[i][after.category] + after.amount),
-            receiptIds: [...rows[i].receiptIds, after.id],
-          };
-          touched = true;
-        }
+        if (!b) return d;
+        rows.push({
+          jobNumber: b.jobNumber,
+          description: after.description || '',
+          lodging: 0, airfare: 0, parking: 0, carRental: 0,
+          miles: 0, rideshare: 0, misc: 0,
+          [after.category]: after.amount,
+          receiptIds: [after.id],
+        });
+        return { ...d, rows };
       }
-      return touched ? { ...d, rows } : d;
+      return d;
     });
   };
 
@@ -487,8 +489,13 @@ function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel }: {
           if (isFinite(v) && v >= 0 && v !== r.amount) onPatch(r.id, { amount: v });
         }}
       />
+      <input
+        className="exp-in exp-in-desc"
+        defaultValue={r.description || ''}
+        placeholder="Description/Reason"
+        onBlur={(e) => { if (e.target.value !== (r.description || '')) onPatch(r.id, { description: e.target.value }); }}
+      />
       {onAdopt && <button className="link exp-adopt" onClick={onAdopt}>{adoptLabel}</button>}
-      <span className="exp-row-spacer" />
       <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
       <button
         className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}

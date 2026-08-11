@@ -198,6 +198,9 @@ export type ExpenseReceipt = {
   merchant: string;         // OCR-parsed; user-editable
   date: string;             // ISO YYYY-MM-DD; '' = OCR couldn't find one
   amount: number;           // USD
+  // User-authored line description — becomes the form row's
+  // Description/Reason verbatim. Starts empty; never auto-filled.
+  description: string;
   category: ExpenseCategory;
   bookingId: string;        // matched gig; '' = unassigned
   ocrText: string;          // raw extracted text, kept for debugging/re-parse

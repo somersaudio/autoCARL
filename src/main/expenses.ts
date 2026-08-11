@@ -123,6 +123,7 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
     merchant: parsed.merchant,
     date: parsed.date,
     amount: parsed.amount,
+    description: '',
     category: parsed.category,
     bookingId: pinned || matchBooking(parsed.date, bookings),
     ocrText: text,
@@ -161,6 +162,7 @@ export async function updateReceipt(id: string, patch: Partial<ExpenseReceipt>):
   if (!r) return cache;
   // Field-by-field, renderer input is untrusted.
   if (typeof patch.merchant === 'string') r.merchant = patch.merchant.slice(0, 80);
+  if (typeof patch.description === 'string') r.description = patch.description.slice(0, 120);
   if (typeof patch.date === 'string' && /^(\d{4}-\d{2}-\d{2})?$/.test(patch.date)) r.date = patch.date;
   if (typeof patch.amount === 'number' && isFinite(patch.amount) && patch.amount >= 0) {
     r.amount = Math.round(patch.amount * 100) / 100;
@@ -225,28 +227,37 @@ export async function buildDraftReport(bookingIds: string[]): Promise<ExpenseRep
   // Identity from the newest cached timesheet.
   const latestWeek = Object.values(weeks).sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))[0];
 
+  // One form line per receipt — reports are itemized, never aggregated.
+  // Receipts order matches the receipts list: category (by its column
+  // label, A-Z), then amount low to high.
+  const CAT_ORDER = ['airfare', 'carRental', 'lodging', 'misc', 'parking', 'rideshare'];
   const rows: ExpenseRow[] = [];
   const milesCounted = new Set<string>();   // one bookingId's jobNumber = count once
   for (const b of chosen) {
-    const row = emptyRow(b.jobNumber, b.jobName);
-    for (const r of cache.receipts) {
-      if (r.bookingId !== b.bookingId || !r.amount) continue;
-      row[r.category] += r.amount;
+    const gigReceipts = cache.receipts
+      .filter((r) => r.bookingId === b.bookingId && r.amount > 0)
+      .sort((x, y) => CAT_ORDER.indexOf(x.category) - CAT_ORDER.indexOf(y.category) || x.amount - y.amount);
+    for (const r of gigReceipts) {
+      const row = emptyRow(b.jobNumber, r.description || '');
+      row[r.category] = r.amount;
       row.receiptIds.push(r.id);
+      rows.push(row);
     }
+    // Timesheet miles get their own line — there's no receipt for driving.
     if (!milesCounted.has(b.jobNumber)) {
       milesCounted.add(b.jobNumber);
+      let miles = 0;
       for (const week of Object.values(weeks)) {
         for (const day of week.days) {
-          if (day.job === b.jobNumber && day.miles) row.miles += day.miles;
+          if (day.job === b.jobNumber && day.miles) miles += day.miles;
         }
       }
+      if (miles > 0) {
+        const row = emptyRow(b.jobNumber, '');
+        row.miles = miles;
+        rows.push(row);
+      }
     }
-    // Round the category sums back to cents after accumulation.
-    for (const k of ['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc'] as const) {
-      row[k] = Math.round(row[k] * 100) / 100;
-    }
-    rows.push(row);
   }
 
   return {

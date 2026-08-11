@@ -1796,7 +1796,7 @@ a.featured-venue:hover .featured-venue-name {
 }
 
 .exp-in-cat { width: 150px; }
-.exp-row-spacer { flex: 1; }
+.exp-in-desc { flex: 1; }
 .exp-adopt { font-size: 11px; padding: 0; white-space: nowrap; }
 .exp-h-gig { font-size: 12px; text-transform: none; letter-spacing: 0; }
 
