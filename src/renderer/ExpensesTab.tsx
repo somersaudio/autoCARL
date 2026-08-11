@@ -408,7 +408,7 @@ export default function ExpensesTab({ bookings }: Props) {
           <h3>
             Receipts
             {activeBooking && (
-              <span className="exp-h-gig subtle"> — {activeBooking.jobNumber} · {activeBooking.jobName}</span>
+              <span className="exp-h-gig"> — {activeBooking.jobNumber} · {activeBooking.jobName}</span>
             )}
           </h3>
           {activeReceipts.map((r) => (
