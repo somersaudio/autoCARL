@@ -133,6 +133,19 @@ export default function ExpensesTab({ bookings }: Props) {
   // which gig receipts get filed under and shown for.
   const activeBookingId = selectedGig;
 
+  // The selected gig's brand logo fronts the picker (same lookup the
+  // booking cards use); falls back to a plain "Gig" label.
+  const [gigLogo, setGigLogo] = useState<string | null>(null);
+  useEffect(() => {
+    const b = bookingById.get(selectedGig);
+    if (!b) { setGigLogo(null); return; }
+    let cancelled = false;
+    window.api.logo.forJob(b.jobName)
+      .then((uri) => { if (!cancelled) setGigLogo(uri); })
+      .catch(() => { if (!cancelled) setGigLogo(null); });
+    return () => { cancelled = true; };
+  }, [selectedGig, bookingById]);
+
   // Mirror a receipt change into the open draft. Rows and receipts are 1:1
   // — every receipt owns exactly one form line — so: a fresh drop appends a
   // line, an edit updates its line in place, a deletion takes the line with
@@ -334,7 +347,9 @@ export default function ExpensesTab({ bookings }: Props) {
 
       {/* ---- gig picker: everything below follows this choice ---- */}
       <div className="card exp-gig-bar">
-        <span className="exp-gig-label subtle">Gig</span>
+        {gigLogo
+          ? <img src={gigLogo} alt="" className="exp-gig-logo" />
+          : <span className="exp-gig-label subtle">Gig</span>}
         <select
           className="exp-in exp-gig-select"
           value={selectedGig}
