@@ -19,11 +19,16 @@ import {
   STANDARD_DEDUCTION, SS_RATE, MEDICARE_RATE, federalIncomeTax,
 } from './taxes';
 
-// Known pay-period start (a Monday) from the 6/18/2026 stub: period
-// 6/1/2026–6/14/2026. All periods are 14 days off this anchor.
+// Known pay-period start (a Monday) from John's real stub: period
+// 6/1/2026–6/14/2026. All periods are 14 days off this anchor, so every
+// period runs Monday through Sunday and the last day on a check is always
+// that closing Sunday.
 export const PERIOD_ANCHOR_ISO = '2026-06-01';
-// That period paid on 6/18 — four days after period end.
-export const PAY_LAG_DAYS = 4;
+// The stub's Check Date for that period was Thursday 6/18, but the deposit
+// lands the Friday after — payday as crew actually experience it. We show
+// the Friday, which also makes the rule read true on screen: the last day
+// on a check is the Sunday before the Friday it pays.
+export const PAY_LAG_DAYS = 5;
 const PERIOD_DAYS = 14;
 const CHECKS_PER_YEAR = 26;
 
