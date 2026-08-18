@@ -20,22 +20,16 @@ export default function Setup({ status, onChange }: Props) {
 function CarlForm({ status, onChange }: Props) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [icalUrl, setIcalUrl] = useState('');
-  const [showManual, setShowManual] = useState(false);
   const [busy, setBusy] = useState(false);
 
   const errorMessage = status.stage === 'error' && status.from === 'carl' ? status.message : null;
 
   const submit = async () => {
     setBusy(true);
-    const result = showManual
-      ? await window.api.setup.saveCarlWithUrl(email, password, icalUrl)
-      : await window.api.setup.saveCarl(email, password);
+    // The calendar feed is discovered from the login — users never see or
+    // paste an iCal link.
+    const result = await window.api.setup.saveCarl(email, password);
     setBusy(false);
-    // If auto-discover failed, auto-expand the manual form so the next click works.
-    if (result.stage === 'error' && result.from === 'carl' && !showManual) {
-      setShowManual(true);
-    }
     onChange(result);
   };
 
@@ -68,41 +62,15 @@ function CarlForm({ status, onChange }: Props) {
         />
       </div>
 
-      {showManual && (
-        <div className="field">
-          <label>iCal URL</label>
-          <input
-            type="text"
-            value={icalUrl}
-            onChange={(e) => setIcalUrl(e.target.value)}
-            placeholder="https://calendar.prod.carl.ctus.live/MYTP-..."
-            disabled={busy}
-          />
-          <p className="subtle" style={{ marginTop: 4, fontSize: 11 }}>
-            In CARL, click <b>Calendar Instructions</b> at the top by Timesheets and Crew. Copy that URL and paste it here.
-          </p>
-        </div>
-      )}
-
       {errorMessage && <div className="banner error">{errorMessage}</div>}
 
       <button
         className="primary"
         onClick={submit}
-        disabled={busy || !email || !password || (showManual && !icalUrl)}
+        disabled={busy || !email || !password}
       >
         {busy ? 'Connecting…' : 'Continue'}
       </button>
-
-      {!showManual && (
-        <button
-          className="link"
-          onClick={() => setShowManual(true)}
-          style={{ marginLeft: 8 }}
-        >
-          Paste iCal URL manually
-        </button>
-      )}
 
       <p className="subtle" style={{ marginTop: 12, fontSize: 12 }}>
         Your password is stored only {(window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__ ? 'in this browser' : 'in your OS keychain'}.

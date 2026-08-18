@@ -9,8 +9,6 @@ const api: Api = {
     getStatus: () => ipcRenderer.invoke('setup:getStatus') as Promise<SetupStatus>,
     saveCarl: (email, password) =>
       ipcRenderer.invoke('setup:saveCarl', email, password) as Promise<SetupStatus>,
-    saveCarlWithUrl: (email, password, icalUrl) =>
-      ipcRenderer.invoke('setup:saveCarlWithUrl', email, password, icalUrl) as Promise<SetupStatus>,
     saveSsw: (email, password) =>
       ipcRenderer.invoke('setup:saveSsw', email, password) as Promise<SetupStatus>,
     clear: () => ipcRenderer.invoke('setup:clear') as Promise<void>,

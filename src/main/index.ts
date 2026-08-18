@@ -466,25 +466,6 @@ function registerIpc(): void {
     }
   });
 
-  ipcMain.handle('setup:saveCarlWithUrl', async (_e, email: string, password: string, icalUrl: string): Promise<SetupStatus> => {
-    const cleanEmail = email.trim();
-    const cleanUrl = (icalUrl || '').trim();
-    if (!cleanEmail || !password) return { stage: 'error', from: 'carl', message: 'Email and password are required.' };
-    if (!cleanUrl) return { stage: 'error', from: 'carl', message: 'iCal URL is required.' };
-    if (!/^https:\/\/calendar\..*carl\.ctus\.live\//.test(cleanUrl)) {
-      return { stage: 'error', from: 'carl', message: 'That doesn\'t look like a CARL iCal URL. It should start with https://calendar.prod.carl.ctus.live/' };
-    }
-    try {
-      await saveCarlPassword(cleanEmail, password);
-      await updateConfig({ carlEmail: cleanEmail });
-      await saveIcalUrl(cleanUrl);
-      doRefresh().catch(() => {});
-      return await currentSetupStatus();
-    } catch (e) {
-      return { stage: 'error', from: 'carl', message: friendlyError(e) };
-    }
-  });
-
   ipcMain.handle('setup:saveSsw', async (_e, email: string, password: string): Promise<SetupStatus> => {
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) return { stage: 'error', from: 'ssw', message: 'Email and password are required.' };

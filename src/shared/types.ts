@@ -273,9 +273,7 @@ export type Api = {
     // Saves CARL creds and runs one-time iCal URL discovery via Playwright.
     // Resolves with 'needs-ssw-credentials' on success (or 'error' on failure).
     saveCarl: (email: string, password: string) => Promise<SetupStatus>;
-    // Like saveCarl but skips auto-discovery — uses the user-pasted URL.
     // For users where the auto-discover formula doesn't match their account.
-    saveCarlWithUrl: (email: string, password: string, icalUrl: string) => Promise<SetupStatus>;
     // Saves SSW creds. We don't verify them at setup time — verification
     // happens on the first write. Resolves with 'ready'.
     saveSsw: (email: string, password: string) => Promise<SetupStatus>;

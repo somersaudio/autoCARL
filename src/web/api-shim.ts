@@ -855,16 +855,15 @@ const api: Api = {
       } catch (e) {
         return { stage: 'error', from: 'carl', message: errMsg(e) };
       }
-      // Creds verified — store them (desktop persists before discovery too),
-      // so a discover failure drops the user into the paste-URL fallback
-      // without retyping the login.
+      // Creds verified — store them so a transient discover failure can be
+      // retried without retyping the login.
       dropFriendsIfEmailChanged(cleanEmail);
       lsSet(K.carlEmail, cleanEmail);
       lsSet(K.carlPassword, password);
       try {
         const r = await postJson<{ icalUrl?: string; url?: string }>('/v1/carl/discover', { email: cleanEmail, password });
         const url = ((r && (r.icalUrl || r.url)) || '').trim();
-        if (!url) throw new Error('Could not discover your calendar URL — paste it manually below.');
+        if (!url) throw new Error('Signed in, but your calendar couldn\u2019t be found — try Continue again in a minute.');
         lsSet(K.icalUrl, url);
         void refreshBookings();   // kick off the first iCal fetch in the background
         return currentStatus();
@@ -873,26 +872,6 @@ const api: Api = {
       }
     },
 
-    saveCarlWithUrl: async (email, password, icalUrl) => {
-      const cleanEmail = (email || '').trim();
-      const cleanUrl = (icalUrl || '').trim();
-      if (!cleanEmail || !password) return { stage: 'error', from: 'carl', message: 'Email and password are required.' };
-      if (!cleanUrl) return { stage: 'error', from: 'carl', message: 'iCal URL is required.' };
-      if (!ICAL_URL_RE.test(cleanUrl)) {
-        return { stage: 'error', from: 'carl', message: 'That doesn\'t look like a CARL iCal URL. It should start with https://calendar.prod.carl.ctus.live/' };
-      }
-      try {
-        await postJson('/v1/carl/verify', { email: cleanEmail, password });
-        dropFriendsIfEmailChanged(cleanEmail);
-        lsSet(K.carlEmail, cleanEmail);
-        lsSet(K.carlPassword, password);
-        lsSet(K.icalUrl, cleanUrl);
-        void refreshBookings();
-        return currentStatus();
-      } catch (e) {
-        return { stage: 'error', from: 'carl', message: errMsg(e) };
-      }
-    },
 
     saveSsw: async (email, password) => {
       const cleanEmail = (email || '').trim();
