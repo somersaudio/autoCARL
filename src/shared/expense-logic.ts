@@ -178,6 +178,14 @@ export function sanitizeReport(report: ExpenseReport): ExpenseReport {
 // the same thing.
 export const PAYROLL_EMAIL = 'payroll@ctus.com';
 
+// Sign-off with the first name alone: SSW writes names "Somers, John", and
+// a paycheck-style full name reads stiff at the bottom of an email.
+function firstName(n: string): string {
+  const t = n.trim();
+  const m = t.match(/^[^,]+,\s*(.+)$/);
+  return ((m ? m[1] : t).trim().split(/\s+/)[0] || t);
+}
+
 export function expenseMailDraft(
   booking: { jobNumber: string; jobName: string } | null,
   name: string,
@@ -186,7 +194,7 @@ export function expenseMailDraft(
   const subject = booking
     ? `Expense Report - ${booking.jobNumber} ${booking.jobName} - ${name}`
     : `Expense Report - ${name}`;
-  const body = `Hi,\n\nAttached is my expense report for ${showLabel}, with the receipts.\n\nThanks,\n${name}\n\n`;
+  const body = `Attached is my expense report for ${showLabel}, with the receipts.\n\nThanks,\n${firstName(name)}\n\n`;
   return { subject, body };
 }
 
