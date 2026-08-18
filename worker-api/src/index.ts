@@ -240,6 +240,12 @@ export default {
         await withSsw(env, str(b.email), str(b.password), async () => null);
         return json(req, { ok: true });
       }
+      if (path === '/v1/ssw/identity') {
+        const b = await readBody(req);
+        const ident = await withSsw(env, str(b.email), str(b.password), (t, s) =>
+          ssw.fetchIdentity(t, s));
+        return json(req, ident);
+      }
       if (path === '/v1/ssw/week') {
         const b = await readBody(req);
         const week = await withSsw(env, str(b.email), str(b.password), (t, s) =>

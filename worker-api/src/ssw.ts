@@ -179,9 +179,10 @@ function bool(x: unknown): boolean {
 
 type GridRow = unknown[];
 
-async function findRecordIdForWeek(t: Transport, s: SswSession, weekStartDate: string): Promise<string | null> {
+// The user's timesheet records, newest first (50 most recent), exactly as
+// the SSW grid returns them. Shared by week lookup and identity lookup.
+async function fetchGridRows(t: Transport, s: SswSession): Promise<GridRow[]> {
   const token = await ensureToken(t, s);
-  const want = isoToMDY(weekStartDate); // "5/18/2026"
   const mkCol = (data: number, name: string) => ({
     data, name, searchable: true, orderable: true,
     search: { value: '', regex: false },
@@ -215,8 +216,12 @@ async function findRecordIdForWeek(t: Transport, s: SswSession, weekStartDate: s
   const outer = JSON.parse(txt) as { d: string };
   if (typeof outer.d === 'undefined') throw new Error('GetDataGrid: missing .d');
   const inner = typeof outer.d === 'string' ? JSON.parse(outer.d) : outer.d;
-  const data: GridRow[] = inner.Data || [];
-  for (const row of data) {
+  return inner.Data || [];
+}
+
+async function findRecordIdForWeek(t: Transport, s: SswSession, weekStartDate: string): Promise<string | null> {
+  const want = isoToMDY(weekStartDate); // "5/18/2026"
+  for (const row of await fetchGridRows(t, s)) {
     if (!Array.isArray(row)) continue;
     const weekCell = String(row[1] || '');
     if (weekCell.startsWith(want + ' ')) {
@@ -224,6 +229,20 @@ async function findRecordIdForWeek(t: Transport, s: SswSession, weekStartDate: s
     }
   }
   return null;
+}
+
+// Who the user IS — name and numeric CT id — read off their newest
+// timesheet record, however old it is. Anyone who has EVER submitted a
+// timesheet has an identity; the expense form needs nothing week-specific.
+export async function fetchIdentity(
+  t: Transport, s: SswSession,
+): Promise<{ name: string; userId: string } | null> {
+  const first = (await fetchGridRows(t, s)).find((row) => Array.isArray(row) && row.length > 0);
+  if (!first) return null;
+  const rec = await getRecordExtended(t, s, String(first[first.length - 1]));
+  const name = String(rec.PrimaryTable.iName || '');
+  const userId = String(rec.PrimaryTable.iUserId || '');
+  return name || userId ? { name, userId } : null;
 }
 
 type SswRecordResponse = {

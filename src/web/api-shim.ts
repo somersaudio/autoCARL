@@ -43,6 +43,7 @@ const K = {
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   expenses: 'autocarl.web.expenses',
+  identity: 'autocarl.web.identity',
 } as const;
 
 function lsGet(key: string): string {
@@ -775,6 +776,35 @@ async function ingestOneWeb(f: File, bookings: Booking[], assignTo?: string): Pr
   };
 }
 
+// Who the user is, for the expense form: cached permanently after the first
+// answer. Sources in order: the identity cache, any cached timesheet week,
+// then SSW's own record grid via the worker (works however long ago the
+// user last worked — the newest record EVER carries the name and CT id).
+async function getIdentity(): Promise<{ name: string; userId: string } | null> {
+  const cached = readJson<{ name?: string; userId?: string } | null>(K.identity, null);
+  if (cached && (cached.name || cached.userId)) {
+    return { name: cached.name || '', userId: cached.userId || '' };
+  }
+  const week = Object.values(readJson<Record<string, SswWeek>>(K.sswWeeks, {}))
+    .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
+    .find((w) => w.name || w.userId);
+  if (week) {
+    writeJson(K.identity, { name: week.name, userId: week.userId });
+    return { name: week.name, userId: week.userId };
+  }
+  try {
+    const { email, password } = requireSsw();
+    const ident = await postJson<{ name?: string; userId?: string } | null>('/v1/ssw/identity', { email, password });
+    if (ident && (ident.name || ident.userId)) {
+      writeJson(K.identity, { name: ident.name || '', userId: ident.userId || '' });
+      return { name: ident.name || '', userId: ident.userId || '' };
+    }
+  } catch (e) {
+    console.warn('[autocarl] identity lookup failed:', errMsg(e));
+  }
+  return null;
+}
+
 function downloadFile(file: File): void {
   const url = URL.createObjectURL(file);
   const a = document.createElement('a');
@@ -1113,29 +1143,17 @@ const api: Api = {
 
     buildDraft: async (bookingIds) => {
       const { bookings } = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
-      let weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      const weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      let draft = assembleDraftReport(bookingIds, bookings, readExpensesLS().receipts, weeks);
       // The draft's name + employee ID come from the newest cached
-      // timesheet. Desktop machines have months of cached weeks; a phone
-      // may have none yet — warm the cache from SSW first (current week,
-      // stepping back a couple if this week's sheet doesn't exist yet).
-      if (!Object.values(weeks).some((w) => w.name || w.userId)) {
-        const monday = new Date();
-        const day = monday.getDay();
-        monday.setDate(monday.getDate() + (day === 0 ? -6 : 1 - day));
-        // Six weeks of reach: a missing week costs one quick null round-trip,
-        // and a crew member's newest submitted timesheet can easily be a
-        // month old after a stretch between gigs.
-        for (let back = 0; back <= 5; back++) {
-          const d = new Date(monday);
-          d.setDate(d.getDate() - back * 7);
-          const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-          try {
-            if (await api.ssw.fetchWeek(iso)) break;
-          } catch { break; /* SSW unreachable — draft stays editable-blank */ }
-        }
-        weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      // timesheet — which a phone may not have. Fall back to the user's
+      // identity from SSW's grid (their newest record EVER, however old),
+      // remembered permanently after the first lookup.
+      if (!draft.name && !draft.employeeId) {
+        const ident = await getIdentity();
+        if (ident) draft = { ...draft, name: ident.name, employeeId: ident.userId };
       }
-      return assembleDraftReport(bookingIds, bookings, readExpensesLS().receipts, weeks);
+      return draft;
     },
 
     saveReport: async (report) => saveReportLS(sanitizeReport(report)),
