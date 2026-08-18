@@ -1122,7 +1122,10 @@ const api: Api = {
         const monday = new Date();
         const day = monday.getDay();
         monday.setDate(monday.getDate() + (day === 0 ? -6 : 1 - day));
-        for (let back = 0; back <= 2; back++) {
+        // Six weeks of reach: a missing week costs one quick null round-trip,
+        // and a crew member's newest submitted timesheet can easily be a
+        // month old after a stretch between gigs.
+        for (let back = 0; back <= 5; back++) {
           const d = new Date(monday);
           d.setDate(d.getDate() - back * 7);
           const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
