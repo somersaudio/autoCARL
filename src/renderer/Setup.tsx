@@ -127,14 +127,15 @@ function SswForm({ status, onChange }: Props) {
 
   return (
     <div className="card">
-      <h2>Step 2 of 2 — Connect to SSW timesheets</h2>
+      <h2>Step 2 of 2 — Timesheet login (SSW)</h2>
       <p className="subtle">
-        Your SSW login is separate from C.A.R.L. We use it to push hours back
-        — your password lives only {(window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__ ? 'in this browser' : 'in your OS keychain'}.
+        This is your CT <b>timesheet</b> account on ctts.ctus.com — a
+        different login from C.A.R.L. We use it to push your hours; the
+        password lives only {(window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__ ? 'in this browser' : 'in your OS keychain'}.
       </p>
 
       <div className="field">
-        <label>SSW login</label>
+        <label>Timesheet (SSW) login</label>
         <input
           type="text"
           value={email}
@@ -146,7 +147,7 @@ function SswForm({ status, onChange }: Props) {
         />
       </div>
       <div className="field">
-        <label>SSW password</label>
+        <label>Timesheet (SSW) password</label>
         <PasswordInput
           value={password}
           onChange={setPassword}
@@ -154,6 +155,17 @@ function SswForm({ status, onChange }: Props) {
           disabled={busy}
         />
       </div>
+
+      <p className="subtle" style={{ fontSize: 12 }}>
+        Can't remember it? It's the login you use on timesheet day — most
+        people have it saved: iPhone → Settings → Passwords, search
+        "ctus"; Mac → Safari → Settings → Passwords. Or{' '}
+        <a href="https://ctts.ctus.com/SpreadsheetWeb/PasswordReset.aspx" target="_blank" rel="noreferrer" style={{ color: 'var(--ct-gold)' }}>
+          reset your SSW password
+        </a>{' '}
+        — enter your email there and it sends you a new one. Still stuck?
+        Your labor coordinator can help.
+      </p>
 
       {errorMessage && <div className="banner error">{errorMessage}</div>}
 

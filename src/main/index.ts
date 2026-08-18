@@ -300,6 +300,13 @@ async function createWindow(): Promise<void> {
     },
   });
 
+  // target="_blank" links (e.g. the SSW password-reset link) open in the
+  // system browser, never as a bare Electron window.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
   if (isDev && process.env['ELECTRON_RENDERER_URL']) {
     await win.loadURL(process.env['ELECTRON_RENDERER_URL']);
     // DevTools no longer opens on launch — it covered the window every time.

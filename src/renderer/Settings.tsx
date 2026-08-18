@@ -370,7 +370,15 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
         {carlState.message && <CredStatus state={carlState} />}
 
         {/* ---- SSW credentials ---- */}
-        <h3 style={{ marginTop: 22 }}>SSW login</h3>
+        <h3 style={{ marginTop: 22 }}>Timesheet login (SSW)</h3>
+        <p className="subtle" style={{ fontSize: 12, margin: '2px 0 6px' }}>
+          Your CT timesheet account on ctts.ctus.com — not your C.A.R.L.
+          login. Forgot it?{' '}
+          <a href="https://ctts.ctus.com/SpreadsheetWeb/PasswordReset.aspx" target="_blank" rel="noreferrer" style={{ color: 'var(--ct-gold)' }}>
+            Reset it here
+          </a>{' '}
+          or check your saved passwords for "ctus".
+        </p>
         <div className="field" style={{ margin: '6px 0' }}>
           <label>Login (username or email)</label>
           <input type="text" value={sswEmail} onChange={(e) => setSswEmail(e.target.value)} autoComplete="username" autoCapitalize="off" />
