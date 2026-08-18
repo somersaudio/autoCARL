@@ -18,14 +18,18 @@ import * as ssw from './ssw';
 
 export interface Env {
   SESS: KVNamespace;
+  // Service binding to the autocarl-friends worker — a direct workers.dev
+  // fetch between two workers on the same account is blocked (CF error 1042).
+  FRIENDS: { fetch: typeof fetch };
   RELAY_KEY: string;
+  // Shared secret for the friends worker's /v1/reissue endpoint.
+  FRIENDS_KEY?: string;
   LOGODEV_SECRET?: string;
   LOGODEV_PUBLISHABLE?: string;
   GSA_API_KEY?: string;
 }
 
 const RELAY_URL = 'https://somersaudio.com/autocarl/api/relay.php';
-const FRIENDS_URL = 'https://autocarl-friends.somerss.workers.dev';
 const SESSION_TTL_S = 1500;
 
 const ALLOWED_ORIGINS = new Set([
@@ -269,23 +273,88 @@ export default {
         return json(req, await gsaRateForZip(env, url.searchParams.get('zip') || ''));
       }
 
-      // ---- friends passthrough (token stays client-side) ----
-      if (path.startsWith('/v1/friends-proxy/')) {
-        const b = await readBody(req);
-        const sub = path.slice('/v1/friends-proxy'.length);
-        if (!/^\/v1\/[a-z/@.%-]*$/i.test(sub)) return json(req, { error: 'bad path' }, 400);
-        const r = await fetch(FRIENDS_URL + sub, {
-          method: str(b.method) || 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(str(b.token) ? { Authorization: `Bearer ${str(b.token)}` } : {}),
-          },
-          body: b.payload !== undefined ? JSON.stringify(b.payload) : undefined,
-        });
-        return new Response(await r.text(), {
+      // ---- friends (tokens stay client-side; we just relay them) ----
+      // Mirrors src/web/api-shim.ts's contract on one side and the friends
+      // worker's real API on the other.
+      if (path.startsWith('/v1/friends/')) {
+        const call = (sub: string, init: {
+          method?: string; token?: string; body?: unknown; headers?: Record<string, string>;
+        } = {}) =>
+          env.FRIENDS.fetch(`https://autocarl-friends.internal${sub}`, {
+            method: init.method || 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(init.token ? { Authorization: `Bearer ${init.token}` } : {}),
+              ...(init.headers || {}),
+            },
+            body: init.body === undefined ? undefined : JSON.stringify(init.body),
+          });
+        const passthrough = async (r: Response) => new Response(await r.text(), {
           status: r.status,
-          headers: { 'Content-Type': 'application/json', ...corsHeaders(req) },
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders(req) },
         });
+        const b = await readBody(req);
+        const token = str(b.token);
+
+        if (path === '/v1/friends/enroll') {
+          const rawEmail = str(b.email).trim();
+          const email = rawEmail.toLowerCase();
+          const name = str(b.name).trim();
+          if (!email || !str(b.password) || !name) {
+            return json(req, { error: 'email, password, and name are required.' }, 400);
+          }
+          // Prove the caller controls this CARL account before handing out
+          // a friends identity bound to its email.
+          await withCarl(env, rawEmail, str(b.password), async () => null);
+          let r = await call('/v1/register', { body: { email, name } });
+          let linked = false;
+          if (r.status === 409) {
+            // The email already has a friends account (say, enrolled on the
+            // desktop) — issue an ADDITIONAL token for this device. `linked`
+            // tells the client to say so, which is also the tripwire for an
+            // account someone else created on this email first.
+            linked = true;
+            r = await call('/v1/reissue', {
+              body: { email },
+              headers: { 'X-Internal-Key': env.FRIENDS_KEY || '' },
+            });
+          }
+          const data = await r.json() as {
+            token?: string; name?: string; error?: string;
+            accountCreatedAt?: string; firstVerified?: boolean;
+          };
+          if (!r.ok || !data.token) {
+            return json(req, { error: data.error || `Friends service HTTP ${r.status}` }, 502);
+          }
+          return json(req, {
+            token: data.token,
+            name: data.name || name,
+            ...(linked ? {
+              linked: true,
+              accountCreatedAt: data.accountCreatedAt ?? null,
+              firstVerified: data.firstVerified === true,
+            } : {}),
+          });
+        }
+        if (path === '/v1/friends/publish') {
+          return passthrough(await call('/v1/schedule', { method: 'PUT', token, body: { gigs: b.gigs } }));
+        }
+        if (path === '/v1/friends/list') {
+          return passthrough(await call('/v1/friends', { method: 'GET', token }));
+        }
+        if (path === '/v1/friends/request') {
+          return passthrough(await call('/v1/friends/request', { token, body: { email: str(b.email) } }));
+        }
+        if (path === '/v1/friends/respond') {
+          return passthrough(await call('/v1/friends/respond', {
+            token, body: { email: str(b.email), accept: b.accept === true },
+          }));
+        }
+        if (path === '/v1/friends/remove') {
+          return passthrough(await call(`/v1/friends/${encodeURIComponent(str(b.email))}`, {
+            method: 'DELETE', token,
+          }));
+        }
       }
 
       return json(req, { error: 'not found' }, 404);

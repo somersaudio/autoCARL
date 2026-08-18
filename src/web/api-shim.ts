@@ -410,7 +410,16 @@ let lastPublishedHash = '';
 async function publishSchedule(bookings?: Booking[]): Promise<void> {
   const token = lsGet(K.friendsToken);
   if (!token) return;
-  const source = bookings ?? readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null }).bookings;
+  let source = bookings;
+  if (!source) {
+    const cache = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
+    // A never-populated cache (fresh browser, first refresh still in flight)
+    // must not publish: PUT /v1/schedule overwrites wholesale, and an empty
+    // publish here would wipe the schedule the desktop app already shared.
+    // Once a real fetch lands, publishScheduleQuietly re-publishes anyway.
+    if (!cache.fetchedAt) return;
+    source = cache.bookings;
+  }
   const today = new Date();
   const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const gigs = source
@@ -644,14 +653,34 @@ const api: Api = {
     }),
     enroll: async (name): Promise<FriendsStatus> => {
       const carlEmail = lsGet(K.carlEmail);
-      if (!carlEmail) throw new Error('Complete C.A.R.L. setup first — your email identifies you to friends.');
+      if (!carlEmail || !lsGet(K.carlPassword)) {
+        throw new Error('Complete C.A.R.L. setup first — your email identifies you to friends.');
+      }
       const clean = String(name ?? '').trim();
       if (!clean) throw new Error('Enter the name your coworkers know you by.');
-      const r = await postJson<{ token: string }>('/v1/friends/enroll', { email: carlEmail, name: clean });
+      // The worker verifies the CARL login, then registers — or, when this
+      // email already has a friends account (enrolled on the desktop, say),
+      // issues an extra token for this browser. Same person, same buddy
+      // list, and the account keeps its original display name.
+      const r = await postJson<{
+        token: string; name?: string;
+        linked?: boolean; accountCreatedAt?: string | null; firstVerified?: boolean;
+      }>('/v1/friends/enroll', {
+        email: carlEmail, password: lsGet(K.carlPassword), name: clean,
+      });
+      const finalName = r.name || clean;
       lsSet(K.friendsToken, r.token);
-      lsSet(K.friendsName, clean);
+      lsSet(K.friendsName, finalName);
       await publishSchedule();   // share the current schedule immediately
-      return { enrolled: true, email: carlEmail, name: clean };
+      return {
+        enrolled: true, email: carlEmail, name: finalName,
+        ...(r.linked ? {
+          linkedExisting: {
+            accountCreatedAt: r.accountCreatedAt ?? null,
+            firstVerified: r.firstVerified === true,
+          },
+        } : {}),
+      };
     },
     list: async () => postJson<FriendsList>('/v1/friends/list', { token: friendsToken() }),
     request: async (email) => { await postJson('/v1/friends/request', { token: friendsToken(), email }); },

@@ -41,6 +41,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [confirmRemove, setConfirmRemove] = useState<
     { email: string; label: string; kind: 'buddy' | 'invite' } | null
   >(null);
+  // Set when sign-on attached to an EXISTING account for this email (second
+  // device). Shown once — it's also the tripwire if someone else enrolled
+  // this email first.
+  const [linkedNotice, setLinkedNotice] = useState<string>('');
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const upcoming = bookings.filter((b) => parseISOLocal(b.endDate) >= today);
@@ -103,9 +107,20 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
               className="aim-btn"
               disabled={busy || !name.trim()}
               onClick={() => run(async () => {
-                await window.api.friends.enroll(name);
+                // Use the returned name: signing back into an existing
+                // account keeps its original display name.
+                const st = await window.api.friends.enroll(name);
                 setEnrolled(true);
-                setMyName(name.trim());
+                setMyName(st.name || name.trim());
+                if (st.linkedExisting) {
+                  const when = st.linkedExisting.accountCreatedAt
+                    ? ` (created ${new Date(st.linkedExisting.accountCreatedAt).toLocaleDateString()})`
+                    : '';
+                  setLinkedNotice(
+                    `Signed on to your existing friends account "${st.name}"${when}. ` +
+                    'If you never enrolled anywhere before, that account isn’t yours — tell John right away.',
+                  );
+                }
               })}
             >
               {busy ? 'Signing On…' : 'Sign On'}
@@ -214,6 +229,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
       {pane === 'online' && (
         <div className="aim-list">
+          {linkedNotice && (
+            <div className="aim-away" style={{ padding: '6px 8px' }}>
+              {linkedNotice}{' '}
+              <button className="aim-x" title="Dismiss" onClick={() => setLinkedNotice('')}>×</button>
+            </div>
+          )}
           {incoming.length > 0 && (
             <div className="aim-group">
               <div className="aim-group-header as-static">

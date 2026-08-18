@@ -6,5 +6,8 @@
   "observability": { "enabled": true },
   "kv_namespaces": [
     { "binding": "SESS", "id": "c258e58ca7b84a00b0927a922613a2d3" }
+  ],
+  "services": [
+    { "binding": "FRIENDS", "service": "autocarl-friends" }
   ]
 }

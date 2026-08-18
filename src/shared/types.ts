@@ -182,7 +182,13 @@ export type FriendsList = {
   incoming: Array<{ email: string; name: string }>;
   outgoing: Array<{ email: string; name: string }>;
 };
-export type FriendsStatus = { enrolled: boolean; email: string; name: string };
+export type FriendsStatus = {
+  enrolled: boolean; email: string; name: string;
+  // Set by web enroll when sign-on attached to an EXISTING account for this
+  // email (multi-device sign-in). Shown to the user — if they never enrolled
+  // anywhere before, an account existing already means someone else made it.
+  linkedExisting?: { accountCreatedAt: string | null; firstVerified: boolean };
+};
 
 // ----- Expense reports (receipts → CT reimbursement form; see main/expenses.ts) -----
 

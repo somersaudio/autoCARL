@@ -23,6 +23,12 @@ interface Gig {
 
 type UserRow = { id: string; email: string; name: string; token_hash: string };
 
+// Secrets (INTERNAL_KEY) aren't in wrangler.jsonc, so the generated Env
+// doesn't know them; merge the field in here.
+declare global {
+  interface Env { INTERNAL_KEY?: string }
+}
+
 const MAX_GIGS = 50;
 const MAX_STR = 120;
 const MAX_BODY = 64 * 1024;
@@ -49,7 +55,9 @@ function timingSafeEqualStr(a: string, b: string): boolean {
 }
 
 // Bearer token: "<userId>.<secret>". The id routes to the row; only the
-// secret's hash is stored.
+// secret's hash is stored. A user can hold several valid tokens at once —
+// the original one on the users row plus per-device extras in `tokens`
+// (issued by /v1/reissue when a second device signs on).
 async function authenticate(req: Request, env: Env): Promise<UserRow | null> {
   const header = req.headers.get('authorization') || '';
   const m = header.match(/^Bearer ([0-9a-f-]{36})\.([A-Za-z0-9_-]{20,64})$/);
@@ -58,7 +66,17 @@ async function authenticate(req: Request, env: Env): Promise<UserRow | null> {
     .bind(m[1]).first<UserRow>();
   if (!row) return null;
   const hash = await sha256b64(m[2]);
-  return timingSafeEqualStr(hash, row.token_hash) ? row : null;
+  if (timingSafeEqualStr(hash, row.token_hash)) return row;
+  const extra = await env.DB.prepare('SELECT 1 FROM tokens WHERE user_id = ? AND token_hash = ?')
+    .bind(row.id, hash).first();
+  return extra ? row : null;
+}
+
+function mintSecret(): string {
+  const secretBytes = new Uint8Array(32);
+  crypto.getRandomValues(secretBytes);
+  return btoa(String.fromCharCode(...secretBytes))
+    .replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
 function cleanStr(v: unknown, max = MAX_STR): string {
@@ -124,15 +142,54 @@ export default {
           return err(409, 'This email is already registered. If you lost access, ask John to reset it.');
         }
         const id = crypto.randomUUID();
-        const secretBytes = new Uint8Array(32);
-        crypto.getRandomValues(secretBytes);
-        const secret = btoa(String.fromCharCode(...secretBytes))
-          .replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
+        const secret = mintSecret();
         await env.DB.prepare(
           'INSERT INTO users (id, email, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)',
         ).bind(id, email, name, await sha256b64(secret), new Date().toISOString()).run();
         console.log(JSON.stringify({ event: 'register', email }));
         return json({ userId: id, token: `${id}.${secret}` }, 201);
+      }
+
+      // ---- internal endpoint: an ADDITIONAL token for an existing account.
+      // Only autocarl-api may call this (shared secret), and only after IT
+      // has verified the caller controls the CARL account for that email.
+      // Existing tokens are never rotated — a phone signing on must not
+      // sign the desktop off.
+      if (route === 'POST /v1/reissue') {
+        const key = req.headers.get('x-internal-key') || '';
+        if (!env.INTERNAL_KEY || !timingSafeEqualStr(key, env.INTERNAL_KEY)) {
+          return err(401, 'Missing or invalid token.');
+        }
+        const body = await readBody(req);
+        const email = body ? cleanStr(body.email).toLowerCase() : '';
+        const user = email
+          ? await env.DB.prepare(
+              'SELECT id, name, created_at, verified_at FROM users WHERE email = ?',
+            ).bind(email).first<{ id: string; name: string; created_at: string; verified_at: string | null }>()
+          : null;
+        if (!user) return err(404, 'No friends account with that email.');
+        const secret = mintSecret();
+        await env.DB.prepare(
+          'INSERT INTO tokens (user_id, token_hash, created_at) VALUES (?, ?, ?)',
+        ).bind(user.id, await sha256b64(secret), new Date().toISOString()).run();
+        // Audit trail: registration is open/first-come, so the first
+        // CARL-verified sign-on is the moment the email's true owner claims
+        // the account. Record it, and tell the caller whether the account
+        // predates any verified claim so the client can surface "you had an
+        // existing account" — the tripwire that catches an email squatted
+        // by someone else before its owner ever enrolled.
+        const firstVerified = !user.verified_at;
+        if (firstVerified) {
+          await env.DB.prepare('UPDATE users SET verified_at = ? WHERE id = ?')
+            .bind(new Date().toISOString(), user.id).run();
+        }
+        console.log(JSON.stringify({ event: 'reissue', email, firstVerified, accountCreatedAt: user.created_at }));
+        return json({
+          token: `${user.id}.${secret}`,
+          name: user.name,
+          accountCreatedAt: user.created_at,
+          firstVerified,
+        });
       }
 
       // ---- everything else requires auth ----
