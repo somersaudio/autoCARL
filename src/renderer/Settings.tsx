@@ -25,7 +25,6 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
   const [start, setStart] = useState('');
   const [end, setEnd] = useState('');
   const [autofillPerDiem, setAutofillPerDiem] = useState(true);
-  const [dailyRate, setDailyRate] = useState('');  // empty string = use SSW's value
   const [tsEmail, setTsEmail] = useState('');      // empty string = use SSW's value
   const [theme, setTheme] = useState('default');
   const [busy, setBusy] = useState(false);
@@ -52,7 +51,6 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
       setStart(s.defaultStartTime);
       setEnd(s.defaultEndTime);
       setAutofillPerDiem(s.autofillPerDiem);
-      setDailyRate(s.defaultDailyRate > 0 ? String(s.defaultDailyRate) : '');
       setTsEmail(s.timesheetEmail);
       setTheme(s.theme);
       setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
@@ -86,12 +84,14 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
 
   const saveDefaults = async () => {
     setBusy(true);
-    const parsedRate = parseFloat(dailyRate);
     const next = await window.api.settings.update({
       defaultStartTime: start,
       defaultEndTime: end,
       autofillPerDiem,
-      defaultDailyRate: Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : 0,
+      // The General daily-rate field is gone (the Earnings tab's base pay is
+      // the one people mean) — saving here also clears any old stored SSW
+      // override so it can't keep rewriting timesheets invisibly.
+      defaultDailyRate: 0,
       timesheetEmail: tsEmail.trim(),
     });
     setBusy(false);
@@ -190,7 +190,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
         {/* ---- Timesheet defaults ---- */}
         <h3 style={{ marginTop: 18 }}>Timesheet defaults</h3>
         <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
-          Start/end are autofilled on worked days you haven't edited yet. Daily rate, when set, overwrites SSW's stored rate on every save.
+          Start/end are autofilled on worked days you haven't edited yet.
         </p>
         <div className="row-actions" style={{ gap: 12, alignItems: 'flex-end' }}>
           <div className="field" style={{ flex: 1, margin: 0 }}>
@@ -201,19 +201,6 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
             <label>End</label>
             <input type="text" value={end} onChange={(e) => setEnd(e.target.value)} placeholder="6:00 pm" disabled={busy} />
           </div>
-        </div>
-        <div className="field" style={{ margin: '10px 0 0' }}>
-          <label>Daily rate ($)</label>
-          <input
-            type="number"
-            inputMode="decimal"
-            min="0"
-            step="1"
-            value={dailyRate}
-            onChange={(e) => setDailyRate(e.target.value)}
-            placeholder="0"
-            disabled={busy}
-          />
         </div>
         <div className="field" style={{ margin: '10px 0 0' }}>
           <label>Email on the timesheet</label>
