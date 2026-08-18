@@ -101,6 +101,50 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 
 const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 
+// ---- self-update ----------------------------------------------------------
+//
+// The home-screen (standalone) app resumes its old session and never
+// re-navigates, so a deploy would otherwise sit unseen until iOS happens to
+// evict it. On launch, on every return to the foreground, and every 30
+// minutes, compare the running bundle's hash against the server's
+// index.html and reload when a new build is live. Guards: never reload
+// while the user is mid-typing, verify the new bundle actually exists (a
+// half-finished deploy must not strand us on a broken page), and remember
+// attempted targets so a stale CDN copy can't cause a reload loop.
+
+let updateCheckBusy = false;
+async function checkForNewBuild(): Promise<void> {
+  if (updateCheckBusy) return;
+  updateCheckBusy = true;
+  try {
+    const current = document.querySelector<HTMLScriptElement>('script[src*="assets/index-"]')?.getAttribute('src') || '';
+    const currentHash = current.match(/index-[A-Za-z0-9_-]+\.js/)?.[0];
+    if (!currentHash) return;
+    const res = await fetch(new URL('index.html', document.baseURI).toString(), { cache: 'no-store' });
+    if (!res.ok) return;
+    const liveHash = (await res.text()).match(/assets\/(index-[A-Za-z0-9_-]+\.js)/)?.[1];
+    if (!liveHash || liveHash === currentHash) return;
+    // Don't chase the same target twice in one session (reload-loop guard).
+    if (sessionStorage.getItem('autocarl.web.updateTried') === liveHash) return;
+    // Mid-deploy safety: the new bundle must really be there.
+    const probe = await fetch(new URL(`assets/${liveHash}`, document.baseURI).toString(), { method: 'HEAD', cache: 'no-store' });
+    if (!probe.ok) return;
+    // Don't yank the page out from under active typing; the next resume or
+    // interval tick will catch it.
+    const el = document.activeElement;
+    if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
+    sessionStorage.setItem('autocarl.web.updateTried', liveHash);
+    location.reload();
+  } catch { /* offline or transient — try again next resume */ } finally {
+    updateCheckBusy = false;
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') void checkForNewBuild();
+});
+window.setInterval(() => void checkForNewBuild(), 30 * 60 * 1000);
+window.setTimeout(() => void checkForNewBuild(), 5_000);   // shortly after launch
+
 // ---- iCal parsing (lifted verbatim from web/app.js / src/main/ical.ts) ----
 
 function parseIcs(text: string): Record<string, string>[] {

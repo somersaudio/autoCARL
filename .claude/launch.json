@@ -4,8 +4,26 @@
     {
       "name": "web-dist",
       "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "8931", "--directory", "web-dist"],
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8931",
+        "--directory",
+        "web-dist"
+      ],
       "port": 8931
+    },
+    {
+      "name": "upd-test",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8932",
+        "--directory",
+        "/private/tmp/claude-501/-Users-somers-Desktop-----SomersAudio-Application-Development-AUTOcarl/abec8248-3450-43ea-ae0a-f22c912f0b8b/scratchpad/upd-test"
+      ],
+      "port": 8932
     }
   ]
 }
