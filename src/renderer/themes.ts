@@ -75,4 +75,14 @@ export function applyTheme(theme: Theme): void {
   for (const key of keys) root.style.setProperty(key, theme.vars[key]);
   root.setAttribute('data-theme', theme.id);
   root.setAttribute('data-theme-vars', keys.join(','));
+  // The page's BASE layer — what shows past the backdrop during overscroll
+  // and in any strip iOS composes beyond the document — must be the theme's
+  // own color: pure black under the digital rain, the sky's horizon under
+  // the stars. (index.html pre-paints a static color; this corrects it the
+  // moment the theme applies.)
+  const base = theme.vars['--bg'] || '#0a1020';
+  root.style.backgroundColor = base;
+  document.body.style.backgroundColor = base;
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if (meta) meta.setAttribute('content', base);
 }
