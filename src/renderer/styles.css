@@ -2114,3 +2114,35 @@ a.featured-venue:hover .featured-venue-name {
     font-size: 16px !important;
   }
 }
+
+/* ---- Settings modal on phones ----
+   The card used to center across the FULL screen height, sliding its top —
+   close ✕ included — under the iPhone status bar, unreachable. Pin it
+   below the safe area instead and let it scroll internally. Inputs shrink
+   to their columns (their intrinsic size forced sideways scrolling; Start
+   and End now split the row half-and-half). */
+@media (max-width: 560px) {
+  .modal-backdrop {
+    align-items: flex-start;
+    padding: calc(env(safe-area-inset-top, 0px) + 14px) 10px
+             calc(env(safe-area-inset-bottom, 0px) + 14px);
+  }
+
+  .modal-card {
+    width: 100%;
+    max-height: 100%;
+    padding: 14px 16px 18px;
+  }
+
+  .modal-card .field { min-width: 0; }
+
+  .modal-card .field input,
+  .modal-card .field select {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+  }
+
+  /* Bigger thumb target for the ✕. */
+  .modal-card .row-between .link { padding: 6px 10px; }
+}
