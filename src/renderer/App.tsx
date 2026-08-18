@@ -105,13 +105,22 @@ export default function App() {
     }
   };
 
-  // Set or clear a single gig's day-rate override. Passing null removes the
-  // entry entirely rather than storing a zero, so `gigDayRates` only ever holds
-  // real overrides and the fallback to base pay stays a simple absence check.
+  // Set or clear a gig's day-rate override — applied to EVERY booking that
+  // shares the job number, because one job can span several bookings and
+  // paychecks and they must all price (and underline) together. Passing null
+  // removes the entries entirely rather than storing zeros, so `gigDayRates`
+  // only ever holds real overrides and the fallback to base pay stays a
+  // simple absence check.
   const setGigDayRate = async (bookingId: string, rate: number | null) => {
+    const job = bookings.find((b) => b.bookingId === bookingId)?.jobNumber;
+    const ids = job
+      ? bookings.filter((b) => b.jobNumber === job).map((b) => b.bookingId)
+      : [bookingId];
     const next = { ...settings.gigDayRates };
-    if (rate === null) delete next[bookingId];
-    else next[bookingId] = rate;
+    for (const id of ids) {
+      if (rate === null) delete next[id];
+      else next[id] = rate;
+    }
     setSettings(await window.api.settings.update({ gigDayRates: next }));
   };
 

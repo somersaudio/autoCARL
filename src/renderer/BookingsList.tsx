@@ -111,7 +111,7 @@ export default function BookingsList({
       })()}
 
       {plan.checks.length > 0 && (
-        <PaychecksCard checks={plan.checks} settings={settings} onSetDayRate={onSetDayRate} />
+        <PaychecksCard checks={plan.checks} settings={settings} bookings={bookings} onSetDayRate={onSetDayRate} />
       )}
 
       {past.length > 0 && (
@@ -375,22 +375,34 @@ function fmtPayDate(iso: string): string {
 // exactly as payroll computes them. This card is also where day rates are
 // edited now that gig cards carry no amounts: click a gig chip to override
 // its rate; clearing the field falls back to base pay.
-function PaychecksCard({ checks, settings, onSetDayRate }: {
+function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
   checks: Paycheck[];
   settings: UserSettings;
+  bookings: Booking[];
   onSetDayRate: (bookingId: string, rate: number | null) => void;
 }) {
-  const [editingId, setEditingId] = useState<string | null>(null);
+  // The editor is a modal, not an inline input: the old inline box's
+  // blur-commit swallowed the tap that tried to open a second gig's editor
+  // (blur fired first, the row reflowed, the click landed on moved DOM —
+  // the "bounce"). A modal has no blur minefield and works on phones.
+  const [edit, setEdit] = useState<{ bookingId: string; jobName: string; jobNumber: string } | null>(null);
   const [draft, setDraft] = useState('');
 
-  const commit = (bookingId: string) => {
+  // Jobs with an override on ANY of their bookings — the underline marks
+  // every appearance of the job, on every paycheck.
+  const customJobs = new Set(
+    bookings.filter((b) => settings.gigDayRates?.[b.bookingId]).map((b) => b.jobNumber),
+  );
+
+  const commit = () => {
+    if (!edit) return;
     const n = parseFloat(draft);
     // Entering the base rate (or clearing) removes the override rather than
-    // pinning it — otherwise an opened-then-blurred editor stores base pay as
+    // pinning it — otherwise a saved-then-forgotten editor stores base pay as
     // an explicit override that silently stops tracking future base changes.
     const isOverride = Number.isFinite(n) && n > 0 && n !== settings.basePayDayRate;
-    onSetDayRate(bookingId, isOverride ? n : null);
-    setEditingId(null);
+    onSetDayRate(edit.bookingId, isOverride ? n : null);
+    setEdit(null);
   };
 
   return (
@@ -407,35 +419,16 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
               {c.gigs.map((g, i) => (
                 <span key={g.bookingId} className="paycheck-gig-wrap">
                   {i > 0 && <span className="paycheck-gig-sep">+</span>}
-                  {editingId === g.bookingId ? (
-                    <span className="earnings-edit" onClick={(e) => e.stopPropagation()}>
-                      <label className="earnings-edit-label">Day rate</label>
-                      <input
-                        className="earnings-edit-input"
-                        type="number"
-                        inputMode="decimal"
-                        min="0"
-                        step="1"
-                        value={draft}
-                        autoFocus
-                        onFocus={(e) => e.target.select()}
-                        onChange={(e) => setDraft(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') commit(g.bookingId);
-                          if (e.key === 'Escape') setEditingId(null);
-                        }}
-                        onBlur={() => commit(g.bookingId)}
-                      />
-                    </span>
-                  ) : (
-                    <button
-                      className={`paycheck-gig${settings.gigDayRates?.[g.bookingId] ? ' is-custom' : ''}`}
-                      title={`${g.days}d @ ${money(g.dayRate)}${settings.gigDayRates?.[g.bookingId] ? ' (custom)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this gig's day rate`}
-                      onClick={() => { setDraft(String(g.dayRate)); setEditingId(g.bookingId); }}
-                    >
-                      {g.jobName} · {g.days}d
-                    </button>
-                  )}
+                  <button
+                    className={`paycheck-gig${customJobs.has(g.jobNumber) ? ' is-custom' : ''}`}
+                    title={`${g.days}d @ ${money(g.dayRate)}${customJobs.has(g.jobNumber) ? ' (custom)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this job's day rate`}
+                    onClick={() => {
+                      setDraft(String(g.dayRate));
+                      setEdit({ bookingId: g.bookingId, jobName: g.jobName, jobNumber: g.jobNumber });
+                    }}
+                  >
+                    {g.jobName} · {g.days}d
+                  </button>
                 </span>
               ))}
             </div>
@@ -463,6 +456,46 @@ function PaychecksCard({ checks, settings, onSetDayRate }: {
           </div>
         </div>
       ))}
+
+      {edit && (
+        <div className="modal-backdrop" onClick={() => setEdit(null)}>
+          <div className="modal-card" style={{ width: 'min(380px, calc(100vw - 32px))' }} onClick={(e) => e.stopPropagation()}>
+            <div className="row-between">
+              <h2 style={{ margin: 0, fontSize: 16 }}>Change your day rate for just this job?</h2>
+              <button className="link" onClick={() => setEdit(null)}>✕</button>
+            </div>
+            <p className="subtle" style={{ fontSize: 12, margin: '8px 0 2px' }}>
+              {edit.jobName} ({edit.jobNumber}) — the new rate applies to this job on
+              every paycheck it spans, and each one shows the edited underline.
+            </p>
+            <div className="field">
+              <label>Day rate ($)</label>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="1"
+                value={draft}
+                autoFocus
+                onFocus={(e) => e.target.select()}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commit();
+                  if (e.key === 'Escape') setEdit(null);
+                }}
+              />
+            </div>
+            <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
+              {customJobs.has(edit.jobNumber) && (
+                <button className="link" onClick={() => { onSetDayRate(edit.bookingId, null); setEdit(null); }}>
+                  Back to base rate
+                </button>
+              )}
+              <button className="primary" onClick={commit}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
