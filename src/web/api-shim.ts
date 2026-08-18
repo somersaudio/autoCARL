@@ -1113,7 +1113,25 @@ const api: Api = {
 
     buildDraft: async (bookingIds) => {
       const { bookings } = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
-      const weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      let weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      // The draft's name + employee ID come from the newest cached
+      // timesheet. Desktop machines have months of cached weeks; a phone
+      // may have none yet — warm the cache from SSW first (current week,
+      // stepping back a couple if this week's sheet doesn't exist yet).
+      if (!Object.values(weeks).some((w) => w.name || w.userId)) {
+        const monday = new Date();
+        const day = monday.getDay();
+        monday.setDate(monday.getDate() + (day === 0 ? -6 : 1 - day));
+        for (let back = 0; back <= 2; back++) {
+          const d = new Date(monday);
+          d.setDate(d.getDate() - back * 7);
+          const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+          try {
+            if (await api.ssw.fetchWeek(iso)) break;
+          } catch { break; /* SSW unreachable — draft stays editable-blank */ }
+        }
+        weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      }
       return assembleDraftReport(bookingIds, bookings, readExpensesLS().receipts, weeks);
     },
 

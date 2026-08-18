@@ -131,15 +131,30 @@ export default function ExpensesTab({ bookings }: Props) {
     if (!cache || !selectedGig) return;
     if (draft && draftGigId(draft) === selectedGig) return;
     const rep = cache.reports.find((r) => draftGigId(r) === selectedGig) || null;
+    let cancelled = false;
     if (rep) {
       // Reports saved before the gig link existed get stamped on open —
       // without this, deleting every row erases the report's inferred
       // identity mid-edit and this effect resurrects the stale saved copy.
-      setDraft(rep.bookingId ? rep : { ...rep, bookingId: selectedGig });
+      const stamped = rep.bookingId ? rep : { ...rep, bookingId: selectedGig };
+      setDraft(stamped);
       setExportedPath(null);
-      return;
+      // A report saved before the app knew who the user is (fresh phone:
+      // the timesheet cache hadn't loaded yet) carries blank identity
+      // forever. Backfill name + employee ID — nothing else — once the
+      // caches can answer.
+      if (!stamped.name && !stamped.employeeId) {
+        window.api.expenses.buildDraft([selectedGig])
+          .then((d) => {
+            if (cancelled || (!d.name && !d.employeeId)) return;
+            setDraft((cur) => cur && cur.id === stamped.id && !cur.name && !cur.employeeId
+              ? { ...cur, name: d.name, employeeId: d.employeeId }
+              : cur);
+          })
+          .catch(() => { /* identity backfill is best-effort */ });
+      }
+      return () => { cancelled = true; };
     }
-    let cancelled = false;
     window.api.expenses.buildDraft([selectedGig])
       .then((d) => { if (!cancelled) { setDraft(d); setExportedPath(null); } })
       .catch((e) => { if (!cancelled) setError(friendlyError(e, !navigator.onLine)); });
