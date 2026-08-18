@@ -22,7 +22,7 @@ import {
 import { sweepFlights } from './flight-fetcher';
 import {
   friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
-  friendsRemove, publishScheduleQuietly,
+  friendsRemove, friendsSignOut, publishScheduleQuietly,
 } from './friends';
 import { createWeek, fetchIdentity, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
@@ -486,7 +486,7 @@ function registerIpc(): void {
     // Friends identity follows the CARL login: a reset may be a handoff to a
     // different person, so drop the token too. Auto sign-on re-binds the
     // right identity (same account for the same email) on the next visit.
-    await updateConfig({ carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '' });
+    await updateConfig({ carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '', friendsSignedOut: false });
   });
 
   ipcMain.handle('bookings:getCached', () => readCachedBookings());
@@ -541,6 +541,7 @@ function registerIpc(): void {
   // ---- friends ----
   ipcMain.handle('friends:status', () => friendsStatus());
   ipcMain.handle('friends:enroll', (_e, name: string) => friendsEnroll(String(name ?? '')));
+  ipcMain.handle('friends:signOut', () => friendsSignOut());
   ipcMain.handle('friends:list', () => friendsList());
   ipcMain.handle('friends:request', (_e, email: string) => friendsRequest(String(email ?? '')));
   ipcMain.handle('friends:respond', (_e, email: string, accept: boolean) =>

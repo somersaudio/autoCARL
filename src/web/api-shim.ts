@@ -42,6 +42,7 @@ const K = {
   logos: 'autocarl.web.logos',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
+  friendsSignedOut: 'autocarl.web.friendsSignedOut',
   expenses: 'autocarl.web.expenses',
   identity: 'autocarl.web.identity',
 } as const;
@@ -64,6 +65,7 @@ function dropFriendsIfEmailChanged(newEmail: string): void {
   if (prev && prev !== newEmail) {
     lsRemove(K.friendsToken);
     lsRemove(K.friendsName);
+    lsRemove(K.friendsSignedOut);   // a new person gets auto sign-on again
   }
 }
 function readJson<T>(key: string, fallback: T): T {
@@ -895,6 +897,7 @@ const api: Api = {
       // Friends identity follows the CARL login (see desktop setup:clear).
       lsRemove(K.friendsToken);
       lsRemove(K.friendsName);
+      lsRemove(K.friendsSignedOut);
     },
   },
 
@@ -997,6 +1000,7 @@ const api: Api = {
       enrolled: !!lsGet(K.friendsToken),
       email: lsGet(K.carlEmail),
       name: lsGet(K.friendsName),
+      signedOut: lsGet(K.friendsSignedOut) === '1',
     }),
     enroll: async (name): Promise<FriendsStatus> => {
       const carlEmail = lsGet(K.carlEmail);
@@ -1018,6 +1022,7 @@ const api: Api = {
       const finalName = r.name || clean;
       lsSet(K.friendsToken, r.token);
       lsSet(K.friendsName, finalName);
+      lsRemove(K.friendsSignedOut);
       // Share the current schedule immediately — but enrollment has already
       // succeeded, so a publish hiccup must not fail it (the refresh path
       // republishes anyway; a retry would false-alarm the "existing
@@ -1035,6 +1040,20 @@ const api: Api = {
         } : {}),
       };
     },
+    // Sign out = leave: take the schedule down so friends stop seeing your
+    // shows, drop the token, and remember it was deliberate so auto sign-on
+    // stays off. The account survives — signing back in with the same
+    // C.A.R.L. login restores the buddy list.
+    signOut: async () => {
+      const token = lsGet(K.friendsToken);
+      if (token) {
+        await postJson('/v1/friends/publish', { token, gigs: [] }).catch(() => { /* best-effort */ });
+      }
+      lsRemove(K.friendsToken);
+      lsRemove(K.friendsName);
+      lsSet(K.friendsSignedOut, '1');
+    },
+
     list: async () => postJson<FriendsList>('/v1/friends/list', { token: friendsToken() }),
     request: async (email) => { await postJson('/v1/friends/request', { token: friendsToken(), email }); },
     respond: async (email, accept) => {

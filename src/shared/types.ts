@@ -184,6 +184,9 @@ export type FriendsList = {
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;
+  // True when the user signed out ON PURPOSE — auto sign-on stays off until
+  // they sign back in manually.
+  signedOut?: boolean;
   // Set by web enroll when sign-on attached to an EXISTING account for this
   // email (multi-device sign-in). Shown to the user — if they never enrolled
   // anywhere before, an account existing already means someone else made it.
@@ -340,6 +343,11 @@ export type Api = {
     // Registers with the friends service under the CARL email + given name,
     // and publishes the current schedule.
     enroll: (name: string) => Promise<FriendsStatus>;
+    // Sign out: unpublish the schedule (friends stop seeing your shows),
+    // drop the token on this device, and suppress auto sign-on until the
+    // user signs back in. The account survives — signing back in with the
+    // same C.A.R.L. login restores the buddy list.
+    signOut: () => Promise<void>;
     list: () => Promise<FriendsList>;
     request: (email: string) => Promise<void>;
     respond: (email: string, accept: boolean) => Promise<void>;

@@ -59,10 +59,15 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     window.api.friends.list().then(setList).catch((e) => setError(friendlyMsg(e)));
   };
 
+  const [signedOut, setSignedOut] = useState(false);
+  const [acctEmail, setAcctEmail] = useState('');
+
   useEffect(() => {
     window.api.friends.status().then((st) => {
       setEnrolled(st.enrolled);
       setMyName(st.name);
+      setSignedOut(!!st.signedOut);
+      setAcctEmail(st.email || '');
       if (st.enrolled) loadList();
     }).catch(() => setEnrolled(false));
   }, []);
@@ -107,10 +112,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
       if (st0.enrolled) {
         setEnrolled(true);
         setMyName(st0.name);
+        setSignedOut(false);
         return;
       }
       const st = await window.api.friends.enroll(typed);
       applySignOn(st, typed);
+      setSignedOut(false);
     } finally {
       enrollAttemptActive = false;
     }
@@ -124,7 +131,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   // as the fallback when identity can't be found anywhere.
   const autoTried = useRef(false);
   useEffect(() => {
-    if (enrolled !== false) return;
+    if (enrolled !== false || signedOut) return;   // signed out on purpose stays out
     if (autoTried.current || enrollAttemptedThisSession || enrollAttemptActive || busy) return;
     autoTried.current = true;
     enrollAttemptedThisSession = true;
@@ -175,8 +182,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             <span className="aim-fineprint">(relax — there is no password)</span>
           </div>
           <p className="aim-fineprint" style={{ maxWidth: 240 }}>
-            Friends only ever see shows you're BOTH booked on — job, city,
-            dates of the shared gig, nothing else. Both sides must accept.
+            You sign in with your C.A.R.L. login{acctEmail ? <> (<b>{acctEmail}</b>)</> : null} —
+            it proves who you are, no extra password. Friends only ever see
+            shows you're BOTH booked on — job, city, dates of the shared gig,
+            nothing else. Both sides must accept.
           </p>
           <div className="aim-actions">
             <button
@@ -367,7 +376,35 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           <div className="aim-setup-section">Account</div>
           <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
             Signed on as <b>{myName}</b>. Friends only ever see the shows
-            you share with them — nothing else. To leave entirely, ask John.
+            you share with them — nothing else.
+          </div>
+          <div className="aim-actions" style={{ marginTop: 8 }}>
+            <button
+              className="aim-btn"
+              disabled={busy}
+              onClick={() => {
+                void (async () => {
+                  setBusy(true); setError('');
+                  try {
+                    await window.api.friends.signOut();
+                    setEnrolled(false);
+                    setSignedOut(true);
+                    setList(null);
+                    setPane('online');
+                    setLinkedNotice('');
+                  } catch (e) {
+                    setError(friendlyMsg(e));
+                  }
+                  setBusy(false);
+                })();
+              }}
+            >
+              {busy ? 'Signing Off…' : 'Sign Out'}
+            </button>
+          </div>
+          <div className="aim-fineprint" style={{ margin: '4px 2px' }}>
+            Signing out hides your shows from friends. Sign back in any time
+            with your C.A.R.L. login — your buddy list will be waiting.
           </div>
         </div>
       )}

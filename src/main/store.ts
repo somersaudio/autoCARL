@@ -83,6 +83,8 @@ type Config = {
   // friends auto sign-on on installs with no cached weeks yet.
   identityName: string;
   identityUserId: string;
+  // The user signed out of friends ON PURPOSE — blocks auto sign-on.
+  friendsSignedOut: boolean;
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -108,6 +110,7 @@ const DEFAULT_CONFIG: Config = {
   friendsName: '',
   identityName: '',
   identityUserId: '',
+  friendsSignedOut: false,
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }

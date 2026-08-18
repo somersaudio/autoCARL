@@ -26,6 +26,7 @@ export type FriendsList = {
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;
+  signedOut?: boolean;
   // Set when enrollment attached to an EXISTING account for this email
   // (second device / reinstall). Surfaced by the renderer — it's also the
   // tripwire if someone else enrolled this email first.
@@ -54,7 +55,24 @@ async function call<T>(path: string, init: { method?: string; body?: unknown } =
 
 export async function friendsStatus(): Promise<FriendsStatus> {
   const cfg = await readConfig();
-  return { enrolled: !!cfg.friendsToken, email: cfg.carlEmail, name: cfg.friendsName };
+  return {
+    enrolled: !!cfg.friendsToken,
+    email: cfg.carlEmail,
+    name: cfg.friendsName,
+    signedOut: !!cfg.friendsSignedOut,
+  };
+}
+
+// Sign out = leave: take the schedule down so friends stop seeing your
+// shows, drop the token, and remember it was deliberate so auto sign-on
+// stays off. The server account survives — signing back in with the same
+// C.A.R.L. login restores the buddy list.
+export async function friendsSignOut(): Promise<void> {
+  const cfg = await readConfig();
+  if (cfg.friendsToken) {
+    await call('/v1/schedule', { method: 'PUT', body: { gigs: [] } }, cfg.friendsToken).catch(() => {});
+  }
+  await updateConfig({ friendsToken: '', friendsName: '', friendsSignedOut: true });
 }
 
 export async function friendsEnroll(name: string): Promise<FriendsStatus> {
@@ -83,7 +101,7 @@ export async function friendsEnroll(name: string): Promise<FriendsStatus> {
     linked?: boolean; accountCreatedAt?: string | null; firstVerified?: boolean;
   };
   const finalName = r.name || clean;
-  await updateConfig({ friendsToken: r.token, friendsName: finalName });
+  await updateConfig({ friendsToken: r.token, friendsName: finalName, friendsSignedOut: false });
   // Share the current schedule immediately — but enrollment has already
   // succeeded, so a publish hiccup must not fail it (the refresh hook
   // republishes on the next sweep anyway). Failing here would leave the
