@@ -479,7 +479,16 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           <div className="aim-setup-section">Buddy Icon</div>
           <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
             Your icon shows next to your name on your friends' buddy lists.
-            A GIF stays animated; photos are cropped square.
+            A GIF stays animated; photos are cropped square. Need one?{' '}
+            <a
+              href="https://myoldicons.com"
+              target="_blank"
+              rel="noreferrer"
+              style={{ color: '#003a9e', fontWeight: 600 }}
+            >
+              Browse classic AIM icons at myoldicons.com
+            </a>{' '}
+            — save one you like, then Choose Icon.
           </div>
           <div className="aim-avatar-row">
             {myAvatar
