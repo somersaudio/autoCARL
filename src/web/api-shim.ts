@@ -39,7 +39,7 @@ const K = {
   bookings: 'autocarl.web.bookings',
   contacts: 'autocarl.web.contacts',
   sswWeeks: 'autocarl.web.sswWeeks',
-  logos: 'autocarl.web.logos',
+  logos: 'autocarl.web.logos2',   // v2: GTC→NVIDIA alias — refetch once
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',

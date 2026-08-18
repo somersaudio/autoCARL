@@ -3,12 +3,19 @@ import { LOGODEV_PUBLISHABLE, LOGODEV_SECRET } from './secrets';
 // Resolve a show's company to a logo (data URI), fetched server-side so the
 // API keys never reach the renderer. Session-cached per company-query.
 
+// Some shows are branded by the EVENT, not the company — map those to the
+// company the logo API should be asked for. First-word match, case-insensitive.
+const QUERY_ALIASES: Record<string, string> = {
+  GTC: 'NVIDIA',   // nVIDIA's GPU Technology Conference gigs are labeled "GTC …"
+};
+
 const cache = new Map<string, string | null>();
 
 function companyQuery(jobName: string): string {
   const beforeDash = (jobName.split(/\s[-–—]\s/)[0] || jobName).trim();
   const firstWord = beforeDash.split(/\s+/)[0] || '';
-  return firstWord.replace(/[^A-Za-z0-9&]/g, '');
+  const cleaned = firstWord.replace(/[^A-Za-z0-9&]/g, '');
+  return QUERY_ALIASES[cleaned.toUpperCase()] ?? cleaned;
 }
 
 async function searchDomain(query: string): Promise<string | null> {

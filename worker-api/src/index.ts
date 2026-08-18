@@ -152,9 +152,16 @@ async function gsaRateForZip(env: Env, zip: string): Promise<unknown> {
   };
 }
 
+// Some shows are branded by the EVENT, not the company — map those to the
+// company the logo API should be asked for. First-word match, case-insensitive.
+const QUERY_ALIASES: Record<string, string> = {
+  GTC: 'NVIDIA',   // nVIDIA's GPU Technology Conference gigs are labeled "GTC …"
+};
+
 function logoQuery(jobName: string): string {
   const beforeDash = (jobName.split(/\s[-–—]\s/)[0] || jobName).trim();
-  return (beforeDash.split(/\s+/)[0] || '').replace(/[^A-Za-z0-9&]/g, '');
+  const cleaned = (beforeDash.split(/\s+/)[0] || '').replace(/[^A-Za-z0-9&]/g, '');
+  return QUERY_ALIASES[cleaned.toUpperCase()] ?? cleaned;
 }
 
 async function jobLogo(env: Env, jobName: string): Promise<string | null> {
