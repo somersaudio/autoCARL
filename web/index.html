@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>AUTOcarl</title>
+  <meta name="description" content="AUTOcarl — your C.A.R.L. bookings, on your phone.">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#07080b">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AUTOcarl">
+  <link rel="icon" type="image/png" href="icon-192.png">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="stars" aria-hidden="true"></canvas>
+
+  <header class="topbar">
+    <img src="logo-ct.png" alt="" class="ct-logo">
+    <span class="wordmark">AUTOCARL</span>
+    <span class="topbar-right" id="updatedAt"></span>
+  </header>
+
+  <main id="app" class="app">
+    <!-- Rendered by app.js -->
+  </main>
+
+  <footer class="foot">
+    <span id="footNote" class="subtle"></span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
