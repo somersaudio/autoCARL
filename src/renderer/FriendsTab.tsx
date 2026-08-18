@@ -29,7 +29,7 @@ type Props = {
 let enrollAttemptActive = false;
 let enrollAttemptedThisSession = false;
 
-type Pane = 'online' | 'setup';
+type Pane = 'online' | 'setup' | 'customize';
 
 export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [enrolled, setEnrolled] = useState<boolean | null>(null);
@@ -61,6 +61,9 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
   const [signedOut, setSignedOut] = useState(false);
   const [acctEmail, setAcctEmail] = useState('');
+  // Own buddy icon (local preview; the server copy is what friends see).
+  const [myAvatar, setMyAvatar] = useState('');
+  const avatarInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     window.api.friends.status().then((st) => {
@@ -68,6 +71,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
       setMyName(st.name);
       setSignedOut(!!st.signedOut);
       setAcctEmail(st.email || '');
+      setMyAvatar(st.avatar || '');
       if (st.enrolled) loadList();
     }).catch(() => setEnrolled(false));
   }, []);
@@ -80,6 +84,50 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     setBusy(true); setError('');
     try { await fn(); loadList(); } catch (e) { setError(friendlyMsg(e)); }
     setBusy(false);
+  };
+
+  // Buddy icon intake: animated GIFs are stored as-is (re-encoding would
+  // freeze them) under a hard size cap; still images are cover-cropped to
+  // 96×96 so even a 12MP photo becomes a few KB.
+  const onAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    void run(async () => {
+      let dataUri: string;
+      if (f.type === 'image/gif') {
+        if (f.size > 512 * 1024) throw new Error('That GIF is too big — keep it under 512KB so buddy lists stay quick.');
+        dataUri = await new Promise<string>((resolve, reject) => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result));
+          fr.onerror = () => reject(fr.error ?? new Error('read failed'));
+          fr.readAsDataURL(f);
+        });
+      } else if (f.type.startsWith('image/')) {
+        const bmp = await createImageBitmap(f).catch(() => null);
+        if (!bmp) throw new Error("Couldn't read that image — try a JPG, PNG, or GIF.");
+        const SIZE = 96;
+        const canvas = document.createElement('canvas');
+        canvas.width = SIZE; canvas.height = SIZE;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) throw new Error("Couldn't read that image.");
+        const scale = Math.max(SIZE / bmp.width, SIZE / bmp.height);
+        const w = bmp.width * scale, h = bmp.height * scale;
+        ctx.drawImage(bmp, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
+        dataUri = canvas.toDataURL('image/png');
+      } else {
+        throw new Error('Pick an image or GIF.');
+      }
+      await window.api.friends.setAvatar(dataUri);
+      setMyAvatar(dataUri);
+    });
+  };
+
+  const removeAvatar = () => {
+    void run(async () => {
+      await window.api.friends.setAvatar('');
+      setMyAvatar('');
+    });
   };
 
   // Shared by auto and manual sign-on: adopt the account's real display name
@@ -235,6 +283,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           {kind === 'gig' && (
             <span className="plane-icon aim-buddy-plane" style={{ width: 16, backgroundColor: '#003a9e' }} />
           )}
+          {f.avatar && <img className="aim-buddy-avatar" src={f.avatar} alt="" />}
           <span className="aim-buddy-name">{f.name}</span>
           <button
             className="aim-x"
@@ -299,6 +348,9 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         </button>
         <button className={`aim-tab${pane === 'setup' ? ' is-active' : ''}`} onClick={() => setPane('setup')}>
           List Setup
+        </button>
+        <button className={`aim-tab${pane === 'customize' ? ' is-active' : ''}`} onClick={() => setPane('customize')}>
+          Customize
         </button>
       </div>
 
@@ -374,9 +426,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             </>
           )}
           <div className="aim-setup-section">Account</div>
-          <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
-            Signed on as <b>{myName}</b>. Friends only ever see the shows
-            you share with them — nothing else.
+          <div className="aim-fineprint" style={{ margin: '2px 2px', display: 'flex', alignItems: 'center', gap: 6 }}>
+            {myAvatar && <img className="aim-buddy-avatar" src={myAvatar} alt="" />}
+            <span>
+              Signed on as <b>{myName}</b>. Friends only ever see the shows
+              you share with them — nothing else.
+            </span>
           </div>
           <div className="aim-actions" style={{ marginTop: 8 }}>
             <button
@@ -406,6 +461,37 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             Signing out hides your shows from friends. Sign back in any time
             with your C.A.R.L. login — your buddy list will be waiting.
           </div>
+        </div>
+      )}
+
+      {pane === 'customize' && (
+        <div className="aim-list">
+          <div className="aim-setup-section">Buddy Icon</div>
+          <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
+            Your icon shows next to your name on your friends' buddy lists.
+            A GIF stays animated; photos are cropped square.
+          </div>
+          <div className="aim-avatar-row">
+            {myAvatar
+              ? <img className="aim-avatar-preview" src={myAvatar} alt="Your buddy icon" />
+              : <div className="aim-avatar-preview aim-avatar-empty">?</div>}
+            <div className="aim-actions" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/gif,image/png,image/jpeg,image/webp"
+                hidden
+                onChange={onAvatarFile}
+              />
+              <button className="aim-btn" disabled={busy} onClick={() => avatarInputRef.current?.click()}>
+                {busy ? 'Working…' : myAvatar ? 'Change Icon…' : 'Choose Icon…'}
+              </button>
+              {myAvatar && (
+                <button className="aim-btn" disabled={busy} onClick={removeAvatar}>Remove Icon</button>
+              )}
+            </div>
+          </div>
+          {error && <div className="aim-error">{error}</div>}
         </div>
       )}
 

@@ -7,7 +7,10 @@ CREATE TABLE IF NOT EXISTS users (
   created_at  TEXT NOT NULL,
   -- First CARL-credential-verified sign-on (via /v1/reissue). NULL means the
   -- account has only ever been touched through the open first-come register.
-  verified_at TEXT
+  verified_at TEXT,
+  -- Buddy icon: a small data URI (GIF/PNG/JPEG/WebP, ≤~700KB encoded). NULL
+  -- = none. Shown beside the name in friends' buddy lists.
+  avatar      TEXT
 );
 
 -- One row per request; status flips to accepted on approval. (a requests b.)

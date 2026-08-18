@@ -197,7 +197,24 @@ export default {
       if (!me) return err(401, 'Missing or invalid token.');
 
       if (route === 'GET /v1/me') {
-        return json({ email: me.email, name: me.name });
+        const row = await env.DB.prepare('SELECT avatar FROM users WHERE id = ?')
+          .bind(me.id).first<{ avatar: string | null }>();
+        return json({ email: me.email, name: me.name, avatar: row?.avatar || null });
+      }
+
+      if (route === 'PUT /v1/avatar') {
+        const body = await readBody(req);
+        const avatar = typeof body?.avatar === 'string' ? body.avatar : '';
+        // A buddy icon, AIM-style: small data URI, animated GIFs welcome.
+        if (avatar !== '' && !/^data:image\/(gif|png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(avatar)) {
+          return err(400, 'avatar must be a small image (GIF, PNG, JPEG, or WebP).');
+        }
+        if (avatar.length > 700_000) {
+          return err(413, 'That image is too big — keep it under 512KB.');
+        }
+        await env.DB.prepare('UPDATE users SET avatar = ? WHERE id = ?')
+          .bind(avatar || null, me.id).run();
+        return json({ ok: true });
       }
 
       if (route === 'PUT /v1/schedule') {
@@ -275,14 +292,14 @@ export default {
         );
 
         const rows = await env.DB.prepare(
-          `SELECT u.email, u.name, f.status, f.requester_id = ?1 AS outgoing,
+          `SELECT u.email, u.name, u.avatar, f.status, f.requester_id = ?1 AS outgoing,
                   s.gigs_json, s.updated_at
            FROM friendships f
            JOIN users u ON u.id = CASE WHEN f.requester_id = ?1 THEN f.addressee_id ELSE f.requester_id END
            LEFT JOIN schedules s ON s.user_id = u.id
            WHERE f.requester_id = ?1 OR f.addressee_id = ?1`,
         ).bind(me.id).all<{
-          email: string; name: string; status: string; outgoing: number;
+          email: string; name: string; avatar: string | null; status: string; outgoing: number;
           gigs_json: string | null; updated_at: string | null;
         }>();
         const accepted = [], incoming = [], outgoing = [];
@@ -291,6 +308,7 @@ export default {
             const theirs = r.gigs_json ? JSON.parse(r.gigs_json) as Gig[] : [];
             accepted.push({
               email: r.email, name: r.name,
+              avatar: r.avatar || null,
               // Only shared shows cross the wire.
               gigs: theirs.filter((g) => myJobs.has(g.jobNumber)),
               updatedAt: r.updated_at,

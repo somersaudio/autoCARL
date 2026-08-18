@@ -176,7 +176,11 @@ export type FriendGig = {
   jobNumber: string; jobName: string; city: string; state: string;
   start: string; end: string;
 };
-export type FriendEntry = { email: string; name: string; gigs: FriendGig[]; updatedAt: string | null };
+export type FriendEntry = {
+  email: string; name: string; gigs: FriendGig[]; updatedAt: string | null;
+  // Buddy icon (small data URI) — the AIM avatar beside the name. Null = none.
+  avatar?: string | null;
+};
 export type FriendsList = {
   accepted: FriendEntry[];
   incoming: Array<{ email: string; name: string }>;
@@ -184,6 +188,8 @@ export type FriendsList = {
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;
+  // Own buddy icon (local cache; source of truth is the server copy).
+  avatar?: string;
   // True when the user signed out ON PURPOSE — auto sign-on stays off until
   // they sign back in manually.
   signedOut?: boolean;
@@ -348,6 +354,10 @@ export type Api = {
     // user signs back in. The account survives — signing back in with the
     // same C.A.R.L. login restores the buddy list.
     signOut: () => Promise<void>;
+    // Buddy icon: a small image/GIF data URI shown beside your name in
+    // friends' lists. Empty string clears it. Returns nothing; the caller
+    // keeps its own preview.
+    setAvatar: (avatar: string) => Promise<void>;
     list: () => Promise<FriendsList>;
     request: (email: string) => Promise<void>;
     respond: (email: string, accept: boolean) => Promise<void>;

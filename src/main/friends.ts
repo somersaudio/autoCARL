@@ -18,7 +18,10 @@ export type FriendGig = {
   jobNumber: string; jobName: string; city: string; state: string;
   start: string; end: string;
 };
-export type FriendEntry = { email: string; name: string; gigs: FriendGig[]; updatedAt: string | null };
+export type FriendEntry = {
+  email: string; name: string; gigs: FriendGig[]; updatedAt: string | null;
+  avatar?: string | null;
+};
 export type FriendsList = {
   accepted: FriendEntry[];
   incoming: Array<{ email: string; name: string }>;
@@ -26,6 +29,7 @@ export type FriendsList = {
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;
+  avatar?: string;
   signedOut?: boolean;
   // Set when enrollment attached to an EXISTING account for this email
   // (second device / reinstall). Surfaced by the renderer — it's also the
@@ -59,8 +63,15 @@ export async function friendsStatus(): Promise<FriendsStatus> {
     enrolled: !!cfg.friendsToken,
     email: cfg.carlEmail,
     name: cfg.friendsName,
+    avatar: cfg.friendsAvatar || undefined,
     signedOut: !!cfg.friendsSignedOut,
   };
+}
+
+// Buddy icon: push to the friends service, keep a local copy for preview.
+export async function friendsSetAvatar(avatar: string): Promise<void> {
+  await call('/v1/avatar', { method: 'PUT', body: { avatar } }, await authed());
+  await updateConfig({ friendsAvatar: avatar });
 }
 
 // Sign out = leave: take the schedule down so friends stop seeing your

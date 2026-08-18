@@ -43,6 +43,7 @@ const K = {
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',
+  friendsAvatar: 'autocarl.web.friendsAvatar',
   expenses: 'autocarl.web.expenses',
   identity: 'autocarl.web.identity',
 } as const;
@@ -1000,6 +1001,7 @@ const api: Api = {
       enrolled: !!lsGet(K.friendsToken),
       email: lsGet(K.carlEmail),
       name: lsGet(K.friendsName),
+      avatar: lsGet(K.friendsAvatar) || undefined,
       signedOut: lsGet(K.friendsSignedOut) === '1',
     }),
     enroll: async (name): Promise<FriendsStatus> => {
@@ -1051,7 +1053,14 @@ const api: Api = {
       }
       lsRemove(K.friendsToken);
       lsRemove(K.friendsName);
+      lsRemove(K.friendsAvatar);
       lsSet(K.friendsSignedOut, '1');
+    },
+
+    setAvatar: async (avatar) => {
+      await postJson('/v1/friends/avatar', { token: friendsToken(), avatar });
+      if (avatar) lsSet(K.friendsAvatar, avatar);
+      else lsRemove(K.friendsAvatar);
     },
 
     list: async () => postJson<FriendsList>('/v1/friends/list', { token: friendsToken() }),

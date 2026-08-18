@@ -85,6 +85,8 @@ type Config = {
   identityUserId: string;
   // The user signed out of friends ON PURPOSE — blocks auto sign-on.
   friendsSignedOut: boolean;
+  // Local copy of the buddy icon (data URI) for instant preview.
+  friendsAvatar: string;
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -111,6 +113,7 @@ const DEFAULT_CONFIG: Config = {
   identityName: '',
   identityUserId: '',
   friendsSignedOut: false,
+  friendsAvatar: '',
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }

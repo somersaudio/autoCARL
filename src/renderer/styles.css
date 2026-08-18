@@ -2289,3 +2289,34 @@ a.featured-venue:hover .featured-venue-name {
   75%  { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* Buddy icons (AIM avatars) */
+.aim-buddy-avatar {
+  width: 16px;
+  height: 16px;
+  object-fit: cover;
+  border-radius: 3px;
+  flex-shrink: 0;
+  image-rendering: auto;
+}
+.aim-avatar-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 8px 2px;
+}
+.aim-avatar-preview {
+  width: 72px;
+  height: 72px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #9a9a9a;
+  background: #fff;
+}
+.aim-avatar-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 28px;
+}

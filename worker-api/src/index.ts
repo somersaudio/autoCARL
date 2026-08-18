@@ -426,6 +426,9 @@ export default {
             } : {}),
           });
         }
+        if (path === '/v1/friends/avatar') {
+          return passthrough(await call('/v1/avatar', { method: 'PUT', token, body: { avatar: b.avatar } }));
+        }
         if (path === '/v1/friends/publish') {
           return passthrough(await call('/v1/schedule', { method: 'PUT', token, body: { gigs: b.gigs } }));
         }
