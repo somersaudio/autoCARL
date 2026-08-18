@@ -17,6 +17,10 @@ import sheetPng from './assets/expense-sheet@2x.png';
 
 type Props = { bookings: Booking[] };
 
+// True in the browser build — intake and export swap Electron dialogs for
+// the file input and the share sheet (src/web/api-shim.ts implements them).
+const IS_WEB = Boolean((window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__);
+
 const CATEGORY_LABEL: Record<ExpenseCategory, string> = {
   lodging: 'Lodging',
   airfare: 'Airfare',
@@ -161,7 +165,11 @@ export default function ExpensesTab({ bookings }: Props) {
   useEffect(() => {
     const el = sheetWrapRef.current;
     if (!el) return;
-    const measure = () => setSheetScale(Math.min(1, el.clientWidth / PAGE.width));
+    const measure = () => {
+      const fit = Math.min(1, el.clientWidth / PAGE.width);
+      // Phones: never shrink below readable — the wrap scrolls sideways.
+      setSheetScale(IS_WEB ? Math.max(fit, 0.62) : fit);
+    };
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
@@ -248,6 +256,16 @@ export default function ExpensesTab({ bookings }: Props) {
 
   // ---- intake ----
 
+  // Shared tail of every intake path: adopt the new cache, grow the draft
+  // one row per new receipt, surface refusals with their reasons.
+  const applyIngestOutcome = (out: { cache: ExpensesCache; skipped: Array<{ name: string; reason: string }> }, prevIds: Set<string>) => {
+    setCache(out.cache);
+    for (const r of out.cache.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
+    if (out.skipped.length) {
+      setError(out.skipped.map((f) => `${f.name} wasn't added — ${f.reason}`).join('  •  '));
+    }
+  };
+
   const ingest = async (paths: string[]) => {
     if (!paths.length) return;
     setBusy(true);
@@ -255,11 +273,25 @@ export default function ExpensesTab({ bookings }: Props) {
     try {
       const prevIds = new Set(receipts.map((r) => r.id));
       const out = await window.api.expenses.addFiles(paths, activeBookingId || undefined);
-      setCache(out.cache);
-      for (const r of out.cache.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
-      if (out.skipped.length) {
-        setError(out.skipped.map((f) => `${f.name} wasn't added — ${f.reason}`).join('  •  '));
-      }
+      applyIngestOutcome(out, prevIds);
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Web intake: browser File objects straight from the input / drop event —
+  // the browser has no filesystem paths.
+  const ingestFileObjects = async (files: File[]) => {
+    const ingestFiles = window.api.expenses.ingestFiles;
+    if (!files.length || !ingestFiles) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const prevIds = new Set(receipts.map((r) => r.id));
+      const out = await ingestFiles(files, activeBookingId || undefined);
+      applyIngestOutcome(out, prevIds);
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
     } finally {
@@ -270,30 +302,42 @@ export default function ExpensesTab({ bookings }: Props) {
   const onDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
+    if (window.api.expenses.ingestFiles) {
+      void ingestFileObjects(Array.from(e.dataTransfer.files));
+      return;
+    }
     const paths = Array.from(e.dataTransfer.files)
       .map((f) => { try { return window.api.expenses.pathForFile(f); } catch { return ''; } })
       .filter(Boolean);
     void ingest(paths);
   };
 
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   const browse = async () => {
+    // Web: the hidden file input — on a phone it offers Take Photo /
+    // Photo Library / Choose File natively.
+    if (window.api.expenses.ingestFiles) {
+      fileInputRef.current?.click();
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const prevIds = new Set(receipts.map((r) => r.id));
       const out = await window.api.expenses.pickFiles(activeBookingId || undefined);
-      if (out) {
-        setCache(out.cache);
-        for (const r of out.cache.receipts) if (!prevIds.has(r.id)) syncDraft(null, r);
-        if (out.skipped.length) {
-          setError(out.skipped.map((f) => `${f.name} wasn't added — ${f.reason}`).join('  •  '));
-        }
-      }
+      if (out) applyIngestOutcome(out, prevIds);
     } catch (e) {
       setError(friendlyError(e, !navigator.onLine));
     } finally {
       setBusy(false);
     }
+  };
+
+  const onFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';   // same file can be re-picked later
+    void ingestFileObjects(files);
   };
 
   // ---- receipt edits ----
@@ -482,9 +526,24 @@ export default function ExpensesTab({ bookings }: Props) {
         onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
         onDragLeave={() => setDragOver(false)}
         onDrop={onDrop}
+        onClick={IS_WEB && !busy ? () => { void browse(); } : undefined}
       >
-        <div className="exp-drop-title">{busy ? 'Reading receipts…' : 'Drop receipts here'}</div>
-        <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="application/pdf,image/*"
+          multiple
+          hidden
+          onChange={onFileInput}
+        />
+        <div className="exp-drop-title">
+          {busy ? 'Reading receipts…' : IS_WEB ? 'Add receipts' : 'Drop receipts here'}
+        </div>
+        {IS_WEB ? (
+          <div className="exp-hint">Take a photo, or choose a photo or PDF</div>
+        ) : (
+          <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
+        )}
       </div>
 
       {/* ---- receipt list: the active gig's receipts only ---- */}
@@ -539,15 +598,20 @@ export default function ExpensesTab({ bookings }: Props) {
             })()}
           </div>
           <div className="exp-actions">
-            <button className="primary" onClick={mailIt} disabled={mailBusy || exportBusy}>
-              {mailBusy ? 'Opening Mail…' : 'Export to Mail'}
-            </button>
-            <button className="secondary" onClick={exportPdf} disabled={exportBusy || mailBusy}>
-              {exportBusy ? 'Exporting…' : 'Export to Folder'}
+            {!IS_WEB && (
+              <button className="primary" onClick={mailIt} disabled={mailBusy || exportBusy}>
+                {mailBusy ? 'Opening Mail…' : 'Export to Mail'}
+              </button>
+            )}
+            <button className={IS_WEB ? 'primary' : 'secondary'} onClick={exportPdf} disabled={exportBusy || mailBusy}>
+              {exportBusy ? (IS_WEB ? 'Building PDFs…' : 'Exporting…') : IS_WEB ? 'Share Report & Receipts' : 'Export to Folder'}
             </button>
             {exportedPath && (
               <span className="subtle exp-exported">
-                {exportedPath === 'mailed' ? 'Draft opened in Mail — review and send' : 'Exported — folder opened'}
+                {exportedPath === 'mailed' ? 'Draft opened in Mail — review and send'
+                  : exportedPath === 'shared' ? 'Shared — pick Mail in the sheet to send it'
+                  : exportedPath === 'downloaded' ? 'Downloaded — form and receipts'
+                  : 'Exported — folder opened'}
               </span>
             )}
             {/* Destructive, so it sits apart from the exports — pushed to
@@ -705,7 +769,7 @@ function FormSheet({ draft, startIndex, isFirst, isLast, scale, onPatchDraft, on
   ];
 
   return (
-    <div className="sheet-outer" style={{ height: PAGE.height * scale + 14 }}>
+    <div className="sheet-outer" style={{ height: PAGE.height * scale + 14, width: PAGE.width * scale }}>
     <div className="sheet" style={{ backgroundImage: `url(${sheetPng})`, transform: `scale(${scale})` }}>
       {hdr('date', 182, draft.date, (v) => onPatchDraft({ date: v }))}
       {hdr('name', 182, draft.name, (v) => onPatchDraft({ name: v }))}

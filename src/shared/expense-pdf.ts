@@ -1,5 +1,5 @@
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from '@cantoo/pdf-lib';
-import type { ExpenseReport, ExpenseRow } from '../shared/types';
+import type { ExpenseReport, ExpenseRow } from './types';
 
 // Fills the CT Expense Reimbursement Form. The template
 // (resources/expense-template.pdf, exported once from the official Numbers
@@ -11,7 +11,7 @@ import type { ExpenseReport, ExpenseRow } from '../shared/types';
 import {
   COL, COMMENTS_BOX as COMMENTS, FILL_PEACH, FILL_PINK, FINAL_Y, GRAND_Y, HDR,
   NOTES_BOX as NOTES, PAD_DOLLAR, PAD_RIGHT, ROW_Y, TOTALS_Y, type Col,
-} from '../shared/expense-form-layout';
+} from './expense-form-layout';
 
 const PEACH = rgb(FILL_PEACH[0] / 255, FILL_PEACH[1] / 255, FILL_PEACH[2] / 255);
 const PINK = rgb(FILL_PINK[0] / 255, FILL_PINK[1] / 255, FILL_PINK[2] / 255);

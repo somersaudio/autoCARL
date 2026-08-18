@@ -17,8 +17,8 @@ import logoCT from './assets/logoCT.png';
 type Tab = 'bookings' | 'timesheet' | 'expenses' | 'friends';
 
 // True when running as the web build (src/web/api-shim.ts sets the flag).
-// Expense reports need the local filesystem + OS integrations, so the tab
-// only exists on desktop.
+// The tabs are the same on both surfaces; a few labels tighten up for
+// phone-width tab rows.
 const IS_WEB = Boolean((window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__);
 
 function mondayOfDate(d: Date): string {
@@ -201,12 +201,10 @@ export default function App() {
             className={`tab ${tab === 'timesheet' ? 'is-active' : ''}`}
             onClick={() => setTab('timesheet')}
           >Timesheet</button>
-          {!IS_WEB && (
-            <button
-              className={`tab ${tab === 'expenses' ? 'is-active' : ''}`}
-              onClick={() => setTab('expenses')}
-            >Expense Reports</button>
-          )}
+          <button
+            className={`tab ${tab === 'expenses' ? 'is-active' : ''}`}
+            onClick={() => setTab('expenses')}
+          >{IS_WEB ? 'Expenses' : 'Expense Reports'}</button>
           <button
             className={`tab ${tab === 'friends' ? 'is-active' : ''}`}
             onClick={() => setTab('friends')}
@@ -236,7 +234,7 @@ export default function App() {
         />
       )}
 
-      {tab === 'expenses' && !IS_WEB && (
+      {tab === 'expenses' && (
         <ExpensesTab bookings={bookings} />
       )}
 

@@ -1,4 +1,4 @@
-import type { ExpenseCategory } from '../shared/types';
+import type { ExpenseCategory } from './types';
 
 // Heuristic extraction of merchant / date / amount / category from raw
 // receipt text (Vision OCR for photos, pdfjs text for PDF receipts). Pure

@@ -6,9 +6,13 @@ import { basename, extname, join } from 'node:path';
 import { promisify } from 'node:util';
 import type { Booking, ExpenseReceipt, ExpenseReport, ExpenseRow, ExpensesCache, IngestOutcome } from '../shared/types';
 import { extractLayoutText } from './flight-parser';
-import { parseReceiptText } from './receipt-parse';
-import { PDFDocument } from '@cantoo/pdf-lib';
-import { fillExpensePdf } from './expense-pdf';
+import { parseReceiptText } from '../shared/receipt-parse';
+import { fillExpensePdf } from '../shared/expense-pdf';
+import {
+  BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, applyReceiptPatch,
+  assembleDraftReport, formFileName, imageBytesToPdf, matchBooking,
+  multiPageSkipReason, orderedReceipts, receiptFileName, sanitizeReport,
+} from '../shared/expense-logic';
 import { readCachedBookings, readContactsCache, readSswWeeksCache } from './store';
 
 const execFileP = promisify(execFile);
@@ -64,25 +68,6 @@ async function ocrImage(path: string): Promise<string> {
   }
 }
 
-// Date-based gig match: the receipt's date falls inside a booking's range
-// (±1 day for red-eyes and late checkouts). Overlapping bookings → the
-// shortest range wins; no date or no hit → unassigned.
-function matchBooking(date: string, bookings: Booking[]): string {
-  if (!date) return '';
-  const t = new Date(`${date}T12:00:00`).getTime();
-  const DAY = 86400_000;
-  let best: Booking | null = null;
-  let bestSpan = Infinity;
-  for (const b of bookings) {
-    const start = new Date(`${b.startDate}T00:00:00`).getTime() - DAY;
-    const end = new Date(`${b.endDate}T23:59:59`).getTime() + DAY;
-    if (t < start || t > end) continue;
-    const span = end - start;
-    if (span < bestSpan) { best = b; bestSpan = span; }
-  }
-  return best?.bookingId || '';
-}
-
 // macOS shows the "control Mail" consent prompt exactly ONCE per app — a
 // Don't Allow can never be re-asked from code. Closest thing to a second
 // chance: a dialog whose button lands the user directly on the Automation
@@ -123,12 +108,8 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
       const { PDFDocument: PDFDoc } = await import('@cantoo/pdf-lib');
       pages = (await PDFDoc.load(bytes, { ignoreEncryption: true })).getPageCount();
     } catch { /* unreadable structure — let text extraction have a try */ }
-    // A single receipt legitimately runs a page or three (Uber's PDFs add a
-    // trip-details page). Bigger stacks read as many receipts in one file.
-    if (pages > 3) {
-      throw new SkipFile(
-        `has ${pages} pages — that looks like several receipts combined into one file. Add each receipt as its own photo or PDF so every line gets the right amount.`,
-      );
+    if (pages > MAX_RECEIPT_PDF_PAGES) {
+      throw new SkipFile(multiPageSkipReason(pages));
     }
     kind = 'pdf';
     file = join(receiptsDir(), `${id}.pdf`);
@@ -145,7 +126,7 @@ async function ingestOne(srcPath: string, bookings: Booking[], assignTo?: string
     await execFileP('/usr/bin/sips', ['-s', 'format', 'jpeg', srcPath, '--out', file], { timeout: 30_000 });
     text = await ocrImage(file);
   } else {
-    throw new SkipFile(`isn't a format the app can read — use a photo (JPG, PNG, HEIC) or a PDF.`);
+    throw new SkipFile(BAD_FORMAT_SKIP_REASON);
   }
 
   const parsed = parseReceiptText(text, basename(srcPath));
@@ -201,21 +182,11 @@ export async function pickReceiptFiles(assignTo?: string): Promise<IngestOutcome
   return addReceiptFiles(res.filePaths, assignTo);
 }
 
-const CATEGORIES = new Set(['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc']);
-
 export async function updateReceipt(id: string, patch: Partial<ExpenseReceipt>): Promise<ExpensesCache> {
   const cache = await readExpensesCache();
   const r = cache.receipts.find((x) => x.id === id);
   if (!r) return cache;
-  // Field-by-field, renderer input is untrusted.
-  if (typeof patch.merchant === 'string') r.merchant = patch.merchant.slice(0, 80);
-  if (typeof patch.description === 'string') r.description = patch.description.slice(0, 120);
-  if (typeof patch.date === 'string' && /^(\d{4}-\d{2}-\d{2})?$/.test(patch.date)) r.date = patch.date;
-  if (typeof patch.amount === 'number' && isFinite(patch.amount) && patch.amount >= 0) {
-    r.amount = Math.round(patch.amount * 100) / 100;
-  }
-  if (typeof patch.category === 'string' && CATEGORIES.has(patch.category)) r.category = patch.category;
-  if (typeof patch.bookingId === 'string') r.bookingId = patch.bookingId;
+  applyReceiptPatch(r, patch);   // field-by-field — renderer input is untrusted
   await writeExpensesCache(cache);
   return cache;
 }
@@ -239,122 +210,17 @@ export async function openReceipt(id: string): Promise<void> {
 
 // ---- report drafts ----
 
-function emptyRow(jobNumber: string, description: string): ExpenseRow {
-  return {
-    jobNumber, description,
-    lodging: 0, airfare: 0, parking: 0, carRental: 0,
-    miles: 0, rideshare: 0, misc: 0,
-    receiptIds: [],
-  };
-}
-
-function todayMDY(): string {
-  const d = new Date();
-  return `${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}/${d.getFullYear()}`;
-}
-
-const uniq = (xs: string[]) => [...new Set(xs.filter(Boolean))];
-
 /**
- * Prefill a report the way the user would by hand: one row per gig, receipts
- * summed into their category columns, miles pulled off the cached timesheets
- * (SswDay.miles on days booked to that job number), identity/PM/LC/state from
- * what the app already knows. Everything stays editable in the renderer.
+ * Prefill a report from what the app already knows. The assembly itself is
+ * shared with the web build (shared/expense-logic.ts) so drafts come out
+ * identical on both surfaces; this wrapper just feeds it the local caches.
  */
 export async function buildDraftReport(bookingIds: string[]): Promise<ExpenseReport> {
   const [{ bookings }, cache, weeks] = await Promise.all([
     readCachedBookings(), readExpensesCache(), readSswWeeksCache(),
   ]);
   await readContactsCache().catch(() => ({}));   // reserved: venue-based fields later
-
-  const chosen = bookingIds
-    .map((id) => bookings.find((b) => b.bookingId === id))
-    .filter((b): b is Booking => Boolean(b));
-
-  // Identity from the newest cached timesheet.
-  const latestWeek = Object.values(weeks).sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))[0];
-
-  // One form line per receipt — reports are itemized, never aggregated.
-  // Receipts order matches the receipts list: the form's own column order
-  // (Lodging, Airfare, Parking, Car Rental, Uber/Lyft/Taxi, Misc.), then
-  // amount low to high.
-  const CAT_ORDER = ['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc'];
-  const rows: ExpenseRow[] = [];
-  const milesCounted = new Set<string>();   // one bookingId's jobNumber = count once
-  for (const b of chosen) {
-    const gigReceipts = cache.receipts
-      .filter((r) => r.bookingId === b.bookingId && r.amount > 0)
-      .sort((x, y) => CAT_ORDER.indexOf(x.category) - CAT_ORDER.indexOf(y.category) || x.amount - y.amount);
-    for (const r of gigReceipts) {
-      const row = emptyRow(b.jobNumber, r.description || '');
-      row[r.category] = r.amount;
-      row.receiptIds.push(r.id);
-      rows.push(row);
-    }
-    // Timesheet miles get their own line — there's no receipt for driving.
-    if (!milesCounted.has(b.jobNumber)) {
-      milesCounted.add(b.jobNumber);
-      let miles = 0;
-      for (const week of Object.values(weeks)) {
-        for (const day of week.days) {
-          if (day.job === b.jobNumber && day.miles) miles += day.miles;
-        }
-      }
-      if (miles > 0) {
-        const row = emptyRow(b.jobNumber, '');
-        row.miles = miles;
-        rows.push(row);
-      }
-    }
-  }
-
-  return {
-    id: randomUUID(),
-    createdAt: new Date().toISOString(),
-    bookingId: chosen[0]?.bookingId ?? '',
-    date: todayMDY(),
-    name: latestWeek?.name || '',
-    // SSW's employeeId field actually stores the user's EMAIL; the numeric
-    // CT id — what the form wants — is userId (the header's "ID 10634").
-    employeeId: latestWeek?.userId || '',
-    projectManager: uniq(chosen.map((b) => b.projectManager)).join(' / '),
-    laborCoordinator: uniq(chosen.map((b) => b.laborCoordinator)).join(' / '),
-    stateWorkedIn: uniq(chosen.map((b) => b.state)).join(', '),
-    countryWorkedIn: 'USA',
-    mileageRate: 0.70,
-    comments: '',
-    notes: '',
-    rows,
-  };
-}
-
-function sanitizeReport(report: ExpenseReport): ExpenseReport {
-  const num = (v: unknown) => (typeof v === 'number' && isFinite(v) && v >= 0 ? Math.round(v * 100) / 100 : 0);
-  const str = (v: unknown, max: number) => (typeof v === 'string' ? v.slice(0, max) : '');
-  return {
-    id: str(report.id, 40) || randomUUID(),
-    createdAt: str(report.createdAt, 40) || new Date().toISOString(),
-    bookingId: str(report.bookingId, 64),
-    date: str(report.date, 20),
-    name: str(report.name, 60),
-    employeeId: str(report.employeeId, 30),
-    projectManager: str(report.projectManager, 80),
-    laborCoordinator: str(report.laborCoordinator, 80),
-    stateWorkedIn: str(report.stateWorkedIn, 60),
-    countryWorkedIn: str(report.countryWorkedIn, 60),
-    mileageRate: typeof report.mileageRate === 'number' && isFinite(report.mileageRate) && report.mileageRate >= 0
-      ? Math.min(report.mileageRate, 10) : 0.70,
-    comments: str(report.comments, 600),
-    notes: str(report.notes, 1200),
-    rows: (Array.isArray(report.rows) ? report.rows : []).slice(0, 60).map((r) => ({
-      jobNumber: str(r.jobNumber, 20),
-      description: str(r.description, 120),
-      lodging: num(r.lodging), airfare: num(r.airfare), parking: num(r.parking),
-      carRental: num(r.carRental), rideshare: num(r.rideshare), misc: num(r.misc),
-      miles: typeof r.miles === 'number' && isFinite(r.miles) && r.miles >= 0 ? Math.round(r.miles) : 0,
-      receiptIds: (Array.isArray(r.receiptIds) ? r.receiptIds : []).filter((x) => typeof x === 'string').slice(0, 100),
-    })),
-  };
+  return assembleDraftReport(bookingIds, bookings, cache.receipts, weeks);
 }
 
 export async function saveReport(report: ExpenseReport): Promise<ExpensesCache> {
@@ -400,29 +266,10 @@ export async function removeReport(id: string): Promise<ExpensesCache> {
 // ---- export ----
 
 // Wrap a receipt image in a single-page letter PDF, fitted within margins.
+// The PDF math is shared with the web build (shared/expense-logic.ts).
 async function imageToPdf(imagePath: string, outPath: string): Promise<void> {
   const bytes = new Uint8Array(await fs.readFile(imagePath));
-  const doc = await PDFDocument.create();
-  const img = imagePath.toLowerCase().endsWith('.png')
-    ? await doc.embedPng(bytes)
-    : await doc.embedJpg(bytes);
-  const page = doc.addPage([612, 792]);
-  const maxW = 612 - 72;
-  const maxH = 792 - 72;
-  const scale = Math.min(maxW / img.width, maxH / img.height, 1);
-  const w = img.width * scale;
-  const h = img.height * scale;
-  page.drawImage(img, { x: (612 - w) / 2, y: (792 - h) / 2, width: w, height: h });
-  await fs.writeFile(outPath, await doc.save());
-}
-
-const FILE_LABEL: Record<string, string> = {
-  lodging: 'Lodging', airfare: 'Airfare', parking: 'Parking',
-  carRental: 'Car Rental', rideshare: 'Uber-Lyft-Taxi', misc: 'Misc',
-};
-
-function safeName(s: string): string {
-  return s.replace(/[\/\\:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
+  await fs.writeFile(outPath, await imageBytesToPdf(bytes, imagePath.toLowerCase().endsWith('.png')));
 }
 
 /**
@@ -434,26 +281,16 @@ function safeName(s: string): string {
 async function writeReportBundle(clean: ExpenseReport, dir: string): Promise<string[]> {
   const template = new Uint8Array(await fs.readFile(resourcePath('expense-template.pdf')));
   const formBytes = await fillExpensePdf(template, clean);
-  const formPath = join(dir, `CT Expense Report ${safeName(clean.date.replace(/\//g, '-')) || 'draft'}.pdf`);
+  const formPath = join(dir, formFileName(clean));
   await fs.writeFile(formPath, formBytes);
   const files = [formPath];
 
   const cache = await readExpensesCache();
-  const ordered: ExpenseReceipt[] = [];
-  for (const row of clean.rows) {
-    for (const id of row.receiptIds) {
-      const r = cache.receipts.find((x) => x.id === id);
-      if (r) ordered.push(r);
-    }
-  }
+  const ordered = orderedReceipts(clean, cache.receipts);
   let n = 0;
   for (const r of ordered) {
     n += 1;
-    const desc = (r.description || r.merchant || '').trim();
-    const name = safeName(
-      `Receipt ${String(n).padStart(2, '0')} - ${FILE_LABEL[r.category] || 'Receipt'} $${r.amount.toFixed(2)}`
-      + (desc ? ` - ${desc.slice(0, 40)}` : ''),
-    ) + '.pdf';
+    const name = receiptFileName(n, r);
     try {
       if (r.kind === 'pdf') await fs.copyFile(r.file, join(dir, name));
       else await imageToPdf(r.file, join(dir, name));

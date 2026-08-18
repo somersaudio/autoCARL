@@ -18,6 +18,9 @@ import * as ssw from './ssw';
 
 export interface Env {
   SESS: KVNamespace;
+  // Workers AI — vision-model OCR for the web app's receipt photos (the
+  // desktop uses Apple Vision locally; this is the browser's stand-in).
+  AI: { run(model: string, input: Record<string, unknown>): Promise<unknown> };
   // Service binding to the autocarl-friends worker — a direct workers.dev
   // fetch between two workers on the same account is blocked (CF error 1042).
   FRIENDS: { fetch: typeof fetch };
@@ -262,6 +265,47 @@ export default {
             timesheetEmail: str(cfg.timesheetEmail),
           }));
         return json(req, result);
+      }
+
+      // ---- receipt OCR (web expenses; desktop runs Apple Vision locally) ----
+      // Input: { image: <base64 JPEG/PNG, no data: prefix>, mime? }.
+      // Output: { text } — a plain transcription, so the SAME parsing
+      // heuristics run on it as on the desktop's OCR output.
+      if (path === '/v1/receipt-ocr') {
+        // Anonymous like /v1/logo, but AI inference is costlier — damp abuse
+        // with a per-IP hourly cap (approximate; KV isn't atomic, close enough).
+        const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+        const rlKey = `ocr-rl:${ip}`;
+        const used = parseInt((await env.SESS.get(rlKey)) || '0', 10);
+        if (used >= 60) return json(req, { error: 'Too many receipts this hour — try again later.' }, 429);
+        await env.SESS.put(rlKey, String(used + 1), { expirationTtl: 3600 });
+
+        const b = await readBody(req);
+        const image = str(b.image);
+        const mime = str(b.mime) || 'image/jpeg';
+        if (!image || image.length > 4_000_000 || !/^image\/(jpeg|png)$/.test(mime)) {
+          return json(req, { error: 'bad image' }, 400);
+        }
+        const result = await env.AI.run('@cf/mistralai/mistral-small-3.1-24b-instruct', {
+          messages: [{
+            role: 'user',
+            content: [
+              {
+                type: 'text',
+                text: 'Transcribe ALL text visible in this receipt image, line by line, top to bottom, exactly as printed. Keep amounts, labels, and their line positions. Output ONLY the transcribed text — no commentary, no formatting, no markdown.',
+              },
+              { type: 'image_url', image_url: { url: `data:${mime};base64,${image}` } },
+            ],
+          }],
+          // Long itemized receipts (grocery, pharmacy) can run hundreds of
+          // lines and the Total prints at the BOTTOM — a low cap would cut
+          // exactly the line the parser needs.
+          max_tokens: 4000,
+        });
+        const text = typeof result === 'object' && result !== null && 'response' in result
+          ? String((result as { response: unknown }).response ?? '')
+          : '';
+        return json(req, { text });
       }
 
       // ---- logo + GSA ----

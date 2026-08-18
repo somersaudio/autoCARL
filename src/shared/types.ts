@@ -351,6 +351,10 @@ export type Api = {
     addFiles: (paths: string[], assignTo?: string) => Promise<IngestOutcome>;
     // Same pipeline behind a native open dialog. Null = user cancelled.
     pickFiles: (assignTo?: string) => Promise<IngestOutcome | null>;
+    // Web only: ingest browser File objects (file input / drag-drop) — the
+    // browser has no filesystem paths. Desktop leaves this undefined and the
+    // renderer falls back to the path-based flow above.
+    ingestFiles?: (files: File[], assignTo?: string) => Promise<IngestOutcome>;
     updateReceipt: (id: string, patch: Partial<ExpenseReceipt>) => Promise<ExpensesCache>;
     removeReceipt: (id: string) => Promise<ExpensesCache>;
     // Opens the stored receipt copy in the OS default viewer.

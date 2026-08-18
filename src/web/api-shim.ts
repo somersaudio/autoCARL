@@ -8,11 +8,20 @@
 // window.api and window.__AUTOCARL_WEB__.
 
 import type {
-  Api, Booking, BookingContacts, BookingContactsCache, FlightsCache,
-  FriendsList, FriendsStatus, RefreshResult, SetupStatus, SswPushResult,
+  Api, Booking, BookingContacts, BookingContactsCache, ExpenseReceipt,
+  ExpenseReport, ExpensesCache, FlightsCache, FriendsList, FriendsStatus,
+  IngestOutcome, RefreshResult, SetupStatus, SswPushResult,
   SswWeek, UserSettings,
 } from '../shared/types';
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
+import { parseReceiptText } from '../shared/receipt-parse';
+import {
+  BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, applyReceiptPatch,
+  assembleDraftReport, formFileName, imageBytesToPdf, matchBooking,
+  multiPageSkipReason, orderedReceipts, receiptFileName, sanitizeReport,
+} from '../shared/expense-logic';
+import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
+import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
   ((window as unknown as { __AUTOCARL_API__?: string }).__AUTOCARL_API__)
@@ -33,6 +42,7 @@ const K = {
   logos: 'autocarl.web.logos',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
+  expenses: 'autocarl.web.expenses',
 } as const;
 
 function lsGet(key: string): string {
@@ -490,7 +500,274 @@ function cacheWeek(week: SswWeek): void {
 
 // ---- the Api --------------------------------------------------------------
 
-const DESKTOP_ONLY_EXPENSES = 'Expense reports are desktop-only for now';
+// ---- expenses (browser implementation) ------------------------------------
+//
+// Mirrors src/main/expenses.ts with browser storage: receipt bytes live in
+// IndexedDB (photos are megabytes — localStorage can't hold them), metadata
+// and reports in localStorage under K.expenses. All the behavior-defining
+// logic (parsing, assignment, sanitizing, draft assembly, PDF filling,
+// bundle naming) is imported from shared modules, so both surfaces stay
+// byte-identical where it matters. OCR is the one swap: the desktop runs
+// Apple Vision locally; the browser posts the (downscaled) photo to the
+// worker's /v1/receipt-ocr, which transcribes it with a vision model — the
+// SAME parsing heuristics run on either transcript.
+
+class SkipFile extends Error {}
+
+const IDB_NAME = 'autocarl-expenses';
+let idbPromise: Promise<IDBDatabase> | null = null;
+function idb(): Promise<IDBDatabase> {
+  if (!idbPromise) {
+    idbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(IDB_NAME, 1);
+      req.onupgradeneeded = () => { req.result.createObjectStore('files'); };
+      req.onsuccess = () => {
+        // iOS Safari force-closes IndexedDB connections of backgrounded
+        // tabs; dropping the memo means the next call reopens cleanly
+        // instead of failing on a dead connection until a hard reload.
+        req.result.onclose = () => { idbPromise = null; };
+        resolve(req.result);
+      };
+      req.onerror = () => {
+        idbPromise = null;   // transient open failures must not stick
+        reject(req.error ?? new Error('IndexedDB unavailable'));
+      };
+    });
+  }
+  return idbPromise;
+}
+async function idbPut(id: string, blob: Blob): Promise<void> {
+  const db = await idb();
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction('files', 'readwrite');
+    tx.objectStore('files').put(blob, id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error ?? new Error('IndexedDB write failed'));
+    tx.onabort = () => reject(tx.error ?? new Error('IndexedDB write aborted — storage may be full'));
+  });
+}
+async function idbGet(id: string): Promise<Blob | null> {
+  const db = await idb();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction('files', 'readonly').objectStore('files').get(id);
+    req.onsuccess = () => resolve(req.result instanceof Blob ? req.result : null);
+    req.onerror = () => reject(req.error ?? new Error('IndexedDB read failed'));
+  });
+}
+async function idbDelete(id: string): Promise<void> {
+  const db = await idb();
+  await new Promise<void>((resolve) => {
+    const tx = db.transaction('files', 'readwrite');
+    tx.objectStore('files').delete(id);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => resolve();   // best-effort, like fs.rm({force:true})
+    tx.onabort = () => resolve();
+  });
+}
+const receiptKey = (r: ExpenseReceipt): string => (r.file.startsWith('idb:') ? r.file.slice(4) : r.id);
+
+function readExpensesLS(): ExpensesCache {
+  const parsed = readJson<Partial<ExpensesCache>>(K.expenses, {});
+  return { receipts: parsed.receipts || [], reports: parsed.reports || [] };
+}
+function writeExpensesLS(cache: ExpensesCache): void {
+  // NOT lsSet: that swallows quota errors, fine for re-fetchable caches but
+  // not for receipts the user may have thrown the paper away for. Desktop's
+  // fs.writeFile surfaces failures the same way.
+  try {
+    localStorage.setItem(K.expenses, JSON.stringify(cache));
+  } catch {
+    throw new Error("This browser's storage is full — the change couldn't be saved. Share or export the current report, then remove old receipts.");
+  }
+}
+// One report PER GIG: saving upserts by bookingId (and by id) — the same
+// rule as the desktop store.
+function saveReportLS(clean: ExpenseReport): ExpensesCache {
+  const cache = readExpensesLS();
+  cache.reports = [
+    ...cache.reports.filter((r) => r.id !== clean.id && !(clean.bookingId && r.bookingId === clean.bookingId)),
+    clean,
+  ];
+  writeExpensesLS(cache);
+  return cache;
+}
+
+// Decode + downscale a photo to a JPEG the OCR model and IndexedDB both
+// like: phone camera output runs 3-8MB; 2000px @ 0.85 keeps every glyph
+// legible at a fraction of the bytes.
+async function normalizeImage(f: File): Promise<Blob> {
+  let width = 0;
+  let height = 0;
+  let source: CanvasImageSource | null = await createImageBitmap(f).then(
+    (bmp) => { width = bmp.width; height = bmp.height; return bmp; },
+    () => null,
+  );
+  if (!source) {
+    source = await new Promise<HTMLImageElement | null>((resolve) => {
+      const url = URL.createObjectURL(f);
+      const img = new Image();
+      img.onload = () => { width = img.naturalWidth; height = img.naturalHeight; URL.revokeObjectURL(url); resolve(img); };
+      img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      img.src = url;
+    });
+  }
+  if (!source || !width || !height) throw new SkipFile(BAD_FORMAT_SKIP_REASON);
+  const MAX = 2000;
+  const scale = Math.min(1, MAX / Math.max(width, height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * scale));
+  canvas.height = Math.max(1, Math.round(height * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new SkipFile(BAD_FORMAT_SKIP_REASON);
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+  const blob = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.85));
+  if (!blob) throw new SkipFile(BAD_FORMAT_SKIP_REASON);
+  return blob;
+}
+
+async function blobToBase64(blob: Blob): Promise<string> {
+  const dataUrl = await new Promise<string>((resolve, reject) => {
+    const fr = new FileReader();
+    fr.onload = () => resolve(String(fr.result));
+    fr.onerror = () => reject(fr.error ?? new Error('read failed'));
+    fr.readAsDataURL(blob);
+  });
+  return dataUrl.slice(dataUrl.indexOf(',') + 1);
+}
+
+async function ocrImageBlob(blob: Blob): Promise<string> {
+  try {
+    const r = await postJson<{ text?: string }>('/v1/receipt-ocr', {
+      image: await blobToBase64(blob),
+      mime: 'image/jpeg',
+    });
+    return r.text || '';
+  } catch (e) {
+    console.warn('[autocarl] OCR failed:', errMsg(e));
+    return '';   // OCR failure degrades to an empty-text parse, like desktop
+  }
+}
+
+async function pdfTextFromBytes(bytes: Uint8Array): Promise<string> {
+  const pdfjs = await import('pdfjs-dist');
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+    pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  }
+  // pdfjs transfers the buffer to its worker (detaching it) — hand it a copy.
+  const doc = await pdfjs.getDocument({
+    data: bytes.slice(),
+    disableFontFace: true,
+    isEvalSupported: false,
+  }).promise;
+  try {
+    return await extractLayoutFromPdfDoc(doc);
+  } finally {
+    void doc.destroy().catch(() => {});
+  }
+}
+
+const RECEIPT_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp', '.tif', '.tiff', '.bmp'];
+
+async function ingestOneWeb(f: File, bookings: Booking[], assignTo?: string): Promise<ExpenseReceipt> {
+  const name = f.name || 'receipt';
+  const ext = (name.match(/\.[a-z0-9]+$/i)?.[0] || '').toLowerCase();
+  const isPdf = ext === '.pdf' || f.type === 'application/pdf';
+  const isImage = !isPdf && (f.type.startsWith('image/') || RECEIPT_IMAGE_EXTS.includes(ext));
+  const id = crypto.randomUUID();
+
+  let kind: 'image' | 'pdf';
+  let stored: Blob;
+  let text: string;
+  if (isPdf) {
+    const bytes = new Uint8Array(await f.arrayBuffer());
+    let pages = 1;
+    try {
+      const { PDFDocument } = await import('@cantoo/pdf-lib');
+      pages = (await PDFDocument.load(bytes, { ignoreEncryption: true })).getPageCount();
+    } catch { /* unreadable structure — let text extraction have a try */ }
+    if (pages > MAX_RECEIPT_PDF_PAGES) throw new SkipFile(multiPageSkipReason(pages));
+    kind = 'pdf';
+    stored = new Blob([bytes], { type: 'application/pdf' });
+    text = await pdfTextFromBytes(bytes).catch(() => '');
+  } else if (isImage) {
+    kind = 'image';
+    try {
+      stored = await normalizeImage(f);
+    } catch (e) {
+      // iPhones hand Safari a JPEG, but Chrome/Android can receive a raw
+      // HEIC it cannot decode — tell the truth instead of claiming HEIC
+      // works and then refusing it.
+      if (e instanceof SkipFile && (ext === '.heic' || ext === '.heif')) {
+        throw new SkipFile("is a HEIC photo this browser can't read — set your camera to Most Compatible, or add it as a JPG, PNG, or PDF.");
+      }
+      throw e;
+    }
+    text = await ocrImageBlob(stored);
+  } else {
+    throw new SkipFile(BAD_FORMAT_SKIP_REASON);
+  }
+  await idbPut(id, stored);
+
+  const parsed = parseReceiptText(text, name);
+  // The gig the user has selected in the UI wins outright — dropping a
+  // receipt while a gig is chosen IS the assignment.
+  const pinned = assignTo && bookings.some((b) => b.bookingId === assignTo) ? assignTo : '';
+  return {
+    id,
+    addedAt: new Date().toISOString(),
+    file: `idb:${id}`,
+    originalName: name,
+    kind,
+    merchant: parsed.merchant,
+    date: parsed.date,
+    amount: parsed.amount,
+    description: '',
+    category: parsed.category,
+    bookingId: pinned || matchBooking(parsed.date, bookings),
+    // Parsing already used the full text; store a bounded copy so receipts
+    // can't balloon the metadata key past the browser's storage quota.
+    ocrText: text.slice(0, 8000),
+  };
+}
+
+function downloadFile(file: File): void {
+  const url = URL.createObjectURL(file);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+// The export bundle as File objects: the filled form first, then each
+// receipt as its own PDF, named and ordered exactly like the desktop's
+// folder export.
+async function buildBundleFiles(clean: ExpenseReport): Promise<File[]> {
+  const cache = readExpensesLS();
+  const { fillExpensePdf } = await import('../shared/expense-pdf');
+  const template = new Uint8Array(await (await fetch(expenseTemplateUrl)).arrayBuffer());
+  const formBytes = await fillExpensePdf(template, clean);
+  const files: File[] = [new File([formBytes as BlobPart], formFileName(clean), { type: 'application/pdf' })];
+  let n = 0;
+  for (const r of orderedReceipts(clean, cache.receipts)) {
+    n += 1;
+    try {
+      const blob = await idbGet(receiptKey(r));
+      if (!blob) continue;
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const pdfBytes = r.kind === 'pdf' ? bytes : await imageBytesToPdf(bytes, blob.type.includes('png'));
+      files.push(new File([pdfBytes as BlobPart], receiptFileName(n, r), { type: 'application/pdf' }));
+    } catch (e) {
+      // A missing stored copy shouldn't sink the export — the form and the
+      // other receipts still land.
+      console.warn('[autocarl] receipt export failed:', errMsg(e));
+    }
+  }
+  return files;
+}
 
 const api: Api = {
   setup: {
@@ -713,18 +990,138 @@ const api: Api = {
   },
 
   expenses: {
-    getCached: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    addFiles: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    pickFiles: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    updateReceipt: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    removeReceipt: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    openReceipt: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    buildDraft: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    saveReport: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    removeReport: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    resetGig: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    exportReport: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
-    mailReport: async () => { throw new Error(DESKTOP_ONLY_EXPENSES); },
+    getCached: async () => readExpensesLS(),
+
+    // Path-based intake can't exist in a browser — the renderer feeds File
+    // objects to ingestFiles instead (file input / drag-drop).
+    addFiles: async () => { throw new Error('Use the Add receipts button to pick photos or files.'); },
+    pickFiles: async () => null,
+
+    ingestFiles: async (files, assignTo): Promise<IngestOutcome> => {
+      // Receipts are the only copy once the paper's gone — ask the browser
+      // not to evict our storage. Best-effort; browsers may silently deny.
+      try { void navigator.storage?.persist?.(); } catch { /* older engines */ }
+      const { bookings } = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
+      const cache = readExpensesLS();
+      const skipped: Array<{ name: string; reason: string }> = [];
+      const newIds: string[] = [];
+      for (const f of files) {
+        try {
+          const r = await ingestOneWeb(f, bookings, assignTo);
+          cache.receipts.push(r);
+          newIds.push(r.id);
+        } catch (e) {
+          skipped.push({
+            name: f.name || 'file',
+            reason: e instanceof SkipFile ? e.message : `couldn't be read (${errMsg(e)}).`,
+          });
+        }
+      }
+      try {
+        writeExpensesLS(cache);
+      } catch (e) {
+        // Metadata didn't persist — don't leave orphaned image blobs behind.
+        for (const id of newIds) await idbDelete(id).catch(() => {});
+        throw e;
+      }
+      return { cache, skipped };
+    },
+
+    updateReceipt: async (id, patch) => {
+      const cache = readExpensesLS();
+      const r = cache.receipts.find((x) => x.id === id);
+      if (r) applyReceiptPatch(r, patch);   // field-by-field — UI input is untrusted
+      writeExpensesLS(cache);
+      return cache;
+    },
+
+    removeReceipt: async (id) => {
+      const cache = readExpensesLS();
+      const r = cache.receipts.find((x) => x.id === id);
+      if (r) await idbDelete(receiptKey(r));
+      cache.receipts = cache.receipts.filter((x) => x.id !== id);
+      writeExpensesLS(cache);
+      return cache;
+    },
+
+    openReceipt: async (id) => {
+      const cache = readExpensesLS();
+      const r = cache.receipts.find((x) => x.id === id);
+      if (!r) return;
+      const blob = await idbGet(receiptKey(r));
+      if (!blob) throw new Error('The stored copy of this receipt is missing.');
+      const url = URL.createObjectURL(blob);
+      const win = window.open(url, '_blank');
+      if (!win) {
+        URL.revokeObjectURL(url);
+        throw new Error('The browser blocked the receipt window — allow pop-ups for this site and try again.');
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 300_000);
+    },
+
+    buildDraft: async (bookingIds) => {
+      const { bookings } = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
+      const weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
+      return assembleDraftReport(bookingIds, bookings, readExpensesLS().receipts, weeks);
+    },
+
+    saveReport: async (report) => saveReportLS(sanitizeReport(report)),
+
+    removeReport: async (id) => {
+      const cache = readExpensesLS();
+      cache.reports = cache.reports.filter((r) => r.id !== id);
+      writeExpensesLS(cache);
+      return cache;
+    },
+
+    resetGig: async (bookingId, reportId) => {
+      const cache = readExpensesLS();
+      if (!bookingId && !reportId) return cache;
+      for (const r of cache.receipts) {
+        if (bookingId && r.bookingId === bookingId) await idbDelete(receiptKey(r));
+      }
+      cache.receipts = cache.receipts.filter((r) => !bookingId || r.bookingId !== bookingId);
+      cache.reports = cache.reports.filter(
+        (r) => !(reportId && r.id === reportId) && !(bookingId && r.bookingId === bookingId),
+      );
+      writeExpensesLS(cache);
+      return cache;
+    },
+
+    // The share sheet is the phone's "export": Mail, Files, AirDrop — the
+    // user picks. Falls back to plain downloads where share isn't available.
+    exportReport: async (report) => {
+      const clean = sanitizeReport(report);
+      const files = await buildBundleFiles(clean);
+      const nav = navigator as Navigator & {
+        canShare?: (data: { files: File[] }) => boolean;
+        share?: (data: { files: File[]; title?: string }) => Promise<void>;
+      };
+      if (nav.canShare?.({ files }) && nav.share) {
+        try {
+          await nav.share({ files, title: 'CT Expense Report' });
+          saveReportLS(clean);                      // shared = worth keeping
+          return { path: 'shared' };
+        } catch (e) {
+          const name = (e as Error)?.name;
+          if (name === 'AbortError') return null;   // user closed the sheet
+          // Building the PDFs can outlive the tap's activation window on
+          // iOS — fall through to plain downloads instead of failing.
+          if (name !== 'NotAllowedError' && name !== 'NotSupportedError') throw e;
+        }
+      }
+      for (const file of files) {
+        downloadFile(file);
+        await delay(300);
+      }
+      saveReportLS(clean);                          // downloaded = worth keeping
+      return { path: 'downloaded' };
+    },
+
+    mailReport: async () => {
+      throw new Error('On the web, use Share — the share sheet can hand the PDFs straight to Mail.');
+    },
+
     pathForFile: () => '',
   },
 

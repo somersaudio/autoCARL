@@ -9,5 +9,6 @@
   ],
   "services": [
     { "binding": "FRIENDS", "service": "autocarl-friends" }
-  ]
+  ],
+  "ai": { "binding": "AI" }
 }
