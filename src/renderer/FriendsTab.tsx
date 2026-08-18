@@ -13,9 +13,8 @@ import runnerLogo from './assets/aim-runner.png';
 //   Buddies group       -> friends on a show WITH you (the only case where
 //                          gig details are ever revealed — the server sends
 //                          nothing but the intersection)
-//   Co-Workers group    -> friends sharing schedules, no mutual show right now
-//   Offline group       -> friends who haven't shared a schedule yet
-//   Away message        -> their next gig (or the overlap line)
+//   (One list only — no Co-Workers/Offline split. Show-sharers sort first.)
+//   Away message        -> the shared show + its city + dates
 //   List Setup tab      -> add friend / pending invites / account
 
 type Props = {
@@ -260,9 +259,22 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   // The server only ever sends gigs you SHARE (intersection by job number),
   // so empty gigs means "no mutual shows" — updatedAt tells that apart from
   // "never shared a schedule at all".
-  const buddies = accepted.filter((f) => overlapKindForFriend(f, upcoming) === 'gig');
-  const coworkers = accepted.filter((f) => overlapKindForFriend(f, upcoming) !== 'gig' && f.updatedAt);
-  const offline = accepted.filter((f) => overlapKindForFriend(f, upcoming) !== 'gig' && !f.updatedAt);
+  // ONE list. Friends sharing a show with you float to the top (soonest
+  // shared show first); everyone else follows alphabetically.
+  const soonestShared = (f: FriendEntry): string => {
+    const dates = f.gigs
+      .filter((g) => gigOverlapKind(g, upcoming) === 'gig')
+      .map((g) => g.start)
+      .sort();
+    return dates[0] ?? '';
+  };
+  const buddies = [...accepted].sort((a, b) => {
+    const sa = soonestShared(a);
+    const sb = soonestShared(b);
+    if (!!sa !== !!sb) return sa ? -1 : 1;
+    if (sa && sb && sa !== sb) return sa.localeCompare(sb);
+    return a.name.localeCompare(b.name);
+  });
   const total = accepted.length;
   const incoming = list?.incoming ?? [];
   const outgoing = list?.outgoing ?? [];
@@ -382,8 +394,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             </div>
           )}
           {group('Buddies', buddies)}
-          {group('Co-Workers', coworkers)}
-          {group('Offline', offline, true)}
           {total === 0 && incoming.length === 0 && (
             <div className="aim-away" style={{ marginTop: 8 }}>
               Your buddy list is empty. Head to List Setup to add a coworker.
@@ -616,7 +626,7 @@ function flipName(n: string): string {
 function awayMessage(f: FriendEntry, mine: Booking[]): string {
   for (const g of f.gigs) {
     if (gigOverlapKind(g, mine) === 'gig') {
-      return `with you on ${g.jobName} · ${fmtRange(g.start, g.end)}`;
+      return `with you on ${g.jobName}${g.city ? ` in ${g.city}` : ''} · ${fmtRange(g.start, g.end)}`;
     }
   }
   return '';
