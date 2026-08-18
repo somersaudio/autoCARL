@@ -714,9 +714,10 @@ export default function ExpensesTab({ bookings }: Props) {
           </div>
           <p className="subtle" style={{ fontSize: 12, margin: '8px 0 4px' }}>
             Choose <b>Mail</b> in the share sheet — the PDFs attach to a new
-            draft from your own account. Then paste the recipients
-            {mailHelp.copied ? ' (already on your clipboard)' : ''} and add the
-            subject:
+            draft from your own account with the message filled in. iPhone
+            leaves the subject box empty on shared files, so paste these two
+            in: recipients{mailHelp.copied ? ' (already on your clipboard)' : ''},
+            then the subject.
           </p>
           <div className="exp-mailhelp-row">
             <span className="exp-mailhelp-text">{mailHelp.recipients}</span>
