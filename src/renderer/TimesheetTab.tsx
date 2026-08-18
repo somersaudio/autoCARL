@@ -339,6 +339,7 @@ export default function TimesheetTab({
       {!loading && !week && !error && (
         <CreateWeekCard
           weekMonday={weekMonday}
+          bookings={bookings}
           onCreated={() => onReload()}
         />
       )}
@@ -392,7 +393,9 @@ export default function TimesheetTab({
   );
 }
 
-function CreateWeekCard({ weekMonday, onCreated }: { weekMonday: string; onCreated: () => void }) {
+function CreateWeekCard({ weekMonday, bookings, onCreated }: {
+  weekMonday: string; bookings: Booking[]; onCreated: () => void;
+}) {
   const [creating, setCreating] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -400,6 +403,15 @@ function CreateWeekCard({ weekMonday, onCreated }: { weekMonday: string; onCreat
     const d = parseISO(weekMonday);
     return `${d.getMonth() + 1}/${d.getDate()}/${d.getFullYear()}`;
   }, [weekMonday]);
+
+  // A timesheet needs work to bill: without a single booking touching this
+  // Mon–Sun, creating one is denied outright.
+  const weekSunday = useMemo(() => {
+    const d = parseISO(weekMonday);
+    d.setDate(d.getDate() + 6);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }, [weekMonday]);
+  const weekHasBookings = bookings.some((b) => b.startDate <= weekSunday && b.endDate >= weekMonday);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -424,14 +436,20 @@ function CreateWeekCard({ weekMonday, onCreated }: { weekMonday: string; onCreat
         most recent timesheet, and the app will autofill the days from your CARL bookings.
       </p>
       {err && <div className="banner error" style={{ marginTop: 8 }}>{err}</div>}
-      <button
-        className="primary"
-        onClick={handleCreate}
-        disabled={creating}
-        style={{ marginTop: 10 }}
-      >
-        {creating ? 'Creating…' : 'Create timesheet for this week'}
-      </button>
+      {weekHasBookings ? (
+        <button
+          className="primary"
+          onClick={handleCreate}
+          disabled={creating}
+          style={{ marginTop: 10 }}
+        >
+          {creating ? 'Creating…' : 'Create timesheet for this week'}
+        </button>
+      ) : (
+        <div className="banner error" style={{ marginTop: 10 }}>
+          You have no Bookings for these days.
+        </div>
+      )}
     </div>
   );
 }
