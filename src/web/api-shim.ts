@@ -17,7 +17,7 @@ import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
 import { parseReceiptText } from '../shared/receipt-parse';
 import {
   BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, applyReceiptPatch,
-  assembleDraftReport, formFileName, imageBytesToPdf, matchBooking,
+  assembleDraftReport, expenseMailDraft, formFileName, imageBytesToPdf, matchBooking,
   multiPageSkipReason, orderedReceipts, receiptFileName, sanitizeReport,
 } from '../shared/expense-logic';
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
@@ -1185,11 +1185,16 @@ const api: Api = {
       const files = await buildBundleFiles(clean);
       const nav = navigator as Navigator & {
         canShare?: (data: { files: File[] }) => boolean;
-        share?: (data: { files: File[]; title?: string }) => Promise<void>;
+        share?: (data: { files: File[]; title?: string; text?: string }) => Promise<void>;
       };
       if (nav.canShare?.({ files }) && nav.share) {
+        // Picking Mail in the sheet turns `title` into the subject and
+        // `text` into the body — the same message the desktop draft writes.
+        const { bookings } = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
+        const booking = bookings.find((b) => b.bookingId === clean.bookingId) || null;
+        const { subject, body } = expenseMailDraft(booking, clean.name);
         try {
-          await nav.share({ files, title: 'CT Expense Report' });
+          await nav.share({ files, title: subject, text: body });
           saveReportLS(clean);                      // shared = worth keeping
           return { path: 'shared' };
         } catch (e) {
