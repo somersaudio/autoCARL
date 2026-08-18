@@ -2147,16 +2147,19 @@ a.featured-venue:hover .featured-venue-name {
   .modal-card .row-between .link { padding: 6px 10px; }
 }
 
-/* Backdrop canvases (starfield / rain). 100vh on iOS is the SMALL viewport
-   — with browser chrome collapsed the screen is taller, and the backdrop
-   used to stop short of the bottom on shallow tabs. dvh tracks the real
-   visible height; vh stays as the fallback for older engines. */
+/* Backdrop canvases (starfield / rain). Sized with lvh — the LARGE viewport,
+   a constant equal to the screen with browser chrome collapsed — because a
+   fixed element that tall covers the visible area in every toolbar state.
+   dvh proved unreliable on iOS (it can lag or stick while Safari's toolbar
+   animates, leaving a dead strip under shallow tabs); lvh needs no dynamic
+   updates at all. Overshoot while the toolbar is visible just extends
+   invisibly beneath it. */
 .backdrop-canvas {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100vh;
-  height: 100dvh;
+  height: 100lvh;
   pointer-events: none;
   z-index: 0;
 }

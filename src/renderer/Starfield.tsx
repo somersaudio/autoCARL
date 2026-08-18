@@ -181,8 +181,11 @@ export default function Starfield({ opacity = 0.9 }: { opacity?: number }) {
     });
 
     const init = () => {
-      w = window.innerWidth;
-      h = window.innerHeight;
+      // Size the bitmap from the element's own box (100vw × 100lvh), not the
+      // window — on iOS the window height changes with Safari's toolbar and
+      // painting to it can leave the element's lower edge blank.
+      w = canvas.clientWidth || window.innerWidth;
+      h = canvas.clientHeight || window.innerHeight;
       canvas.width = Math.floor(w * dpr);
       canvas.height = Math.floor(h * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);

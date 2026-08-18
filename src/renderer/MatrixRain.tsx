@@ -41,8 +41,10 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
     const columnWidth = fontSize;
 
     const resize = () => {
-      canvas.width = window.innerWidth;
-      canvas.height = window.innerHeight;
+      // Element box (100vw × 100lvh), not the window — on iOS the window
+      // height changes with Safari's toolbar and can undersize the bitmap.
+      canvas.width = canvas.clientWidth || window.innerWidth;
+      canvas.height = canvas.clientHeight || window.innerHeight;
     };
     resize();
 
