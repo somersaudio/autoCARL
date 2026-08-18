@@ -16,6 +16,11 @@ import logoCT from './assets/logoCT.png';
 
 type Tab = 'bookings' | 'timesheet' | 'expenses' | 'friends';
 
+// True when running as the web build (src/web/api-shim.ts sets the flag).
+// Expense reports need the local filesystem + OS integrations, so the tab
+// only exists on desktop.
+const IS_WEB = Boolean((window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__);
+
 function mondayOfDate(d: Date): string {
   const day = d.getDay();
   const diff = day === 0 ? -6 : 1 - day;
@@ -196,10 +201,12 @@ export default function App() {
             className={`tab ${tab === 'timesheet' ? 'is-active' : ''}`}
             onClick={() => setTab('timesheet')}
           >Timesheet</button>
-          <button
-            className={`tab ${tab === 'expenses' ? 'is-active' : ''}`}
-            onClick={() => setTab('expenses')}
-          >Expense Reports</button>
+          {!IS_WEB && (
+            <button
+              className={`tab ${tab === 'expenses' ? 'is-active' : ''}`}
+              onClick={() => setTab('expenses')}
+            >Expense Reports</button>
+          )}
           <button
             className={`tab ${tab === 'friends' ? 'is-active' : ''}`}
             onClick={() => setTab('friends')}
@@ -229,7 +236,7 @@ export default function App() {
         />
       )}
 
-      {tab === 'expenses' && (
+      {tab === 'expenses' && !IS_WEB && (
         <ExpensesTab bookings={bookings} />
       )}
 

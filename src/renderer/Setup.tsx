@@ -105,7 +105,7 @@ function CarlForm({ status, onChange }: Props) {
       )}
 
       <p className="subtle" style={{ marginTop: 12, fontSize: 12 }}>
-        Your password is stored only in your OS keychain.
+        Your password is stored only {(window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__ ? 'in this browser' : 'in your OS keychain'}.
       </p>
     </div>
   );
@@ -130,7 +130,7 @@ function SswForm({ status, onChange }: Props) {
       <h2>Step 2 of 2 — Connect to SSW timesheets</h2>
       <p className="subtle">
         Your SSW login is separate from C.A.R.L. We use it to push hours back
-        — your password lives only in your OS keychain.
+        — your password lives only {(window as unknown as { __AUTOCARL_WEB__?: boolean }).__AUTOCARL_WEB__ ? 'in this browser' : 'in your OS keychain'}.
       </p>
 
       <div className="field">

@@ -1,0 +1,10 @@
+{
+  "name": "autocarl-api",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true },
+  "kv_namespaces": [
+    { "binding": "SESS", "id": "c258e58ca7b84a00b0927a922613a2d3" }
+  ]
+}

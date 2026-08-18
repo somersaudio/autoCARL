@@ -10,3 +10,4 @@ release/
 
 # Local secrets — never commit
 src/main/secrets.ts
+worker-api/relay-key.txt
