@@ -557,7 +557,8 @@ export default function ExpensesTab({ bookings }: Props) {
           </h3>
           {activeReceipts.map((r) => (
             <ReceiptRow key={r.id} r={r} armedId={armedId}
-              onPatch={patchReceipt} onRemove={armRemove} />
+              onPatch={patchReceipt} onRemove={armRemove}
+              onError={(e) => setError(friendlyError(e, !navigator.onLine))} />
           ))}
           {activeReceipts.length === 0 && (
             <div className="subtle exp-hint">None on this gig yet — drop some above.</div>
@@ -568,6 +569,7 @@ export default function ExpensesTab({ bookings }: Props) {
               {unassigned.map((r) => (
                 <ReceiptRow key={r.id} r={r} armedId={armedId}
                   onPatch={patchReceipt} onRemove={armRemove}
+                  onError={(e) => setError(friendlyError(e, !navigator.onLine))}
                   onAdopt={activeBooking ? () => adoptReceipt(r.id) : undefined}
                   adoptLabel={activeBooking ? `add to ${activeBooking.jobNumber}` : undefined} />
               ))}
@@ -634,13 +636,14 @@ export default function ExpensesTab({ bookings }: Props) {
 
 // One receipt line: what it is, what it cost, nothing else — the gig is
 // implied by the card it sits in. Unassigned leftovers get an adopt link.
-function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel }: {
+function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel, onError }: {
   r: ExpenseReceipt;
   armedId: string | null;
   onPatch: (id: string, patch: Partial<ExpenseReceipt>) => void;
   onRemove: (id: string) => void;
   onAdopt?: () => void;
   adoptLabel?: string;
+  onError?: (e: unknown) => void;
 }) {
   return (
     <div className="exp-receipt-row" title={r.merchant ? `${r.merchant} — ${r.originalName}` : r.originalName}>
@@ -668,7 +671,11 @@ function ReceiptRow({ r, armedId, onPatch, onRemove, onAdopt, adoptLabel }: {
         onBlur={(e) => { if (e.target.value !== (r.description || '')) onPatch(r.id, { description: e.target.value }); }}
       />
       {onAdopt && <button className="link exp-adopt" onClick={onAdopt}>{adoptLabel}</button>}
-      <button className="link exp-view" title="Open receipt" onClick={() => window.api.expenses.openReceipt(r.id)}>view</button>
+      <button
+        className="link exp-view"
+        title="Open receipt"
+        onClick={() => { window.api.expenses.openReceipt(r.id).catch((e) => onError?.(e)); }}
+      >view</button>
       <button
         className={`link exp-x ${armedId === r.id ? 'is-armed' : ''}`}
         title={armedId === r.id ? 'Click again to delete' : 'Delete receipt'}

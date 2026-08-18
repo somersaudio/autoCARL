@@ -1045,18 +1045,26 @@ const api: Api = {
     },
 
     openReceipt: async (id) => {
-      const cache = readExpensesLS();
-      const r = cache.receipts.find((x) => x.id === id);
-      if (!r) return;
-      const blob = await idbGet(receiptKey(r));
-      if (!blob) throw new Error('The stored copy of this receipt is missing.');
-      const url = URL.createObjectURL(blob);
-      const win = window.open(url, '_blank');
-      if (!win) {
-        URL.revokeObjectURL(url);
-        throw new Error('The browser blocked the receipt window — allow pop-ups for this site and try again.');
+      // Open the tab SYNCHRONOUSLY, inside the tap's activation window —
+      // Safari blocks window.open issued after an await. Navigate it to the
+      // blob once the read completes.
+      const win = window.open('', '_blank');
+      try {
+        const cache = readExpensesLS();
+        const r = cache.receipts.find((x) => x.id === id);
+        if (!r) { win?.close(); return; }
+        const blob = await idbGet(receiptKey(r));
+        if (!blob) throw new Error('The stored copy of this receipt is missing.');
+        if (!win) {
+          throw new Error('The browser blocked the receipt window — allow pop-ups for this site and try again.');
+        }
+        const url = URL.createObjectURL(blob);
+        win.location.href = url;
+        setTimeout(() => URL.revokeObjectURL(url), 300_000);
+      } catch (e) {
+        win?.close();
+        throw e;
       }
-      setTimeout(() => URL.revokeObjectURL(url), 300_000);
     },
 
     buildDraft: async (bookingIds) => {
