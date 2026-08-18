@@ -2098,3 +2098,13 @@ a.featured-venue:hover .featured-venue-name {
   .row-between { flex-wrap: wrap; row-gap: 8px; }
   .identity-panel-grid { grid-template-columns: 1fr; }
 }
+
+/* iOS zooms the page whenever a focused control's font is under 16px —
+   the "click a box and everything skews" effect. 16px controls on phones
+   kill the trigger at the source (and read better on a phone anyway);
+   the web build's viewport meta pins the scale for the rest. */
+@media (max-width: 560px) {
+  input, select, textarea {
+    font-size: 16px !important;
+  }
+}
