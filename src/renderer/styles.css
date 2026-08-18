@@ -2041,3 +2041,28 @@ a.featured-venue:hover .featured-venue-name {
   85%  { opacity: 1; }
   100% { opacity: 0; }
 }
+
+/* ---- narrow screens (the web build on phones) ----
+   The featured card's header puts the flight-request block beside the
+   headline; under ~560px that fight crushes the title into one word per
+   line. Wrap instead: logo + headline keep the top row, flights drop to
+   their own full-width row underneath. Desktop windows never get this
+   narrow, so this only shapes the phone experience. */
+@media (max-width: 560px) {
+  .featured-top { flex-wrap: wrap; }
+
+  .featured-flights {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 12px;
+    margin-top: 4px;
+  }
+
+  .featured-when-tag { white-space: nowrap; }
+
+  /* Give the headline the room the logo leaves — never a skinny column. */
+  .featured-headline { flex: 1 1 60%; }
+}
