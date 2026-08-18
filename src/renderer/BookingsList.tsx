@@ -49,7 +49,7 @@ export default function BookingsList({
     <>
       <div className="card">
         <div className="row-between">
-          <h2 style={{ margin: 0 }}>Your bookings</h2>
+          <h2 style={{ margin: 0 }}>Bookings</h2>
           <div className="row-actions">
             <span className="subtle">
               {fetchedAt
