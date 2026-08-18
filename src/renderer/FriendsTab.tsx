@@ -356,7 +356,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
       <AimBanner />
       <div className="aim-tabs">
         <button className={`aim-tab${pane === 'online' ? ' is-active' : ''}`} onClick={() => setPane('online')}>
-          Online
+          Friends
         </button>
         <button className={`aim-tab${pane === 'setup' ? ' is-active' : ''}`} onClick={() => setPane('setup')}>
           List Setup
