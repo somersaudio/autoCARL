@@ -24,7 +24,7 @@ import {
   friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
   friendsRemove, publishScheduleQuietly,
 } from './friends';
-import { createWeek, fetchWeek, pushWeek, testSswLogin } from './ssw';
+import { createWeek, fetchIdentity, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
 import {
   addReceiptFiles, buildDraftReport, exportReport, mailReport, openReceipt, pickReceiptFiles,
@@ -534,6 +534,28 @@ function registerIpc(): void {
   // Whole week cache in one call — the paycheck estimator folds actual
   // timesheet hours into any pay period it has data for.
   ipcMain.handle('ssw:getCachedWeeks', () => readSswWeeksCache());
+  ipcMain.handle('ssw:identity', async () => {
+    const cfg = await readConfig();
+    if (cfg.identityName || cfg.identityUserId) {
+      return { name: cfg.identityName || '', userId: cfg.identityUserId || '' };
+    }
+    const weeks = await readSswWeeksCache().catch(() => ({} as Record<string, SswWeek>));
+    const week = Object.values(weeks)
+      .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
+      .find((w) => w.name || w.userId);
+    if (week) {
+      await updateConfig({ identityName: week.name, identityUserId: week.userId });
+      return { name: week.name, userId: week.userId };
+    }
+    try {
+      const ident = await fetchIdentity();
+      if (ident) await updateConfig({ identityName: ident.name, identityUserId: ident.userId });
+      return ident;
+    } catch (e) {
+      console.warn('[autocarl] identity lookup failed:', e instanceof Error ? e.message : e);
+      return null;
+    }
+  });
 
   // ---- friends ----
   ipcMain.handle('friends:status', () => friendsStatus());

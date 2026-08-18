@@ -326,6 +326,52 @@ async function getRecordExtended(recordId: string): Promise<SswRecordResponse> {
   return inner;
 }
 
+// Who the user IS — name and numeric CT id — read off their newest
+// timesheet record, however old it is (the grid is sorted newest-first).
+// Mirrors worker-api/src/ssw.ts fetchIdentity so both surfaces answer
+// identically. Used by auto sign-on and the expense form when no cached
+// week can say who the user is.
+export async function fetchIdentity(): Promise<{ name: string; userId: string } | null> {
+  return withSession(async () => {
+    const token = await ensureToken();
+    const mkCol = (data: number, name: string) => ({
+      data, name, searchable: true, orderable: true,
+      search: { value: '', regex: false },
+    });
+    const body = {
+      gridRequest: {
+        draw: 1,
+        columns: [
+          mkCol(0, 'iName'), mkCol(1, 'iDate'), mkCol(2, 'EntryDate'),
+          mkCol(3, 'LastUpdateDate'), mkCol(4, 'CurrentStatusIndex'),
+          mkCol(5, 'Actions'), mkCol(6, 'iJob'), mkCol(7, 'iLaborCoordinator'),
+        ],
+        order: [{ column: 1, dir: 'desc' as const }],
+        start: 0, length: 50,
+        search: { value: '', regex: false },
+        applicationId: APP_ID,
+      },
+      token,
+    };
+    const res = await sswFetch(`${SSW}/UI/Pages/Data.aspx/GetDataGrid`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json; charset=UTF-8' },
+      body: JSON.stringify(body),
+    });
+    if (res.status !== 200) throw new Error(`GetDataGrid HTTP ${res.status} — SSW session may have expired`);
+    const outer = JSON.parse(await res.text()) as { d: string };
+    if (typeof outer.d === 'undefined') throw new Error('GetDataGrid: missing .d');
+    const inner = typeof outer.d === 'string' ? JSON.parse(outer.d) : outer.d;
+    const rows: unknown[][] = inner.Data || [];
+    const first = rows.find((row) => Array.isArray(row) && row.length > 0);
+    if (!first) return null;
+    const rec = await getRecordExtended(String(first[first.length - 1]));
+    const name = String(rec.PrimaryTable.iName || '');
+    const userId = String(rec.PrimaryTable.iUserId || '');
+    return name || userId ? { name, userId } : null;
+  });
+}
+
 export async function fetchWeek(weekStartDate: string): Promise<SswWeek | null> {
   return withSession(async () => {
     const recordId = await findRecordIdForWeek(weekStartDate);

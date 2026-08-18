@@ -315,6 +315,11 @@ export type Api = {
     // Every cached week keyed by Monday ISO — feeds actual timesheet hours
     // into the paycheck estimator.
     getCachedWeeks: () => Promise<Record<string, SswWeek>>;
+    // Who the user is — name + numeric CT id — independent of any week:
+    // cached weeks first, else the newest timesheet record EVER via SSW's
+    // grid. Cached permanently after the first answer. Null only when the
+    // user has never had a timesheet at all.
+    identity: () => Promise<{ name: string; userId: string } | null>;
     // Pulls a week's full timesheet from SSW (RecordId lookup + GetRecordExtended).
     // Caches the result to disk on success. Returns null if no SSW record
     // exists for that week yet.

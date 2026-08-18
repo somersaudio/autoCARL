@@ -78,6 +78,11 @@ type Config = {
   // deliberately NOT exposed through UserSettings to the renderer.
   friendsToken: string;
   friendsName: string;
+  // Who the user is per SSW's newest timesheet record — cached permanently
+  // once learned (see the ssw:identity handler). Feeds expense drafts and
+  // friends auto sign-on on installs with no cached weeks yet.
+  identityName: string;
+  identityUserId: string;
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -101,6 +106,8 @@ const DEFAULT_CONFIG: Config = {
   gigDayRates: {},
   friendsToken: '',
   friendsName: '',
+  identityName: '',
+  identityUserId: '',
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }

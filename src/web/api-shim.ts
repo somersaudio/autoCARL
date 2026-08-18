@@ -959,6 +959,7 @@ const api: Api = {
     getCached: async (weekStartDate) =>
       readJson<Record<string, SswWeek>>(K.sswWeeks, {})[weekStartDate] || null,
     getCachedWeeks: async () => readJson<Record<string, SswWeek>>(K.sswWeeks, {}),
+    identity: getIdentity,
     fetchWeek: async (weekStartDate) => {
       const { email, password } = requireSsw();
       const r = await postJson<unknown>('/v1/ssw/week', { email, password, weekMonday: weekStartDate });

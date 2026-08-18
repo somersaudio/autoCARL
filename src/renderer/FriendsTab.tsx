@@ -117,16 +117,34 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   };
 
   // Auto sign-on: being logged into AUTOcarl IS being on the buddy list.
-  // One attempt per session, as soon as the timesheet tells us the user's
-  // name; the manual Sign On screen remains only as the fallback when the
-  // attempt fails (offline, credentials missing).
+  // One attempt per session. The screen name comes from the loaded
+  // timesheet when there is one, else from the SSW identity lookup (works
+  // on a fresh login with no cached weeks — SSW stores "Somers, John",
+  // which flips to "John Somers"). The manual Sign On screen remains only
+  // as the fallback when identity can't be found anywhere.
   const autoTried = useRef(false);
   useEffect(() => {
-    if (enrolled !== false || !suggestedName.trim()) return;
+    if (enrolled !== false) return;
     if (autoTried.current || enrollAttemptedThisSession || enrollAttemptActive || busy) return;
     autoTried.current = true;
     enrollAttemptedThisSession = true;
-    void run(() => doEnroll(suggestedName));
+    void run(async () => {
+      let autoName = suggestedName.trim();
+      if (!autoName) {
+        const ident = await window.api.ssw.identity().catch(() => null);
+        autoName = flipName(ident?.name || '');
+      }
+      if (autoName) setName((cur) => cur || autoName);   // prefill the fallback screen
+      if (!autoName) {
+        // Nothing to sign on with (brand-new user, or SSW unreachable) —
+        // fall back to the manual screen, and let a later-arriving
+        // suggestedName re-try automatically.
+        autoTried.current = false;
+        enrollAttemptedThisSession = false;
+        return;
+      }
+      await doEnroll(autoName);
+    });
   }, [enrolled, suggestedName]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (enrolled === null) return null;
@@ -462,6 +480,12 @@ function overlapKindForFriend(f: FriendEntry, mine: Booking[]): 'gig' | 'near' |
     if (k === 'near') best = 'near';
   }
   return best;
+}
+
+// SSW writes names "Somers, John"; buddy lists read better as "John Somers".
+function flipName(n: string): string {
+  const m = n.trim().match(/^([^,]+),\s*(.+)$/);
+  return m ? `${m[2]} ${m[1]}`.trim() : n.trim();
 }
 
 // The buddy's "away message": the shared show, or nothing. Privacy model:
