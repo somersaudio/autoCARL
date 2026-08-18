@@ -272,7 +272,7 @@ export default function App() {
           onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
-      {version && <div className="app-version subtle">v{version}</div>}
+      {version && !IS_WEB && <div className="app-version subtle">v{version}</div>}
       <button
         className="settings-gear"
         title="Settings"

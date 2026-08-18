@@ -2160,6 +2160,11 @@ a.featured-venue:hover .featured-venue-name {
   width: 100vw;
   height: 100vh;
   height: 100lvh;
+  /* Home-screen (standalone) iOS resolves viewport units EXCLUDING the
+     home-indicator inset, leaving a bare strip under the backdrop. Extend
+     past the bottom by the inset: overshoot on a fixed background is
+     invisible; undershoot is a black bar. */
+  height: calc(100lvh + env(safe-area-inset-bottom, 0px));
   pointer-events: none;
   z-index: 0;
 }
