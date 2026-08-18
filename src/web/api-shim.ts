@@ -44,6 +44,17 @@ function lsSet(key: string, value: string): void {
 function lsRemove(key: string): void {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
+
+// Friends identity follows the CARL login: when the stored email changes,
+// drop the previous token so schedules never publish to another person's
+// buddy list. Auto sign-on re-enrolls the new email on the next visit.
+function dropFriendsIfEmailChanged(newEmail: string): void {
+  const prev = lsGet(K.carlEmail);
+  if (prev && prev !== newEmail) {
+    lsRemove(K.friendsToken);
+    lsRemove(K.friendsName);
+  }
+}
 function readJson<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -496,6 +507,7 @@ const api: Api = {
       // Creds verified — store them (desktop persists before discovery too),
       // so a discover failure drops the user into the paste-URL fallback
       // without retyping the login.
+      dropFriendsIfEmailChanged(cleanEmail);
       lsSet(K.carlEmail, cleanEmail);
       lsSet(K.carlPassword, password);
       try {
@@ -520,6 +532,7 @@ const api: Api = {
       }
       try {
         await postJson('/v1/carl/verify', { email: cleanEmail, password });
+        dropFriendsIfEmailChanged(cleanEmail);
         lsSet(K.carlEmail, cleanEmail);
         lsSet(K.carlPassword, password);
         lsSet(K.icalUrl, cleanUrl);
@@ -549,6 +562,9 @@ const api: Api = {
       lsRemove(K.sswEmail);
       lsRemove(K.sswPassword);
       lsRemove(K.icalUrl);
+      // Friends identity follows the CARL login (see desktop setup:clear).
+      lsRemove(K.friendsToken);
+      lsRemove(K.friendsName);
     },
   },
 
@@ -671,7 +687,13 @@ const api: Api = {
       const finalName = r.name || clean;
       lsSet(K.friendsToken, r.token);
       lsSet(K.friendsName, finalName);
-      await publishSchedule();   // share the current schedule immediately
+      // Share the current schedule immediately — but enrollment has already
+      // succeeded, so a publish hiccup must not fail it (the refresh path
+      // republishes anyway; a retry would false-alarm the "existing
+      // account" notice).
+      await publishSchedule().catch((e) => {
+        console.log('[autocarl] post-enroll publish skipped:', errMsg(e));
+      });
       return {
         enrolled: true, email: carlEmail, name: finalName,
         ...(r.linked ? {
@@ -719,6 +741,7 @@ const api: Api = {
       if (!cleanEmail || !password) return { ok: false as const, error: 'Email and password are required.' };
       try {
         await postJson('/v1/carl/verify', { email: cleanEmail, password });
+        dropFriendsIfEmailChanged(cleanEmail);
         lsSet(K.carlEmail, cleanEmail);
         lsSet(K.carlPassword, password);
         return { ok: true as const };

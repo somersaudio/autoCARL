@@ -495,7 +495,10 @@ function registerIpc(): void {
     if (cfg.carlEmail) await clearCarlPassword(cfg.carlEmail).catch(() => {});
     if (cfg.sswEmail) await clearSswPassword(cfg.sswEmail).catch(() => {});
     await clearIcalUrl().catch(() => {});
-    await updateConfig({ carlEmail: '', sswEmail: '' });
+    // Friends identity follows the CARL login: a reset may be a handoff to a
+    // different person, so drop the token too. Auto sign-on re-binds the
+    // right identity (same account for the same email) on the next visit.
+    await updateConfig({ carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '' });
   });
 
   ipcMain.handle('bookings:getCached', () => readCachedBookings());
@@ -631,6 +634,10 @@ function registerIpc(): void {
       const cfg = await readConfig();
       if (cfg.carlEmail && cfg.carlEmail !== cleanEmail) {
         await clearCarlPassword(cfg.carlEmail).catch(() => {});
+        // Different CARL account = different person as far as friends goes:
+        // drop the old identity so schedules never publish to the previous
+        // owner's buddy list. Auto sign-on re-enrolls the new email.
+        await updateConfig({ friendsToken: '', friendsName: '' });
       }
       await saveCarlPassword(cleanEmail, password);
       await updateConfig({ carlEmail: cleanEmail });

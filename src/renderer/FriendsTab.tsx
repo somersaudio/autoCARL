@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { Booking, FriendEntry, FriendGig, FriendsList } from '../shared/types';
 import runnerLogo from './assets/aim-runner.png';
 
@@ -22,6 +22,12 @@ type Props = {
   bookings: Booking[];
   suggestedName: string;
 };
+
+// Module scope so they survive remounts: switching tabs mid-attempt must not
+// fire a second concurrent enroll (which would take the 409→reissue path,
+// mint a duplicate token, and false-alarm the "existing account" tripwire).
+let enrollAttemptActive = false;
+let enrollAttemptedThisSession = false;
 
 type Pane = 'online' | 'setup';
 
@@ -71,6 +77,58 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     setBusy(false);
   };
 
+  // Shared by auto and manual sign-on: adopt the account's real display name
+  // and surface it when we attached to an EXISTING account for this email —
+  // normal for a second device, and the tripwire if someone else enrolled
+  // this email first.
+  const applySignOn = (st: Awaited<ReturnType<typeof window.api.friends.enroll>>, typed: string) => {
+    setEnrolled(true);
+    setMyName(st.name || typed.trim());
+    if (st.linkedExisting) {
+      const when = st.linkedExisting.accountCreatedAt
+        ? ` (created ${new Date(st.linkedExisting.accountCreatedAt).toLocaleDateString()})`
+        : '';
+      setLinkedNotice(
+        `Signed on to your existing friends account "${st.name}"${when}. ` +
+        'If you never enrolled anywhere before, that account isn’t yours — tell John right away.',
+      );
+    }
+  };
+
+  // One enroll at a time, across remounts. A prior attempt may also have
+  // finished while this tab was unmounted, so re-check status before
+  // enrolling — enrolling twice would take the 409→reissue path and
+  // false-alarm the "existing account" notice for our own account.
+  const doEnroll = async (typed: string) => {
+    if (enrollAttemptActive) return;
+    enrollAttemptActive = true;
+    try {
+      const st0 = await window.api.friends.status();
+      if (st0.enrolled) {
+        setEnrolled(true);
+        setMyName(st0.name);
+        return;
+      }
+      const st = await window.api.friends.enroll(typed);
+      applySignOn(st, typed);
+    } finally {
+      enrollAttemptActive = false;
+    }
+  };
+
+  // Auto sign-on: being logged into AUTOcarl IS being on the buddy list.
+  // One attempt per session, as soon as the timesheet tells us the user's
+  // name; the manual Sign On screen remains only as the fallback when the
+  // attempt fails (offline, credentials missing).
+  const autoTried = useRef(false);
+  useEffect(() => {
+    if (enrolled !== false || !suggestedName.trim()) return;
+    if (autoTried.current || enrollAttemptedThisSession || enrollAttemptActive || busy) return;
+    autoTried.current = true;
+    enrollAttemptedThisSession = true;
+    void run(() => doEnroll(suggestedName));
+  }, [enrolled, suggestedName]);   // eslint-disable-line react-hooks/exhaustive-deps
+
   if (enrolled === null) return null;
 
   // ---------- Sign On (enrollment) ----------
@@ -106,22 +164,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             <button
               className="aim-btn"
               disabled={busy || !name.trim()}
-              onClick={() => run(async () => {
-                // Use the returned name: signing back into an existing
-                // account keeps its original display name.
-                const st = await window.api.friends.enroll(name);
-                setEnrolled(true);
-                setMyName(st.name || name.trim());
-                if (st.linkedExisting) {
-                  const when = st.linkedExisting.accountCreatedAt
-                    ? ` (created ${new Date(st.linkedExisting.accountCreatedAt).toLocaleDateString()})`
-                    : '';
-                  setLinkedNotice(
-                    `Signed on to your existing friends account "${st.name}"${when}. ` +
-                    'If you never enrolled anywhere before, that account isn’t yours — tell John right away.',
-                  );
-                }
-              })}
+              onClick={() => {
+                // A manual attempt also counts as this session's one shot —
+                // a late-arriving suggested name must not auto-fire on top.
+                enrollAttemptedThisSession = true;
+                void run(() => doEnroll(name));
+              }}
             >
               {busy ? 'Signing On…' : 'Sign On'}
             </button>

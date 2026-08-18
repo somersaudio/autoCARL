@@ -5,9 +5,14 @@
 // reaches the renderer; everything goes through the IPC handlers.
 
 import { readCachedBookings, readConfig, updateConfig } from './store';
+import { getCarlPassword } from './credentials';
 import type { Booking } from '../shared/types';
 
 const FRIENDS_URL = process.env.FRIENDS_URL || 'https://autocarl-friends.somerss.workers.dev';
+// Enrollment goes through the API worker instead: it verifies the CARL login
+// and, when this email already has a friends account (another device, a
+// reinstall), issues an ADDITIONAL token instead of failing with a 409.
+const API_URL = process.env.AUTOCARL_API_URL || 'https://autocarl-api.somerss.workers.dev';
 
 export type FriendGig = {
   jobNumber: string; jobName: string; city: string; state: string;
@@ -19,7 +24,13 @@ export type FriendsList = {
   incoming: Array<{ email: string; name: string }>;
   outgoing: Array<{ email: string; name: string }>;
 };
-export type FriendsStatus = { enrolled: boolean; email: string; name: string };
+export type FriendsStatus = {
+  enrolled: boolean; email: string; name: string;
+  // Set when enrollment attached to an EXISTING account for this email
+  // (second device / reinstall). Surfaced by the renderer — it's also the
+  // tripwire if someone else enrolled this email first.
+  linkedExisting?: { accountCreatedAt: string | null; firstVerified: boolean };
+};
 
 async function call<T>(path: string, init: { method?: string; body?: unknown } = {}, token?: string): Promise<T> {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -51,13 +62,45 @@ export async function friendsEnroll(name: string): Promise<FriendsStatus> {
   if (!cfg.carlEmail) throw new Error('Complete C.A.R.L. setup first — your email identifies you to friends.');
   const clean = name.trim();
   if (!clean) throw new Error('Enter the name your coworkers know you by.');
-  const r = await call<{ token: string }>('/v1/register', {
+  const password = await getCarlPassword(cfg.carlEmail);
+  if (!password) throw new Error('C.A.R.L. password not found — sign in to C.A.R.L. again first.');
+  const res = await fetch(`${API_URL}/v1/friends/enroll`, {
     method: 'POST',
-    body: { email: cfg.carlEmail, name: clean },
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ email: cfg.carlEmail, password, name: clean }),
   });
-  await updateConfig({ friendsToken: r.token, friendsName: clean });
-  await publishSchedule();   // share the current schedule immediately
-  return { enrolled: true, email: cfg.carlEmail, name: clean };
+  const text = await res.text();
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(text); } catch { /* non-JSON error body */ }
+  if (!res.ok) {
+    const msg = parsed && typeof parsed === 'object' && 'error' in parsed
+      ? String((parsed as { error: unknown }).error)
+      : `Friends service HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  const r = parsed as {
+    token: string; name?: string;
+    linked?: boolean; accountCreatedAt?: string | null; firstVerified?: boolean;
+  };
+  const finalName = r.name || clean;
+  await updateConfig({ friendsToken: r.token, friendsName: finalName });
+  // Share the current schedule immediately — but enrollment has already
+  // succeeded, so a publish hiccup must not fail it (the refresh hook
+  // republishes on the next sweep anyway). Failing here would leave the
+  // renderer on the Sign On screen with a token already saved, and a retry
+  // would false-alarm the "existing account" notice.
+  await publishSchedule().catch((e) => {
+    console.log('[autocarl] post-enroll publish skipped:', e instanceof Error ? e.message : e);
+  });
+  return {
+    enrolled: true, email: cfg.carlEmail, name: finalName,
+    ...(r.linked ? {
+      linkedExisting: {
+        accountCreatedAt: r.accountCreatedAt ?? null,
+        firstVerified: r.firstVerified === true,
+      },
+    } : {}),
+  };
 }
 
 // Publish the coarse upcoming schedule. Fire-and-forget safe: throws only to
@@ -67,7 +110,16 @@ let lastPublishedHash = '';
 export async function publishSchedule(bookings?: Booking[]): Promise<void> {
   const cfg = await readConfig();
   if (!cfg.friendsToken) return;
-  const source = bookings ?? (await readCachedBookings()).bookings;
+  let source = bookings;
+  if (!source) {
+    const cache = await readCachedBookings();
+    // A never-populated cache (fresh install, first sweep still running)
+    // must not publish: PUT /v1/schedule overwrites wholesale, and an empty
+    // publish would wipe a schedule another device already shared. The
+    // refresh hook re-publishes as soon as a real sweep lands.
+    if (!cache.fetchedAt) return;
+    source = cache.bookings;
+  }
   const today = new Date();
   const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
   const gigs = source
