@@ -372,8 +372,8 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
         {/* ---- SSW credentials ---- */}
         <h3 style={{ marginTop: 22 }}>SSW login</h3>
         <div className="field" style={{ margin: '6px 0' }}>
-          <label>Email</label>
-          <input type="email" value={sswEmail} onChange={(e) => setSswEmail(e.target.value)} autoComplete="username" />
+          <label>Login (username or email)</label>
+          <input type="text" value={sswEmail} onChange={(e) => setSswEmail(e.target.value)} autoComplete="username" autoCapitalize="off" />
         </div>
         <div className="field" style={{ margin: '6px 0' }}>
           <label>Password</label>

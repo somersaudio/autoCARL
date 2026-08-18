@@ -134,13 +134,14 @@ function SswForm({ status, onChange }: Props) {
       </p>
 
       <div className="field">
-        <label>SSW email</label>
+        <label>SSW login</label>
         <input
-          type="email"
+          type="text"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
-          placeholder="you@example.com"
+          placeholder="username or email"
           autoComplete="username"
+          autoCapitalize="off"
           disabled={busy}
         />
       </div>
