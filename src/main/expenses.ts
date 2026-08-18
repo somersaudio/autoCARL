@@ -9,8 +9,8 @@ import { extractLayoutText } from './flight-parser';
 import { parseReceiptText } from '../shared/receipt-parse';
 import { fillExpensePdf } from '../shared/expense-pdf';
 import {
-  BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, applyReceiptPatch,
-  assembleDraftReport, formFileName, imageBytesToPdf, matchBooking,
+  BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, PAYROLL_EMAIL, applyReceiptPatch,
+  assembleDraftReport, expenseMailDraft, formFileName, imageBytesToPdf, matchBooking,
   multiPageSkipReason, orderedReceipts, receiptFileName, sanitizeReport,
 } from '../shared/expense-logic';
 import { readCachedBookings, readContactsCache, readSswWeeksCache } from './store';
@@ -327,8 +327,6 @@ export async function exportReport(report: ExpenseReport): Promise<{ path: strin
  * draft opens visible in Mail for the user to review and send — nothing is
  * sent automatically.
  */
-const PAYROLL_EMAIL = 'payroll@ctus.com';
-
 export async function mailReport(report: ExpenseReport): Promise<void> {
   const clean = sanitizeReport(report);
   const dir = await fs.mkdtemp(join(app.getPath('temp'), 'autocarl-expense-'));
@@ -341,11 +339,7 @@ export async function mailReport(report: ExpenseReport): Promise<void> {
     [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
   )];
 
-  const showLabel = booking ? `${booking.jobName} (${booking.jobNumber})` : 'the show';
-  const subject = booking
-    ? `Expense Report - ${booking.jobNumber} ${booking.jobName} - ${clean.name}`
-    : `Expense Report - ${clean.name}`;
-  const body = `Hi,\n\nAttached is my expense report for ${showLabel}, with the receipts.\n\nThanks,\n${clean.name}\n\n`;
+  const { subject, body } = expenseMailDraft(booking ?? null, clean.name);
 
   // AppleScript strings understand \n; escape backslashes + quotes and
   // strip real newlines so nothing can break out of the literal.

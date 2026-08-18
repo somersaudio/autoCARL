@@ -1190,7 +1190,31 @@ const api: Api = {
     },
 
     mailReport: async () => {
-      throw new Error('On the web, use Share — the share sheet can hand the PDFs straight to Mail.');
+      throw new Error('On the web, use Email Report — it sends with recipients and PDFs attached.');
+    },
+
+    // The web's Export to Mail: the user reviewed recipients/subject/body in
+    // the compose card; build the same PDF bundle the desktop attaches and
+    // hand the finished email to the server to send (Reply-To and a CC keep
+    // the sender in the loop).
+    sendReportEmail: async (report, opts) => {
+      const clean = sanitizeReport(report);
+      const files = await buildBundleFiles(clean);
+      const attachments = [];
+      for (const f of files) {
+        attachments.push({ name: f.name, dataB64: await blobToBase64(f) });
+      }
+      const me = (getSettings().timesheetEmail || lsGet(K.carlEmail)).trim();
+      await postJson('/v1/expense-mail', {
+        to: opts.to,
+        cc: me ? [me] : [],
+        replyTo: me,
+        senderName: clean.name,
+        subject: opts.subject,
+        body: opts.body,
+        attachments,
+      });
+      saveReportLS(clean);                        // emailed = worth keeping
     },
 
     pathForFile: () => '',

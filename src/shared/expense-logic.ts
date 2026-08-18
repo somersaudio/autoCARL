@@ -173,6 +173,23 @@ export function sanitizeReport(report: ExpenseReport): ExpenseReport {
   };
 }
 
+// The expense email itself — recipients' shape and the message template are
+// shared so the desktop Mail draft and the phone's compose card say exactly
+// the same thing.
+export const PAYROLL_EMAIL = 'payroll@ctus.com';
+
+export function expenseMailDraft(
+  booking: { jobNumber: string; jobName: string } | null,
+  name: string,
+): { subject: string; body: string } {
+  const showLabel = booking ? `${booking.jobName} (${booking.jobNumber})` : 'the show';
+  const subject = booking
+    ? `Expense Report - ${booking.jobNumber} ${booking.jobName} - ${name}`
+    : `Expense Report - ${name}`;
+  const body = `Hi,\n\nAttached is my expense report for ${showLabel}, with the receipts.\n\nThanks,\n${name}\n\n`;
+  return { subject, body };
+}
+
 export function safeName(s: string): string {
   return s.replace(/[\/\\:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
 }

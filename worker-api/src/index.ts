@@ -314,6 +314,39 @@ export default {
         return json(req, { text });
       }
 
+      // ---- expense email (web's Export to Mail) ----
+      // The browser builds the PDFs and the user reviews recipients/message
+      // in the app; this just relays the finished email to the PHP mailer
+      // on somersaudio.com, which sends via iCloud SMTP (where the domain's
+      // mail actually lives — anything else fails SPF).
+      if (path === '/v1/expense-mail') {
+        const ip = req.headers.get('cf-connecting-ip') || 'unknown';
+        const rlKey = `mail-rl:${ip}`;
+        const used = parseInt((await env.SESS.get(rlKey)) || '0', 10);
+        if (used >= 20) return json(req, { error: 'Too many emails this hour — try again later.' }, 429);
+        await env.SESS.put(rlKey, String(used + 1), { expirationTtl: 3600 });
+
+        const raw = await req.text();
+        if (raw.length > 30_000_000) return json(req, { error: 'attachments too large' }, 413);
+        let parsed: Record<string, unknown>;
+        try { parsed = JSON.parse(raw) as Record<string, unknown>; } catch { return json(req, { error: 'bad request' }, 400); }
+        const emailRe = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+        const to = (Array.isArray(parsed.to) ? parsed.to : [])
+          .map((r) => String(r).trim()).filter((r) => emailRe.test(r)).slice(0, 6);
+        if (!to.length) return json(req, { error: 'at least one valid recipient is required' }, 400);
+
+        const r = await fetch('https://somersaudio.com/autocarl/api/expense-mail.php', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'X-Relay-Key': env.RELAY_KEY },
+          body: raw,
+        });
+        const text = await r.text();
+        return new Response(text, {
+          status: r.status,
+          headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...corsHeaders(req) },
+        });
+      }
+
       // ---- logo + GSA ----
       if (path === '/v1/logo') {
         const b = await readBody(req);

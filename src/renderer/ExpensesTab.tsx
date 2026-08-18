@@ -6,7 +6,7 @@ import { friendlyError } from '../shared/errors';
 import {
   COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
 } from '../shared/expense-form-layout';
-import { CAT_ORDER } from '../shared/expense-logic';
+import { CAT_ORDER, PAYROLL_EMAIL, expenseMailDraft } from '../shared/expense-logic';
 import sheetPng from './assets/expense-sheet@2x.png';
 
 // The Expense Reports tab: drop receipts in, the app reads them (on-device
@@ -91,6 +91,11 @@ export default function ExpensesTab({ bookings }: Props) {
   const [selectedGig, setSelectedGig] = useState('');
   const [armedId, setArmedId] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
+  // Web-only compose card (the phone's Export to Mail): prefills PM/LC/
+  // payroll + the shared message template; the user reviews, then the
+  // server sends with the PDFs attached.
+  const [compose, setCompose] = useState<{ to: string; subject: string; body: string } | null>(null);
+  const [sendBusy, setSendBusy] = useState(false);
   const armTimer = useRef<number | null>(null);
   // Latest cache for effect closures that must not re-run on cache changes.
   const cacheRef = useRef<ExpensesCache | null>(null);
@@ -379,6 +384,41 @@ export default function ExpensesTab({ bookings }: Props) {
     void ingestFileObjects(files);
   };
 
+  // Web: open the compose card with recipients + message prefilled, exactly
+  // what the desktop's Mail draft would contain.
+  const openCompose = async () => {
+    if (!draft) return;
+    const booking = bookingById.get(draftGigId(draft)) || null;
+    let contacts: { pmEmail?: string; lcEmail?: string } | undefined;
+    try {
+      contacts = booking ? (await window.api.contacts.getCached())[booking.bookingId] : undefined;
+    } catch { /* contacts cache unavailable — payroll alone still works */ }
+    const recipients = [...new Set(
+      [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
+    )];
+    const { subject, body } = expenseMailDraft(booking, draft.name);
+    setCompose({ to: recipients.join(', '), subject, body });
+  };
+
+  const sendCompose = async () => {
+    const send = window.api.expenses.sendReportEmail;
+    if (!draft || !compose || !send) return;
+    const to = compose.to.split(/[,;\s]+/).map((s) => s.trim()).filter((s) => /@/.test(s));
+    if (!to.length) { setError('Add at least one recipient email.'); return; }
+    setSendBusy(true);
+    setError(null);
+    try {
+      await send(draft, { to, subject: compose.subject, body: compose.body });
+      setCompose(null);
+      setExportedPath('emailed');
+      setCache(await window.api.expenses.getCached());
+    } catch (e) {
+      setError(friendlyError(e, !navigator.onLine));
+    } finally {
+      setSendBusy(false);
+    }
+  };
+
   // ---- receipt edits ----
 
   const patchReceipt = (id: string, patch: Partial<ExpenseReceipt>) => {
@@ -644,12 +684,18 @@ export default function ExpensesTab({ bookings }: Props) {
                 {mailBusy ? 'Opening Mail…' : 'Export to Mail'}
               </button>
             )}
-            <button className={IS_WEB ? 'primary' : 'secondary'} onClick={exportPdf} disabled={exportBusy || mailBusy}>
-              {exportBusy ? (IS_WEB ? 'Building PDFs…' : 'Exporting…') : IS_WEB ? 'Share Report & Receipts' : 'Export to Folder'}
+            {IS_WEB && (
+              <button className="primary" onClick={() => void openCompose()} disabled={exportBusy || sendBusy}>
+                Email Report
+              </button>
+            )}
+            <button className="secondary" onClick={exportPdf} disabled={exportBusy || mailBusy || sendBusy}>
+              {exportBusy ? (IS_WEB ? 'Building PDFs…' : 'Exporting…') : IS_WEB ? 'Share PDFs' : 'Export to Folder'}
             </button>
             {exportedPath && (
               <span className="subtle exp-exported">
                 {exportedPath === 'mailed' ? 'Draft opened in Mail — review and send'
+                  : exportedPath === 'emailed' ? 'Sent — a copy is in your inbox'
                   : exportedPath === 'shared' ? 'Shared — pick Mail in the sheet to send it'
                   : exportedPath === 'downloaded' ? 'Downloaded — form and receipts'
                   : 'Exported — folder opened'}
@@ -666,6 +712,56 @@ export default function ExpensesTab({ bookings }: Props) {
                 ? `Delete ${activeReceipts.length} receipt${activeReceipts.length === 1 ? '' : 's'} + report — sure?`
                 : 'Reset report'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* ---- compose card (web's Export to Mail) ---- */}
+      {compose && (
+        <div className="modal-backdrop" onClick={() => !sendBusy && setCompose(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="row-between">
+              <h2 style={{ margin: 0 }}>Email report</h2>
+              <button className="link" onClick={() => setCompose(null)} disabled={sendBusy}>✕</button>
+            </div>
+            <div className="field">
+              <label>To</label>
+              <input
+                type="text"
+                value={compose.to}
+                onChange={(e) => setCompose({ ...compose, to: e.target.value })}
+                disabled={sendBusy}
+              />
+            </div>
+            <div className="field">
+              <label>Subject</label>
+              <input
+                type="text"
+                value={compose.subject}
+                onChange={(e) => setCompose({ ...compose, subject: e.target.value })}
+                disabled={sendBusy}
+              />
+            </div>
+            <div className="field">
+              <label>Message</label>
+              <textarea
+                className="compose-body"
+                rows={6}
+                value={compose.body}
+                onChange={(e) => setCompose({ ...compose, body: e.target.value })}
+                disabled={sendBusy}
+              />
+            </div>
+            <p className="subtle" style={{ fontSize: 12 }}>
+              Attached: the filled CT form and {(draft?.rows ?? []).reduce((a, r) => a + r.receiptIds.length, 0)} receipt
+              PDF{(draft?.rows ?? []).reduce((a, r) => a + r.receiptIds.length, 0) === 1 ? '' : 's'}. You're CC'd a copy;
+              replies come to you.
+            </p>
+            <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
+              <button className="primary" onClick={() => void sendCompose()} disabled={sendBusy}>
+                {sendBusy ? 'Sending…' : 'Send'}
+              </button>
+            </div>
           </div>
         </div>
       )}
