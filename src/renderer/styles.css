@@ -1850,7 +1850,7 @@ a.featured-venue:hover .featured-venue-name {
 
 /* Custom gig dropdown — half again the size of a standard control (it's
    the tab's steering wheel): gig name left, receipt count pinned right. */
-.gigpick { position: relative; flex: 1; max-width: 690px; }
+.gigpick { position: relative; flex: 1; max-width: 690px; min-width: 0; }
 
 .gigpick-btn {
   width: 100%;
@@ -2181,5 +2181,4 @@ a.featured-venue:hover .featured-venue-name {
   .exp-receipt-row .exp-x { order: 6; }
   .exp-in-cat { width: 128px; }
   .exp-actions { flex-wrap: wrap; row-gap: 8px; }
-  .exp-gig-bar { flex-wrap: wrap; }
 }
