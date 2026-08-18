@@ -2182,3 +2182,19 @@ a.featured-venue:hover .featured-venue-name {
   .exp-in-cat { width: 128px; }
   .exp-actions { flex-wrap: wrap; row-gap: 8px; }
 }
+
+/* "Saved!" confirmation beside the Settings Save buttons: fades in fast,
+   holds, fades away — no layout jump, no click needed. */
+.save-flash {
+  color: #7cd9a0;
+  font-size: 13px;
+  font-weight: 600;
+  animation: save-flash 2.8s ease forwards;
+}
+
+@keyframes save-flash {
+  0%   { opacity: 0; transform: translateX(6px); }
+  10%  { opacity: 1; transform: none; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}

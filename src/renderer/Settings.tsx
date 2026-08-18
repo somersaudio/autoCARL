@@ -16,6 +16,9 @@ const IDLE: SaveState = { tone: 'idle', message: '' };
 type Tab = 'general' | 'earnings';
 
 export default function SettingsModal({ open, onClose, onSaved }: Props) {
+  // "Saved!" flash beside whichever Save was clicked; n keys the animation
+  // so saving again replays it.
+  const [savedFlash, setSavedFlash] = useState<{ tab: 'general' | 'earnings'; n: number } | null>(null);
   // Which tab is showing. Persists across open/close within a session, matching
   // how the main Bookings/Timesheet tabs behave.
   const [tab, setTab] = useState<Tab>('general');
@@ -78,6 +81,9 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
 
   if (!open) return null;
 
+  const flash = (tab: 'general' | 'earnings') =>
+    setSavedFlash((f) => ({ tab, n: (f?.n ?? 0) + 1 }));
+
   const saveDefaults = async () => {
     setBusy(true);
     const parsedRate = parseFloat(dailyRate);
@@ -90,7 +96,9 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
     });
     setBusy(false);
     onSaved(next);
-    onClose();
+    // Let "Saved!" register before the modal goes away.
+    flash('general');
+    window.setTimeout(onClose, 900);
   };
 
   // Parse a numeric text field, clamping to [0, max]. Empty / garbage → 0,
@@ -112,6 +120,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
     });
     setEarningsBusy(false);
     onSaved(next);
+    flash('earnings');
   };
 
   // Checkbox applies immediately so the estimate on the bookings card updates
@@ -222,6 +231,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
           you log in with.
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          {savedFlash?.tab === 'general' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}
           <button className="primary" onClick={saveDefaults} disabled={busy || !start || !end}>
             {busy ? 'Saving…' : 'Save'}
           </button>
@@ -336,6 +346,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
           always shown on its own line.
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
+          {savedFlash?.tab === 'earnings' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}
           <button className="primary" onClick={saveEarnings} disabled={earningsBusy}>
             {earningsBusy ? 'Saving…' : 'Save'}
           </button>
