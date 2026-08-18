@@ -6,6 +6,7 @@ import { friendlyError } from '../shared/errors';
 import {
   COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
 } from '../shared/expense-form-layout';
+import { CAT_ORDER } from '../shared/expense-logic';
 import sheetPng from './assets/expense-sheet@2x.png';
 
 // The Expense Reports tab: drop receipts in, the app reads them (on-device
@@ -43,6 +44,28 @@ function fmtRange(start: string, end: string): string {
     return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
   };
   return start === end ? f(start) : `${f(start)} – ${f(end)}`;
+}
+
+// The form's rows mirror the receipts list above them: the form's own
+// column order (Lodging … Misc.), then amount low to high; miles-only
+// lines close the report. Keyed off the rows themselves — each receipt-
+// backed row carries exactly one money column.
+function rowSortKey(row: ExpenseRow): [number, number] {
+  for (let c = 0; c < CAT_ORDER.length; c++) {
+    const v = row[CAT_ORDER[c] as (typeof MONEY_COLS)[number]];
+    if (v > 0) return [c, v];
+  }
+  return [CAT_ORDER.length, 0];
+}
+
+function orderRows(rows: ExpenseRow[]): ExpenseRow[] {
+  return rows.map((row, i) => ({ row, i }))
+    .sort((a, b) => {
+      const ka = rowSortKey(a.row);
+      const kb = rowSortKey(b.row);
+      return ka[0] - kb[0] || ka[1] - kb[1] || a.i - b.i;
+    })
+    .map((x) => x.row);
 }
 
 function mileageDollars(row: ExpenseRow, rate: number): number {
@@ -136,7 +159,8 @@ export default function ExpensesTab({ bookings }: Props) {
       // Reports saved before the gig link existed get stamped on open —
       // without this, deleting every row erases the report's inferred
       // identity mid-edit and this effect resurrects the stale saved copy.
-      const stamped = rep.bookingId ? rep : { ...rep, bookingId: selectedGig };
+      const stamped0 = rep.bookingId ? rep : { ...rep, bookingId: selectedGig };
+      const stamped = { ...stamped0, rows: orderRows(stamped0.rows) };
       setDraft(stamped);
       setExportedPath(null);
       // A report saved before the app knew who the user is (fresh phone:
@@ -250,7 +274,7 @@ export default function ExpensesTab({ bookings }: Props) {
         // survive unless the receipt's own description actually changed.
         if (before.description !== after.description) r.description = after.description;
         rows[i] = r;
-        return { ...d, rows };
+        return { ...d, rows: orderRows(rows) };
       }
       if (after) {                              // fresh drop → new line
         const b = bookings.find((x) => x.bookingId === after.bookingId);
@@ -263,7 +287,7 @@ export default function ExpensesTab({ bookings }: Props) {
           [after.category]: after.amount,
           receiptIds: [after.id],
         });
-        return { ...d, rows };
+        return { ...d, rows: orderRows(rows) };
       }
       return d;
     });
