@@ -10,8 +10,10 @@ import runnerLogo from './assets/aim-runner.png';
 // AIM-to-AUTOcarl mapping:
 //   Sign On screen      -> enrollment
 //   Buddies group       -> friends on your show (overlap = same jobNumber)
-//   Nearby group        -> friends in the same city on overlapping dates
-//   Co-Workers group    -> other friends with schedules (they ARE co-workers)
+//   Buddies group       -> friends on a show WITH you (the only case where
+//                          gig details are ever revealed — the server sends
+//                          nothing but the intersection)
+//   Co-Workers group    -> friends sharing schedules, no mutual show right now
 //   Offline group       -> friends who haven't shared a schedule yet
 //   Away message        -> their next gig (or the overlap line)
 //   List Setup tab      -> add friend / pending invites / account
@@ -93,8 +95,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             <span className="aim-fineprint">(relax — there is no password)</span>
           </div>
           <p className="aim-fineprint" style={{ maxWidth: 240 }}>
-            Friends you approve see your upcoming shows — job, city, dates,
-            nothing more — and you see theirs. Both sides must accept.
+            Friends only ever see shows you're BOTH booked on — job, city,
+            dates of the shared gig, nothing else. Both sides must accept.
           </p>
           <div className="aim-actions">
             <button
@@ -117,10 +119,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
   // ---------- Buddy List ----------
   const accepted = list?.accepted ?? [];
+  // The server only ever sends gigs you SHARE (intersection by job number),
+  // so empty gigs means "no mutual shows" — updatedAt tells that apart from
+  // "never shared a schedule at all".
   const buddies = accepted.filter((f) => overlapKindForFriend(f, upcoming) === 'gig');
-  const nearby = accepted.filter((f) => overlapKindForFriend(f, upcoming) === 'near');
-  const coworkers = accepted.filter((f) => !overlapKindForFriend(f, upcoming) && f.gigs.length > 0);
-  const offline = accepted.filter((f) => f.gigs.length === 0);
+  const coworkers = accepted.filter((f) => overlapKindForFriend(f, upcoming) !== 'gig' && f.updatedAt);
+  const offline = accepted.filter((f) => overlapKindForFriend(f, upcoming) !== 'gig' && !f.updatedAt);
   const total = accepted.length;
   const incoming = list?.incoming ?? [];
   const outgoing = list?.outgoing ?? [];
@@ -155,7 +159,13 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         {away && !expanded && <div className="aim-away">{away}</div>}
         {expanded && (
           <div className="aim-profile">
-            {f.gigs.length === 0 && <div className="aim-away">No schedule shared yet.</div>}
+            {f.gigs.length === 0 && (
+              <div className="aim-away">
+                {f.updatedAt
+                  ? 'No shows together right now — gigs only show when you\u2019re both on them.'
+                  : 'No schedule shared yet.'}
+              </div>
+            )}
             {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g) => {
               const k = gigOverlapKind(g, upcoming);
               return (
@@ -224,7 +234,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             </div>
           )}
           {group('Buddies', buddies)}
-          {group('Nearby', nearby)}
           {group('Co-Workers', coworkers)}
           {group('Offline', offline, true)}
           {total === 0 && incoming.length === 0 && (
@@ -270,8 +279,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           )}
           <div className="aim-setup-section">Account</div>
           <div className="aim-fineprint" style={{ margin: '2px 2px' }}>
-            Signed on as <b>{myName}</b>. Friends see your upcoming shows —
-            job, city, dates — nothing more. To leave entirely, ask John.
+            Signed on as <b>{myName}</b>. Friends only ever see the shows
+            you share with them — nothing else. To leave entirely, ask John.
           </div>
         </div>
       )}
@@ -386,20 +395,15 @@ function overlapKindForFriend(f: FriendEntry, mine: Booking[]): 'gig' | 'near' |
   return best;
 }
 
-// The buddy's "away message": the overlap if there is one, else their next gig.
+// The buddy's "away message": the shared show, or nothing. Privacy model:
+// a gig is only ever mentioned when you're BOTH on it.
 function awayMessage(f: FriendEntry, mine: Booking[]): string {
   for (const g of f.gigs) {
     if (gigOverlapKind(g, mine) === 'gig') {
       return `with you on ${g.jobName} · ${fmtRange(g.start, g.end)}`;
     }
   }
-  for (const g of f.gigs) {
-    if (gigOverlapKind(g, mine) === 'near') {
-      return `in ${g.city} while you're there · ${fmtRange(g.start, g.end)}`;
-    }
-  }
-  const next = [...f.gigs].sort((a, b) => a.start.localeCompare(b.start))[0];
-  return next ? `${next.jobName} (${next.city}) · ${fmtRange(next.start, next.end)}` : '';
+  return '';
 }
 
 function fmtRange(start: string, end: string): string {

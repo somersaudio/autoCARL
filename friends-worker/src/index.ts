@@ -205,6 +205,18 @@ export default {
       }
 
       if (route === 'GET /v1/friends') {
+        // PRIVACY MODEL: a friend only ever sees the gigs you SHARE — the
+        // intersection by job number — never your whole schedule. Publishing
+        // a full schedule to the server is what makes the intersection
+        // computable; revealing it wholesale is exactly what we don't do.
+        const mine = await env.DB.prepare(
+          'SELECT gigs_json FROM schedules WHERE user_id = ?1',
+        ).bind(me.id).first<{ gigs_json: string | null }>();
+        const myJobs = new Set(
+          (mine?.gigs_json ? JSON.parse(mine.gigs_json) as Gig[] : [])
+            .map((g) => g.jobNumber).filter(Boolean),
+        );
+
         const rows = await env.DB.prepare(
           `SELECT u.email, u.name, f.status, f.requester_id = ?1 AS outgoing,
                   s.gigs_json, s.updated_at
@@ -219,10 +231,11 @@ export default {
         const accepted = [], incoming = [], outgoing = [];
         for (const r of rows.results) {
           if (r.status === 'accepted') {
+            const theirs = r.gigs_json ? JSON.parse(r.gigs_json) as Gig[] : [];
             accepted.push({
               email: r.email, name: r.name,
-              // Schedules are only ever revealed on accepted edges.
-              gigs: r.gigs_json ? JSON.parse(r.gigs_json) as Gig[] : [],
+              // Only shared shows cross the wire.
+              gigs: theirs.filter((g) => myJobs.has(g.jobNumber)),
               updatedAt: r.updated_at,
             });
           } else if (r.outgoing) {
