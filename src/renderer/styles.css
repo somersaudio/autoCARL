@@ -2075,8 +2075,14 @@ a.featured-venue:hover .featured-venue-name {
 
   .app { padding-left: 14px; padding-right: 14px; }
 
+  /* Clear the phone's status bar (the page renders beneath it in
+     standalone mode) and center the logo row so the wordmark never sits
+     under the clock. The tabs row is full-width, so centering only moves
+     the logo + wordmark. */
+  .app { padding-top: calc(env(safe-area-inset-top, 0px) + 10px); }
+
   /* Header: tabs take their own full row instead of fighting the logo. */
-  .app-header { flex-wrap: wrap; }
+  .app-header { flex-wrap: wrap; justify-content: center; }
 
   .app-tabs {
     margin-left: 0;
