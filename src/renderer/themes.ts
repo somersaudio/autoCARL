@@ -48,13 +48,13 @@ export const THEMES: Theme[] = [
       '--bg': '#000000',
       '--panel': 'rgba(0, 16, 4, 0.72)',
       '--panel-2': 'rgba(0, 26, 8, 0.78)',
-      '--border': 'rgba(0, 255, 102, 0.22)',
+      '--border': 'rgba(0, 255, 70, 0.22)',
       '--text': '#ffffff',
       '--text-subtle': 'rgba(255, 255, 255, 0.6)',
       // Wherever the CT Gold theme uses gold (tab pill, accents), digital
-      // rain swaps in the bright matrix-green instead — keeps the "accent"
-      // role consistent across themes.
-      '--ct-gold': '#00ff66',
+      // rain swaps in THE rain's own phosphor green — the same rgb(0,255,70)
+      // MatrixRain paints, so the UI accent and the falling code match.
+      '--ct-gold': '#00ff46',
     },
   },
 ];
