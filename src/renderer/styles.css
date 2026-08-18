@@ -2224,3 +2224,19 @@ a.featured-venue:hover .featured-venue-name {
   resize: vertical;
 }
 .compose-body:focus { border-color: var(--ct-gold); }
+
+/* Email Report helper (web): recipients + subject, one Copy each. */
+.exp-mailhelp-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0;
+  border-top: 1px solid var(--border);
+}
+.exp-mailhelp-row:first-of-type { border-top: none; }
+.exp-mailhelp-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  word-break: break-word;
+}

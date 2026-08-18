@@ -386,11 +386,6 @@ export type Api = {
     // Opens a Mail draft to the gig's PM, LC and payroll with the form PDF
     // attached first and every receipt PDF after it. Nothing auto-sends.
     mailReport: (report: ExpenseReport) => Promise<void>;
-    // Web only: SEND the report email (recipients/subject/body reviewed by
-    // the user in the in-app compose card) through the server — the browser
-    // can't hand Mail both attachments and recipients. Desktop leaves this
-    // undefined and uses mailReport's AppleScript draft instead.
-    sendReportEmail?: (report: ExpenseReport, opts: { to: string[]; subject: string; body: string }) => Promise<void>;
     // Electron ≥32 removed File.path — this wraps webUtils.getPathForFile so
     // drag-and-dropped receipts resolve to real filesystem paths.
     pathForFile: (file: File) => string;

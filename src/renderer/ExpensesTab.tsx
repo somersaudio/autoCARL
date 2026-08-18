@@ -91,11 +91,10 @@ export default function ExpensesTab({ bookings }: Props) {
   const [selectedGig, setSelectedGig] = useState('');
   const [armedId, setArmedId] = useState<string | null>(null);
   const [exportedPath, setExportedPath] = useState<string | null>(null);
-  // Web-only compose card (the phone's Export to Mail): prefills PM/LC/
-  // payroll + the shared message template; the user reviews, then the
-  // server sends with the PDFs attached.
-  const [compose, setCompose] = useState<{ to: string; subject: string; body: string } | null>(null);
-  const [sendBusy, setSendBusy] = useState(false);
+  // Web-only Email Report helper: the share sheet hands the PDFs to the
+  // user's OWN Mail; recipients + subject are pre-copied/copyable here —
+  // iOS won't let a web page hand Mail both attachments and recipients.
+  const [mailHelp, setMailHelp] = useState<{ recipients: string; subject: string; copied: boolean } | null>(null);
   const armTimer = useRef<number | null>(null);
   // Latest cache for effect closures that must not re-run on cache changes.
   const cacheRef = useRef<ExpensesCache | null>(null);
@@ -384,9 +383,11 @@ export default function ExpensesTab({ bookings }: Props) {
     void ingestFileObjects(files);
   };
 
-  // Web: open the compose card with recipients + message prefilled, exactly
-  // what the desktop's Mail draft would contain.
-  const openCompose = async () => {
+  // Web's Email Report: copy the recipients while we still hold the tap's
+  // clipboard permission, surface them (with the subject) to paste from,
+  // then run the same share flow as Share PDFs — picking Mail in the sheet
+  // starts a draft from the user's own account with everything attached.
+  const emailReport = async () => {
     if (!draft) return;
     const booking = bookingById.get(draftGigId(draft)) || null;
     let contacts: { pmEmail?: string; lcEmail?: string } | undefined;
@@ -395,31 +396,19 @@ export default function ExpensesTab({ bookings }: Props) {
     } catch { /* contacts cache unavailable — payroll alone still works */ }
     const recipients = [...new Set(
       [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
-    )];
-    const { subject, body } = expenseMailDraft(booking, draft.name);
-    setCompose({ to: recipients.join(', '), subject, body });
+    )].join(', ');
+    const { subject } = expenseMailDraft(booking, draft.name);
+    let copied = false;
+    try { await navigator.clipboard.writeText(recipients); copied = true; } catch { /* clipboard denied */ }
+    setMailHelp({ recipients, subject, copied });
+    await exportPdf();
   };
 
-  const sendCompose = async () => {
-    const send = window.api.expenses.sendReportEmail;
-    if (!draft || !compose || !send) return;
-    const to = compose.to.split(/[,;\s]+/).map((s) => s.trim()).filter((s) => /@/.test(s));
-    if (!to.length) { setError('Add at least one recipient email.'); return; }
-    setSendBusy(true);
-    setError(null);
-    try {
-      await send(draft, { to, subject: compose.subject, body: compose.body });
-      setCompose(null);
-      setExportedPath('emailed');
-      setCache(await window.api.expenses.getCached());
-    } catch (e) {
-      setError(friendlyError(e, !navigator.onLine));
-    } finally {
-      setSendBusy(false);
-    }
+  const copyText = async (text: string) => {
+    try { await navigator.clipboard.writeText(text); } catch { /* denied */ }
   };
 
-  // ---- receipt edits ----
+  // ---- receipt edits ----  // ---- receipt edits ----
 
   const patchReceipt = (id: string, patch: Partial<ExpenseReceipt>) => {
     const before = receipts.find((r) => r.id === id) || null;
@@ -685,11 +674,11 @@ export default function ExpensesTab({ bookings }: Props) {
               </button>
             )}
             {IS_WEB && (
-              <button className="primary" onClick={() => void openCompose()} disabled={exportBusy || sendBusy}>
+              <button className="primary" onClick={() => void emailReport()} disabled={exportBusy}>
                 Email Report
               </button>
             )}
-            <button className="secondary" onClick={exportPdf} disabled={exportBusy || mailBusy || sendBusy}>
+            <button className="secondary" onClick={exportPdf} disabled={exportBusy || mailBusy}>
               {exportBusy ? (IS_WEB ? 'Building PDFs…' : 'Exporting…') : IS_WEB ? 'Share PDFs' : 'Export to Folder'}
             </button>
             {exportedPath && (
@@ -716,55 +705,26 @@ export default function ExpensesTab({ bookings }: Props) {
         </div>
       )}
 
-      {/* ---- compose card (web's Export to Mail) ---- */}
-      {compose && (
-        <div className="modal-backdrop" onClick={() => !sendBusy && setCompose(null)}>
-          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="row-between">
-              <h2 style={{ margin: 0 }}>Email report</h2>
-              <button className="link" onClick={() => setCompose(null)} disabled={sendBusy}>✕</button>
-            </div>
-            <div className="field">
-              <label>To</label>
-              <input
-                type="text"
-                value={compose.to}
-                onChange={(e) => setCompose({ ...compose, to: e.target.value })}
-                disabled={sendBusy}
-              />
-            </div>
-            <div className="field">
-              <label>Subject</label>
-              <input
-                type="text"
-                value={compose.subject}
-                onChange={(e) => setCompose({ ...compose, subject: e.target.value })}
-                disabled={sendBusy}
-              />
-            </div>
-            <div className="field">
-              <label>Message</label>
-              <textarea
-                className="compose-body"
-                rows={6}
-                value={compose.body}
-                onChange={(e) => setCompose({ ...compose, body: e.target.value })}
-                disabled={sendBusy}
-              />
-            </div>
-            <p className="subtle" style={{ fontSize: 12 }}>
-              Attached: the filled CT form and {(draft?.rows ?? []).reduce((a, r) => a + r.receiptIds.length, 0)} receipt
-              PDF{(draft?.rows ?? []).reduce((a, r) => a + r.receiptIds.length, 0) === 1 ? '' : 's'}. You're CC'd a copy;
-              replies come to you.
-            </p>
-            {/* Errors must surface HERE — the page banner sits behind this
-                card, and an invisible failure reads as a silent success. */}
-            {error && <div className="banner error">{error}</div>}
-            <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
-              <button className="primary" onClick={() => void sendCompose()} disabled={sendBusy}>
-                {sendBusy ? 'Sending…' : 'Send'}
-              </button>
-            </div>
+      {/* ---- Email Report helper (web) ---- */}
+      {mailHelp && (
+        <div className="card exp-mailhelp">
+          <div className="row-between">
+            <h3 style={{ margin: 0 }}>Finish the email in Mail</h3>
+            <button className="link exp-x" onClick={() => setMailHelp(null)}>×</button>
+          </div>
+          <p className="subtle" style={{ fontSize: 12, margin: '8px 0 4px' }}>
+            Choose <b>Mail</b> in the share sheet — the PDFs attach to a new
+            draft from your own account. Then paste the recipients
+            {mailHelp.copied ? ' (already on your clipboard)' : ''} and add the
+            subject:
+          </p>
+          <div className="exp-mailhelp-row">
+            <span className="exp-mailhelp-text">{mailHelp.recipients}</span>
+            <button className="link" onClick={() => void copyText(mailHelp.recipients)}>Copy</button>
+          </div>
+          <div className="exp-mailhelp-row">
+            <span className="exp-mailhelp-text">{mailHelp.subject}</span>
+            <button className="link" onClick={() => void copyText(mailHelp.subject)}>Copy</button>
           </div>
         </div>
       )}
