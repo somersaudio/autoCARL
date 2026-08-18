@@ -129,15 +129,8 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
   return (
     <canvas
       ref={canvasRef}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        width: '100vw',
-        height: '100vh',
-        pointerEvents: 'none',
-        opacity,
-        zIndex: 0,
-      }}
+      className="backdrop-canvas"
+      style={{ opacity }}
     />
   );
 }

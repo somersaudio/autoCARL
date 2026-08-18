@@ -334,15 +334,8 @@ export default function Starfield({ opacity = 0.9 }: { opacity?: number }) {
   return (
     <canvas
       ref={canvasRef}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        width: '100vw',
-        height: '100vh',
-        pointerEvents: 'none',
-        opacity,
-        zIndex: 0,
-      }}
+      className="backdrop-canvas"
+      style={{ opacity }}
     />
   );
 }

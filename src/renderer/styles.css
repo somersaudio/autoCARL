@@ -2146,3 +2146,17 @@ a.featured-venue:hover .featured-venue-name {
   /* Bigger thumb target for the ✕. */
   .modal-card .row-between .link { padding: 6px 10px; }
 }
+
+/* Backdrop canvases (starfield / rain). 100vh on iOS is the SMALL viewport
+   — with browser chrome collapsed the screen is taller, and the backdrop
+   used to stop short of the bottom on shallow tabs. dvh tracks the real
+   visible height; vh stays as the fallback for older engines. */
+.backdrop-canvas {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  pointer-events: none;
+  z-index: 0;
+}
