@@ -2066,3 +2066,35 @@ a.featured-venue:hover .featured-venue-name {
   /* Give the headline the room the logo leaves — never a skinny column. */
   .featured-headline { flex: 1 1 60%; }
 }
+
+/* ---- no sideways scrolling on phones ----
+   The page itself must never pan horizontally. Anything genuinely wider
+   than a phone (the timesheet's day grid) scrolls INSIDE its own card. */
+@media (max-width: 560px) {
+  body { overflow-x: hidden; }
+
+  .app { padding-left: 14px; padding-right: 14px; }
+
+  /* Header: tabs take their own full row instead of fighting the logo. */
+  .app-header { flex-wrap: wrap; }
+
+  .app-tabs {
+    margin-left: 0;
+    order: 3;
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .app-tabs .tab { padding: 6px 10px; font-size: 13px; flex: 1; text-align: center; }
+
+  /* Name + ID live in the timesheet footer; the header hasn't the room. */
+  .app-user { display: none; }
+
+  /* Timesheet: the 8-column day grid keeps its shape and scrolls within
+     the card — the page stays put. */
+  .week-grid { overflow-x: auto; padding-bottom: 4px; }
+  .day-row { min-width: 660px; }
+  .week-totals { flex-wrap: wrap; }
+  .row-between { flex-wrap: wrap; row-gap: 8px; }
+  .identity-panel-grid { grid-template-columns: 1fr; }
+}
