@@ -12,7 +12,6 @@ type Drop = {
   y: number;
   speed: number;
   chars: string[];
-  greenShade: number;
 };
 
 function randomChars(len: number): string[] {
@@ -59,28 +58,32 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
           y: Math.random() * -50,
           speed: (0.5 + Math.random() * 1.5) / 8,
           chars: randomChars(8 + Math.floor(Math.random() * 18)),
-          greenShade: Math.floor(Math.random() * 6),
         };
       }
     };
     initDrops();
 
-    const baseGreens: [number, number, number][] = [
-      [0, 255, 0], [0, 204, 0], [0, 153, 0],
-      [51, 255, 51], [0, 255, 102], [102, 255, 0],
-    ];
-
-    const getColor = (shade: number, trailIdx: number, trailLen: number) => {
-      const base = baseGreens[shade % baseGreens.length];
-      const f = 1 - trailIdx / trailLen;
-      return `rgb(${Math.floor(base[0] * f)}, ${Math.floor(base[1] * f)}, ${Math.floor(base[2] * f)})`;
+    // ONE phosphor green, movie-style — columns differ only in brightness
+    // along the trail, never in hue (the old per-column hue mix read as
+    // "weird green"). The head glyph is WHITE with a halo, always.
+    const GREEN = [0, 255, 70] as const;
+    const trailColor = (trailIdx: number, trailLen: number) => {
+      // Concave fade: the column holds near-full green through most of its
+      // length (like the film) and only dims toward the tail, to ~15%.
+      const x = (trailIdx - 1) / Math.max(1, trailLen - 1);
+      const f = Math.max(0.15, 1 - Math.pow(x, 1.7) * 0.9);
+      return `rgb(${Math.floor(GREEN[0] * f)}, ${Math.floor(GREEN[1] * f)}, ${Math.floor(GREEN[2] * f)})`;
     };
 
     const draw = () => {
       // Full black fill each frame — gives a hard background since we sit
       // inside a fixed canvas that the rest of the UI floats above.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.fillStyle = '#000000';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // The film mirrors its glyphs — flipping the whole canvas mirrors
+      // every character (and costs nothing per glyph).
+      ctx.setTransform(-1, 0, 0, 1, canvas.width, 0);
       ctx.font = `${fontSize}px monospace`;
 
       for (let i = 0; i < drops.length; i++) {
@@ -88,16 +91,22 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
         const headY = drop.y * fontSize;
         const len = drop.chars.length;
 
-        for (let t = 0; t < len; t++) {
+        // Trail: single green hue with a soft phosphor glow, dimming down
+        // the tail. One shadow state per column keeps phones smooth.
+        ctx.shadowColor = 'rgba(0, 255, 70, 0.8)';
+        ctx.shadowBlur = 6;
+        for (let t = 1; t < len; t++) {
           const charY = headY - t * fontSize;
           if (charY < 0 || charY > canvas.height + fontSize) continue;
-          ctx.fillStyle = getColor(drop.greenShade, t, len);
+          ctx.fillStyle = trailColor(t, len);
           ctx.fillText(drop.chars[t], i * columnWidth, charY);
         }
 
-        // Random head-flash to bright white — gives the column a "pulse".
-        if (Math.random() > 0.98) {
-          ctx.fillStyle = '#ffffff';
+        // The falling head: white-hot with a wider halo, like the film.
+        if (headY >= 0 && headY <= canvas.height + fontSize) {
+          ctx.shadowColor = 'rgba(200, 255, 210, 0.9)';
+          ctx.shadowBlur = 10;
+          ctx.fillStyle = '#f4fff5';
           ctx.fillText(drop.chars[0], i * columnWidth, headY);
         }
 
@@ -107,9 +116,9 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
           drop.y = Math.random() * -20;
           drop.speed = (0.5 + Math.random() * 1.5) / 8;
           drop.chars = randomChars(8 + Math.floor(Math.random() * 18));
-          drop.greenShade = Math.floor(Math.random() * 6);
         }
       }
+      ctx.shadowBlur = 0;
 
       animationRef.current = requestAnimationFrame(draw);
     };
