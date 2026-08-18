@@ -25,7 +25,7 @@ export const THEMES: Theme[] = [
     name: 'Constellations',
     backdrop: 'stars',
     vars: {
-      '--bg': '#04070d',
+      '--bg': '#0a1020',   // matches the starfield gradient's horizon end
       '--panel': 'rgba(10, 16, 30, 0.72)',
       '--panel-2': 'rgba(14, 22, 40, 0.78)',
       '--border': 'rgba(140, 170, 255, 0.20)',

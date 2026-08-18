@@ -18,6 +18,14 @@ html, body, #root {
   margin: 0;
 }
 
+/* Standalone iOS sizes the document to a viewport that EXCLUDES the bottom
+   home-indicator inset and composes the leftover band with the page
+   background — over fixed content. Extending the document under the
+   indicator removes the band; everywhere else the inset is 0. */
+body {
+  min-height: calc(100% + env(safe-area-inset-bottom, 0px));
+}
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen,
     Ubuntu, Cantarell, sans-serif;
