@@ -6,7 +6,7 @@ import { friendlyError } from '../shared/errors';
 import {
   COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
 } from '../shared/expense-form-layout';
-import { CAT_ORDER, PAYROLL_EMAIL, expenseMailDraft } from '../shared/expense-logic';
+import { CAT_ORDER, PAYROLL_EMAIL } from '../shared/expense-logic';
 import sheetPng from './assets/expense-sheet@2x.png';
 
 // The Expense Reports tab: drop receipts in, the app reads them (on-device
@@ -94,7 +94,10 @@ export default function ExpensesTab({ bookings }: Props) {
   // Web-only Email Report helper: the share sheet hands the PDFs to the
   // user's OWN Mail; recipients + subject are pre-copied/copyable here —
   // iOS won't let a web page hand Mail both attachments and recipients.
-  const [mailHelp, setMailHelp] = useState<{ recipients: string; subject: string; copied: boolean } | null>(null);
+  const [mailHelp, setMailHelp] = useState<{ recipients: string; copied: boolean } | null>(null);
+  // Center-screen confirmation that the recipients are on the clipboard —
+  // shown for ~2s after tapping Email Report, BEFORE the share sheet opens.
+  const [copyFlash, setCopyFlash] = useState<{ emails: string[]; copied: boolean } | null>(null);
   const armTimer = useRef<number | null>(null);
   // Latest cache for effect closures that must not re-run on cache changes.
   const cacheRef = useRef<ExpensesCache | null>(null);
@@ -394,13 +397,18 @@ export default function ExpensesTab({ bookings }: Props) {
     try {
       contacts = booking ? (await window.api.contacts.getCached())[booking.bookingId] : undefined;
     } catch { /* contacts cache unavailable — payroll alone still works */ }
-    const recipients = [...new Set(
+    const emails = [...new Set(
       [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
-    )].join(', ');
-    const { subject } = expenseMailDraft(booking, draft.name);
+    )];
+    const recipients = emails.join(', ');
     let copied = false;
     try { await navigator.clipboard.writeText(recipients); copied = true; } catch { /* clipboard denied */ }
-    setMailHelp({ recipients, subject, copied });
+    setMailHelp({ recipients, copied });
+    // Flash the copied recipients center-screen, then hand off to the share
+    // sheet once it fades — the confirmation must land before Mail opens.
+    setCopyFlash({ emails, copied });
+    window.setTimeout(() => setCopyFlash(null), 2300);
+    await new Promise((r) => window.setTimeout(r, 2150));
     await exportPdf();
   };
 
@@ -714,18 +722,26 @@ export default function ExpensesTab({ bookings }: Props) {
           </div>
           <p className="subtle" style={{ fontSize: 12, margin: '8px 0 4px' }}>
             Choose <b>Mail</b> in the share sheet — the PDFs attach to a new
-            draft from your own account with the message filled in. iPhone
-            leaves the subject box empty on shared files, so paste these two
-            in: recipients{mailHelp.copied ? ' (already on your clipboard)' : ''},
-            then the subject.
+            draft from your own account with the message filled in. Paste the
+            recipients into To{mailHelp.copied ? ' — they\u2019re already on your clipboard' : ''}:
           </p>
           <div className="exp-mailhelp-row">
             <span className="exp-mailhelp-text">{mailHelp.recipients}</span>
             <button className="link" onClick={() => void copyText(mailHelp.recipients)}>Copy</button>
           </div>
-          <div className="exp-mailhelp-row">
-            <span className="exp-mailhelp-text">{mailHelp.subject}</span>
-            <button className="link" onClick={() => void copyText(mailHelp.subject)}>Copy</button>
+        </div>
+      )}
+
+      {copyFlash && (
+        <div className="copy-flash">
+          <div className="copy-flash-card">
+            <div className="copy-flash-check">✓</div>
+            <div className="copy-flash-title">
+              {copyFlash.copied ? 'Recipients copied to your clipboard' : 'Recipients for the email'}
+            </div>
+            {copyFlash.emails.map((e) => (
+              <div className="copy-flash-email" key={e}>{e}</div>
+            ))}
           </div>
         </div>
       )}

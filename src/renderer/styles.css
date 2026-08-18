@@ -2240,3 +2240,52 @@ a.featured-venue:hover .featured-venue-name {
   font-size: 12.5px;
   word-break: break-word;
 }
+
+/* Copied-recipients flash: centered, fades in, holds ~1.5s, fades away —
+   shown before the share sheet takes over. */
+.copy-flash {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 200;
+  pointer-events: none;
+}
+.copy-flash-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 22px;
+  max-width: min(320px, calc(100vw - 48px));
+  text-align: center;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
+  animation: copy-flash 2.2s ease forwards;
+}
+.copy-flash-check {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  background: #1d4030;
+  color: #7cd9a0;
+  font-size: 22px;
+  line-height: 40px;
+}
+.copy-flash-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+.copy-flash-email {
+  font-size: 12.5px;
+  color: var(--text-subtle);
+  padding: 1px 0;
+  word-break: break-all;
+}
+@keyframes copy-flash {
+  0%   { opacity: 0; transform: scale(0.92); }
+  10%  { opacity: 1; transform: scale(1); }
+  75%  { opacity: 1; }
+  100% { opacity: 0; }
+}
