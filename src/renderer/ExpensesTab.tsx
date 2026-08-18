@@ -757,6 +757,9 @@ export default function ExpensesTab({ bookings }: Props) {
               PDF{(draft?.rows ?? []).reduce((a, r) => a + r.receiptIds.length, 0) === 1 ? '' : 's'}. You're CC'd a copy;
               replies come to you.
             </p>
+            {/* Errors must surface HERE — the page banner sits behind this
+                card, and an invisible failure reads as a silent success. */}
+            {error && <div className="banner error">{error}</div>}
             <div className="row-actions" style={{ justifyContent: 'flex-end' }}>
               <button className="primary" onClick={() => void sendCompose()} disabled={sendBusy}>
                 {sendBusy ? 'Sending…' : 'Send'}
