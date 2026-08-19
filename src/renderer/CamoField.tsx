@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { blendIntoBase, safeAreaBottom } from './backdrop-blend';
 
 // Icy-blue digital camouflage backdrop, generated procedurally so it fits
 // any screen without tiling seams. The palette is sampled from John's
@@ -82,6 +83,9 @@ export default function CamoField({ opacity = 1 }: { opacity?: number }) {
       // Dark veil: the UI floats above the pattern, not inside it.
       ctx.fillStyle = 'rgba(8, 12, 18, 0.66)';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Melt into the theme's --bg (#0e141c) above the home-indicator strip.
+      blendIntoBase(ctx, canvas.width, canvas.height, safeAreaBottom(), '#0e141c');
     };
 
     paint();

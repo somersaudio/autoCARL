@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { blendIntoBase, safeAreaBottom } from './backdrop-blend';
 
 // Half-width katakana + digits 0–9 + a few latin letters — the classic glyph
 // set from the Matrix opening credits. Each column picks one drop's worth of
@@ -39,11 +40,14 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
     const fontSize = 14;
     const columnWidth = fontSize;
 
+    let inset = 0;
     const resize = () => {
-      // Element box (100vw × 100lvh), not the window — on iOS the window
-      // height changes with Safari's toolbar and can undersize the bitmap.
+      // Element box (100vw × 100lvh + bottom inset), not the window — on iOS
+      // the window height changes with Safari's toolbar and can undersize
+      // the bitmap.
       canvas.width = canvas.clientWidth || window.innerWidth;
       canvas.height = canvas.clientHeight || window.innerHeight;
+      inset = safeAreaBottom();
     };
     resize();
 
@@ -119,6 +123,11 @@ export default function MatrixRain({ opacity = 0.18, speed = 1 }: { opacity?: nu
         }
       }
       ctx.shadowBlur = 0;
+
+      // Rain repaints every frame, so the melt into the home-indicator strip
+      // must too. Un-mirror first so the gradient runs top-to-bottom.
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      blendIntoBase(ctx, canvas.width, canvas.height, inset, '#000000');
 
       animationRef.current = requestAnimationFrame(draw);
     };

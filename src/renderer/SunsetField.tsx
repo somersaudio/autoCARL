@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { blendIntoBase, safeAreaBottom } from './backdrop-blend';
 
 // "For the Girls" — a painted pastel dusk, structured like the reference
 // photo: deep-blue sky up top melting through lavender into pink, streaky
@@ -71,6 +72,10 @@ export default function SunsetField({ opacity = 1 }: { opacity?: number }) {
       // Plum veil — the app floats above the postcard.
       ctx.fillStyle = 'rgba(34, 20, 38, 0.46)';
       ctx.fillRect(0, 0, w, h);
+
+      // #7f625d is the wash's sand bottom (#cfa48c) under the plum veil —
+      // and the theme's --bg, the color iOS paints the home-indicator strip.
+      blendIntoBase(ctx, w, h, safeAreaBottom(), '#7f625d');
     };
 
     paint();

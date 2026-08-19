@@ -9,6 +9,9 @@
   --danger: #ef4444;
   --danger-bg: #2a1414;
   --radius: 10px;
+  /* env() resolved once here so canvas JS (backdrop-blend.ts) can read the
+     bottom home-indicator inset. 0 everywhere except notched-iPhone PWAs. */
+  --sab: env(safe-area-inset-bottom, 0px);
 }
 
 * { box-sizing: border-box; }

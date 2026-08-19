@@ -79,7 +79,10 @@ export const THEMES: Theme[] = [
     name: 'For the Girls',
     backdrop: 'sunset',
     vars: {
-      '--bg': '#221726',
+      // The wash's sand bottom under the plum veil — NOT a plum. iOS paints
+      // the home-indicator strip with this color over the backdrop, so it
+      // must equal the canvas's bottom edge (see backdrop-blend.ts).
+      '--bg': '#7f625d',
       '--panel': 'rgba(46, 28, 50, 0.82)',
       '--panel-2': 'rgba(58, 36, 62, 0.84)',
       '--border': 'rgba(244, 190, 216, 0.32)',
