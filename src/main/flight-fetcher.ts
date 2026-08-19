@@ -8,7 +8,7 @@ import {
   readContactsCache, writeContactsCache,
 } from './store';
 import { parseFlightPdf } from './flight-parser';
-import { gsaRateForZip } from './gsa-perdiem';
+import { gsaRateForCity, gsaRateForZip } from './gsa-perdiem';
 import { fetchBookingDetails, resetCarlSession, drainPostDiags } from './carl-api';
 
 function logSweep(line: string): void {
@@ -90,19 +90,28 @@ export async function sweepFlights(
 
         // ----- contacts (+ per-diem + venue + GSA rate) -----
         // Look up the federal GSA M&IE rate by venue zip when we have one.
-        // Cached per-zip in the gsa module, so this only hits the API on the
+        // CARL often has no venue (and so no zip) until close to the show —
+        // fall back to the booking's own city/state so future gigs still get
+        // a rate. Cached in the gsa module, so this only hits the API on the
         // first booking that visits a new location.
         let gsaPerDiem: number | undefined;
         let gsaCity: string | undefined;
+        let gsa = null as Awaited<ReturnType<typeof gsaRateForZip>>;
+        let gsaVia = '';
         if (scraped.venueZip) {
-          const gsa = await gsaRateForZip(scraped.venueZip);
-          if (gsa) {
-            gsaPerDiem = gsa.meals;
-            gsaCity = gsa.city;
-            logSweep(`booking ${booking.bookingId}: GSA zip=${scraped.venueZip} → meals=${gsa.meals} (${gsa.city || '?'}, ${gsa.state || '?'})`);
-          } else {
-            logSweep(`booking ${booking.bookingId}: GSA lookup for zip=${scraped.venueZip} returned nothing`);
-          }
+          gsa = await gsaRateForZip(scraped.venueZip);
+          gsaVia = `zip=${scraped.venueZip}`;
+          if (!gsa) logSweep(`booking ${booking.bookingId}: GSA lookup for zip=${scraped.venueZip} returned nothing`);
+        }
+        if (!gsa && booking.city && booking.state) {
+          gsa = await gsaRateForCity(booking.city, booking.state);
+          gsaVia = `city=${booking.city}, ${booking.state}`;
+          if (!gsa) logSweep(`booking ${booking.bookingId}: GSA city lookup (${booking.city}, ${booking.state}) returned nothing`);
+        }
+        if (gsa) {
+          gsaPerDiem = gsa.meals;
+          gsaCity = gsa.city;
+          logSweep(`booking ${booking.bookingId}: GSA ${gsaVia} → meals=${gsa.meals} (${gsa.city || '?'}, ${gsa.state || '?'})`);
         }
 
         const prevContacts = contacts[booking.bookingId];

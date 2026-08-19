@@ -1,12 +1,14 @@
-// GSA per-diem rate lookup by ZIP code.
+// GSA per-diem rate lookup — by venue ZIP when CARL has one, by city/state
+// otherwise (venues often aren't assigned until close to the show).
 //
 // Hits the official GSA per-diem API at api.gsa.gov. Free, requires an
 // API key from api.data.gov — we default to "DEMO_KEY" which works without
 // registration but is rate-limited (30 req/hour, 50 req/day per IP). For
 // heavier use, drop a real key into src/main/secrets.ts as GSA_API_KEY.
 //
-// We cache responses per (zip, year) in memory for the app's lifetime so
-// the rate limit only bites on first encounter.
+// We cache real answers (and definitive "no rate" answers) per lookup+year
+// in memory for the app's lifetime; transient failures are NOT cached, so
+// a rate-limited or offline first sweep can succeed on a later one.
 
 import { net } from 'electron';
 
@@ -24,7 +26,7 @@ export type GsaRate = {
   lodging?: number;    // varies by month — average if unavailable
   city?: string;
   state?: string;
-  zip: string;
+  zip?: string;        // present on zip lookups only
   year: number;
 };
 
@@ -56,14 +58,12 @@ function fetchJson(url: string): Promise<unknown> {
   });
 }
 
-export async function gsaRateForZip(zip: string): Promise<GsaRate | null> {
-  const cleaned = zip.trim().slice(0, 5);
-  if (!/^\d{5}$/.test(cleaned)) return null;
+async function fetchRates(pathSeg: string, cacheKey: string, extra: Partial<GsaRate>): Promise<GsaRate | null> {
   const year = fiscalYearForToday();
-  const key = `${cleaned}|${year}`;
+  const key = `${cacheKey}|${year}`;
   if (cache.has(key)) return cache.get(key) ?? null;
 
-  const url = `https://api.gsa.gov/travel/perdiem/v2/rates/zip/${cleaned}/year/${year}?api_key=${encodeURIComponent(API_KEY)}`;
+  const url = `https://api.gsa.gov/travel/perdiem/v2/rates/${pathSeg}/year/${year}?api_key=${encodeURIComponent(API_KEY)}`;
   try {
     const data = await fetchJson(url) as {
       rates?: Array<{
@@ -77,7 +77,7 @@ export async function gsaRateForZip(zip: string): Promise<GsaRate | null> {
     };
     const r = data.rates?.[0]?.rate?.[0];
     if (!r || typeof r.meals !== 'number') {
-      cache.set(key, null);
+      cache.set(key, null);   // definitive: GSA has no rate for this lookup
       return null;
     }
     // Lodging varies per month — take the average if available, just for
@@ -93,13 +93,26 @@ export async function gsaRateForZip(zip: string): Promise<GsaRate | null> {
       lodging,
       city: data.rates?.[0]?.city,
       state: data.rates?.[0]?.state,
-      zip: cleaned,
       year,
+      ...extra,
     };
     cache.set(key, result);
     return result;
   } catch {
-    cache.set(key, null);
+    // Transient (offline, DEMO_KEY rate limit) — don't cache, retry later.
     return null;
   }
+}
+
+export async function gsaRateForZip(zip: string): Promise<GsaRate | null> {
+  const cleaned = zip.trim().slice(0, 5);
+  if (!/^\d{5}$/.test(cleaned)) return null;
+  return fetchRates(`zip/${cleaned}`, `zip:${cleaned}`, { zip: cleaned });
+}
+
+export async function gsaRateForCity(city: string, state: string): Promise<GsaRate | null> {
+  const c = city.trim();
+  const st = state.trim().slice(0, 2).toUpperCase();
+  if (!c || !/^[A-Z]{2}$/.test(st)) return null;
+  return fetchRates(`city/${encodeURIComponent(c)}/state/${st}`, `city:${c.toLowerCase()}|${st}`, {});
 }

@@ -128,12 +128,10 @@ async function withSsw<T>(
 
 // ---- small ports ---------------------------------------------------------
 
-async function gsaRateForZip(env: Env, zip: string): Promise<unknown> {
-  const cleaned = zip.trim().slice(0, 5);
-  if (!/^\d{5}$/.test(cleaned)) return null;
+async function gsaFetch(env: Env, pathSeg: string): Promise<Record<string, unknown> | null> {
   const now = new Date();
   const year = now.getMonth() >= 9 ? now.getFullYear() + 1 : now.getFullYear();
-  const url = `https://api.gsa.gov/travel/perdiem/v2/rates/zip/${cleaned}/year/${year}?api_key=${encodeURIComponent(env.GSA_API_KEY || 'DEMO_KEY')}`;
+  const url = `https://api.gsa.gov/travel/perdiem/v2/rates/${pathSeg}/year/${year}?api_key=${encodeURIComponent(env.GSA_API_KEY || 'DEMO_KEY')}`;
   const res = await fetch(url, { headers: { accept: 'application/json' } });
   if (!res.ok) return null;
   const data = await res.json() as {
@@ -147,9 +145,24 @@ async function gsaRateForZip(env: Env, zip: string): Promise<unknown> {
     lodging: monthly.length ? Math.round(monthly.reduce((a, b) => a + b, 0) / monthly.length) : undefined,
     city: data.rates?.[0]?.city,
     state: data.rates?.[0]?.state,
-    zip: cleaned,
     year,
   };
+}
+
+async function gsaRateForZip(env: Env, zip: string): Promise<unknown> {
+  const cleaned = zip.trim().slice(0, 5);
+  if (!/^\d{5}$/.test(cleaned)) return null;
+  const out = await gsaFetch(env, `zip/${cleaned}`);
+  return out ? { ...out, zip: cleaned } : null;
+}
+
+// CARL often has no venue zip until close to the show — the clients fall
+// back to the booking's own city/state, which GSA also indexes.
+async function gsaRateForCity(env: Env, city: string, state: string): Promise<unknown> {
+  const c = city.trim();
+  const st = state.trim().slice(0, 2).toUpperCase();
+  if (!c || !/^[A-Z]{2}$/.test(st)) return null;
+  return gsaFetch(env, `city/${encodeURIComponent(c)}/state/${st}`);
 }
 
 // Some shows are branded by the EVENT, not the company — map those to the
@@ -360,7 +373,11 @@ export default {
         return json(req, { dataUri: await jobLogo(env, str(b.jobName)) });
       }
       if (path === '/v1/gsa' && req.method === 'GET') {
-        return json(req, await gsaRateForZip(env, url.searchParams.get('zip') || ''));
+        const zip = url.searchParams.get('zip') || '';
+        if (zip) return json(req, await gsaRateForZip(env, zip));
+        return json(req, await gsaRateForCity(
+          env, url.searchParams.get('city') || '', url.searchParams.get('st') || '',
+        ));
       }
 
       // ---- friends (tokens stay client-side; we just relay them) ----

@@ -285,8 +285,11 @@ function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBo
             <span className="featured-when-tag">{relativeWhen(booking.startDate, booking.endDate)}</span>
             <span className="subtle">{formatDateRange(booking.startDate, booking.endDate)}</span>
             {booking.city && <span className="subtle">· {booking.city}, {booking.state}</span>}
-            {contacts.gsaPerDiem && (
-              <span className="subtle">· P/D ${contacts.gsaPerDiem}</span>
+            {/* Prefer the federal GSA rate; fall back to CARL's own stored
+                rate so gigs without a GSA match still show their per diem
+                (the estimator already sums with the same preference). */}
+            {(contacts.gsaPerDiem || contacts.perDiem) && (
+              <span className="subtle">· P/D ${contacts.gsaPerDiem || contacts.perDiem}</span>
             )}
           </div>
         </div>

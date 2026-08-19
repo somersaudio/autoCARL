@@ -385,25 +385,40 @@ type CarlDetails = {
 
 type GsaRateLite = { meals?: number; city?: string };
 
-// Per-zip session cache, like the desktop's gsa-perdiem module cache (the
-// worker owns the fiscal-year logic).
+// Per-lookup session cache, like the desktop's gsa-perdiem module cache (the
+// worker owns the fiscal-year logic). Definitive answers — including "GSA has
+// no rate here" — are cached; transient failures are not, so a flaky first
+// sweep can succeed on a later one.
 const gsaCache = new Map<string, GsaRateLite | null>();
+
+async function gsaFetchCached(query: string, cacheKey: string): Promise<GsaRateLite | null> {
+  if (gsaCache.has(cacheKey)) return gsaCache.get(cacheKey) ?? null;
+  try {
+    const res = await fetch(`${API}/v1/gsa?${query}`);
+    if (!res.ok) return null;
+    const data: unknown = await res.json();
+    const rate = data && typeof data === 'object' ? (data as GsaRateLite) : null;
+    gsaCache.set(cacheKey, rate);
+    return rate;
+  } catch {
+    return null;
+  }
+}
 
 async function gsaRateForZip(zip: string): Promise<GsaRateLite | null> {
   const cleaned = zip.trim().slice(0, 5);
   if (!/^\d{5}$/.test(cleaned)) return null;
-  if (gsaCache.has(cleaned)) return gsaCache.get(cleaned) ?? null;
-  try {
-    const res = await fetch(`${API}/v1/gsa?zip=${encodeURIComponent(cleaned)}`);
-    if (!res.ok) { gsaCache.set(cleaned, null); return null; }
-    const data: unknown = await res.json();
-    const rate = data && typeof data === 'object' ? (data as GsaRateLite) : null;
-    gsaCache.set(cleaned, rate);
-    return rate;
-  } catch {
-    gsaCache.set(cleaned, null);
-    return null;
-  }
+  return gsaFetchCached(`zip=${encodeURIComponent(cleaned)}`, `zip:${cleaned}`);
+}
+
+async function gsaRateForCity(city: string, state: string): Promise<GsaRateLite | null> {
+  const c = city.trim();
+  const st = state.trim().slice(0, 2).toUpperCase();
+  if (!c || !/^[A-Z]{2}$/.test(st)) return null;
+  return gsaFetchCached(
+    `city=${encodeURIComponent(c)}&st=${encodeURIComponent(st)}`,
+    `city:${c.toLowerCase()}|${st}`,
+  );
 }
 
 // Visit each booking's CARL detail data through the worker and merge results
@@ -429,12 +444,16 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
 
         let gsaPerDiem: number | undefined;
         let gsaCity: string | undefined;
-        if (scraped.venueZip) {
-          const gsa = await gsaRateForZip(scraped.venueZip);
-          if (gsa && typeof gsa.meals === 'number') {
-            gsaPerDiem = gsa.meals;
-            gsaCity = gsa.city;
-          }
+        let gsa: GsaRateLite | null = null;
+        if (scraped.venueZip) gsa = await gsaRateForZip(scraped.venueZip);
+        // CARL often has no venue zip until close to the show — fall back to
+        // the booking's own city/state so future gigs still get a rate.
+        if (!(gsa && typeof gsa.meals === 'number') && booking.city && booking.state) {
+          gsa = await gsaRateForCity(booking.city, booking.state);
+        }
+        if (gsa && typeof gsa.meals === 'number') {
+          gsaPerDiem = gsa.meals;
+          gsaCity = gsa.city;
         }
 
         const contacts = readJson<BookingContactsCache>(K.contacts, {});
