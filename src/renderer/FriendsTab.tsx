@@ -56,6 +56,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
   const [signedOut, setSignedOut] = useState(false);
   const [acctEmail, setAcctEmail] = useState('');
+  const [copiedEmail, setCopiedEmail] = useState(false);
   // Own buddy icon (local preview; the server copy is what friends see).
   const [myAvatar, setMyAvatar] = useState('');
   const avatarInputRef = useRef<HTMLInputElement>(null);
@@ -427,6 +428,34 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
               you share with them — nothing else.
             </span>
           </div>
+          {acctEmail && (
+            <>
+              <div className="aim-add-row" style={{ marginTop: 8 }}>
+                <input
+                  className="aim-input"
+                  readOnly
+                  value={acctEmail}
+                  onFocus={(e) => e.currentTarget.select()}
+                  aria-label="Your buddy email"
+                />
+                <button
+                  className="aim-btn aim-btn-sm"
+                  onClick={() => {
+                    void navigator.clipboard.writeText(acctEmail).then(() => {
+                      setCopiedEmail(true);
+                      window.setTimeout(() => setCopiedEmail(false), 1800);
+                    }).catch(() => { /* the field still select-alls on tap */ });
+                  }}
+                >
+                  {copiedEmail ? 'Copied!' : 'Copy'}
+                </button>
+              </div>
+              <div className="aim-fineprint" style={{ margin: '4px 2px' }}>
+                Send a coworker this email — it's the one they Add Buddy with
+                to find you.
+              </div>
+            </>
+          )}
           <div className="aim-actions" style={{ marginTop: 8 }}>
             <button
               className="aim-btn"
