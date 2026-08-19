@@ -300,25 +300,16 @@ export default function TimesheetTab({
   return (
     <>
       <div className="card">
-        <div className="row-between">
-          <div className="row-actions">
-            <WeekPicker value={weekMonday} onChange={onWeekChange} />
-            {week && (
-              <span className="subtle">
-                {week.name} · status {week.statusIndex === 0 ? 'Saved' : `(${week.statusIndex})`}
-              </span>
-            )}
-          </div>
-          <div className="row-actions">
-            {savedFlash && <span className="banner-inline success">✓ Saved</span>}
-            <button
-              className="primary"
-              onClick={handleSave}
-              disabled={!week || saving || loading || isLocked}
-            >
-              {saving ? 'Saving…' : 'Save'}
-            </button>
-          </div>
+        <div className="row-actions">
+          <WeekPicker value={weekMonday} onChange={onWeekChange} />
+          <button
+            className="primary"
+            onClick={handleSave}
+            disabled={!week || saving || loading || isLocked}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {savedFlash && <span className="save-flash">Saved!</span>}
         </div>
         {isLocked && (
           <div className="banner" style={{ marginTop: 8 }}>
