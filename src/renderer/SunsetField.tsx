@@ -18,25 +18,20 @@ export default function SunsetField({ opacity = 1 }: { opacity?: number }) {
     const paint = () => {
       const w = canvas.width = canvas.clientWidth || window.innerWidth;
       const h = canvas.height = canvas.clientHeight || window.innerHeight;
-      const horizon = h * 0.72;   // sky above, beach below — like the photo
+      const horizon = h * 0.72;   // clouds live above this line
 
-      // Sky: dusk blue → periwinkle → lavender → pink → pale glow.
-      const sky = ctx.createLinearGradient(0, 0, 0, horizon);
-      sky.addColorStop(0.00, '#4a6fb5');
-      sky.addColorStop(0.30, '#7d84c4');
-      sky.addColorStop(0.55, '#b795cd');
-      sky.addColorStop(0.80, '#ee9ec0');
-      sky.addColorStop(1.00, '#f6dae3');
-      ctx.fillStyle = sky;
-      ctx.fillRect(0, 0, w, horizon);
-
-      // Beach: wet-sand pinks fading into warm sand.
-      const sand = ctx.createLinearGradient(0, horizon, 0, h);
-      sand.addColorStop(0.00, '#eec4c8');
-      sand.addColorStop(0.35, '#dfb3a8');
-      sand.addColorStop(1.00, '#cfa48c');
-      ctx.fillStyle = sand;
-      ctx.fillRect(0, horizon, w, h - horizon);
+      // One unbroken wash, sky into sand — no seams, no bands: dusk blue →
+      // periwinkle → lavender → pink → pale glow → warm sand.
+      const wash = ctx.createLinearGradient(0, 0, 0, h);
+      wash.addColorStop(0.00, '#4a6fb5');
+      wash.addColorStop(0.22, '#7d84c4');
+      wash.addColorStop(0.40, '#b795cd');
+      wash.addColorStop(0.58, '#ee9ec0');
+      wash.addColorStop(0.72, '#f6dae3');
+      wash.addColorStop(0.84, '#e0b7ae');
+      wash.addColorStop(1.00, '#cfa48c');
+      ctx.fillStyle = wash;
+      ctx.fillRect(0, 0, w, h);
 
       // Clouds: long soft streaks, pinker near the horizon, wispier high up.
       for (let i = 0; i < 26; i++) {
@@ -72,27 +67,6 @@ export default function SunsetField({ opacity = 1 }: { opacity?: number }) {
       ctx.beginPath();
       ctx.arc(mx + mr * 0.5, my - mr * 0.25, mr * 0.9, 0, Math.PI * 2);
       ctx.fill();
-
-      // Foam: a soft white wavering band where surf meets sand.
-      ctx.strokeStyle = 'rgba(250, 244, 246, 0.85)';
-      ctx.lineWidth = Math.max(6, h * 0.012);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      const foamY = horizon + (h - horizon) * 0.32;
-      ctx.moveTo(-20, foamY);
-      const segs = 7;
-      for (let i = 1; i <= segs; i++) {
-        const px = (w + 40) * (i / segs) - 20;
-        const py = foamY + Math.sin(i * 1.7) * (h - horizon) * 0.10 + (Math.random() - 0.5) * 8;
-        ctx.quadraticCurveTo(px - (w / segs) / 2, py + (Math.random() - 0.5) * 14, px, py);
-      }
-      ctx.stroke();
-      // Water above the foam line: pink-reflecting shallows.
-      const shallows = ctx.createLinearGradient(0, horizon, 0, foamY);
-      shallows.addColorStop(0, 'rgba(238, 168, 196, 0.55)');
-      shallows.addColorStop(1, 'rgba(244, 224, 232, 0.25)');
-      ctx.fillStyle = shallows;
-      ctx.fillRect(0, horizon, w, foamY - horizon);
 
       // Plum veil — the app floats above the postcard.
       ctx.fillStyle = 'rgba(34, 20, 38, 0.46)';
