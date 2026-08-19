@@ -19,7 +19,7 @@ type Props = {
 type SaveState = { tone: 'idle' | 'ok' | 'err' | 'busy'; message: string };
 const IDLE: SaveState = { tone: 'idle', message: '' };
 
-type Tab = 'general' | 'earnings';
+type Tab = 'general' | 'earnings' | 'theme';
 
 export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEnableSsw, onLogout }: Props) {
   // Logging out clears logins — destructive enough for a two-click arm.
@@ -192,6 +192,10 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
             className={`tab ${tab === 'earnings' ? 'is-active' : ''}`}
             onClick={() => setTab('earnings')}
           >Earnings &amp; Tax</button>
+          <button
+            className={`tab ${tab === 'theme' ? 'is-active' : ''}`}
+            onClick={() => setTab('theme')}
+          >Theme</button>
         </div>
 
         {tab === 'general' && sswSkipped && (<>
@@ -422,16 +426,6 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         {sswState.message && <CredStatus state={sswState} />}
         </>)}
 
-        {/* ---- Theme picker ---- */}
-        <h3 style={{ marginTop: 22 }}>Theme</h3>
-        <div className="field" style={{ margin: '6px 0 0', maxWidth: 260 }}>
-          <select value={theme} onChange={(e) => changeTheme(e.target.value)}>
-            {THEMES.map((t) => (
-              <option key={t.id} value={t.id}>{t.name}</option>
-            ))}
-          </select>
-        </div>
-
         {/* ---- Logout ---- */}
         <div style={{ marginTop: 26, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
           <button
@@ -447,6 +441,20 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           >
             {logoutArmed ? 'Log out — erase saved logins? Click again' : 'Log Out'}
           </button>
+        </div>
+        </>)}
+
+        {tab === 'theme' && (<>
+        <h3 style={{ marginTop: 18 }}>Theme</h3>
+        <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
+          Applies instantly — no Save needed.
+        </p>
+        <div className="field" style={{ margin: '6px 0 0', maxWidth: 260 }}>
+          <select value={theme} onChange={(e) => changeTheme(e.target.value)}>
+            {THEMES.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
         </div>
         </>)}
 
