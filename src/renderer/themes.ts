@@ -38,7 +38,9 @@ export const THEMES: Theme[] = [
   {
     id: 'default',
     name: 'CT Gold',
-    vars: {}, // use styles.css defaults
+    // Dark black base (John's call — the sky-navy fallback read as blue);
+    // everything else stays on styles.css defaults.
+    vars: { '--bg': '#000000' },
   },
   {
     id: 'digital-rain',
