@@ -46,10 +46,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [confirmRemove, setConfirmRemove] = useState<
     { email: string; label: string; kind: 'buddy' | 'invite' } | null
   >(null);
-  // Set when sign-on attached to an EXISTING account for this email (second
-  // device). Shown once — it's also the tripwire if someone else enrolled
-  // this email first.
-  const [linkedNotice, setLinkedNotice] = useState<string>('');
 
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const upcoming = bookings.filter((b) => parseISOLocal(b.endDate) >= today);
@@ -136,15 +132,9 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const applySignOn = (st: Awaited<ReturnType<typeof window.api.friends.enroll>>, typed: string) => {
     setEnrolled(true);
     setMyName(st.name || typed.trim());
-    if (st.linkedExisting) {
-      const when = st.linkedExisting.accountCreatedAt
-        ? ` (created ${new Date(st.linkedExisting.accountCreatedAt).toLocaleDateString()})`
-        : '';
-      setLinkedNotice(
-        `Signed on to your existing friends account "${st.name}"${when}. ` +
-        'If you never enrolled anywhere before, that account isn’t yours — tell John right away.',
-      );
-    }
+    // Reattaching to an existing account (second device) is the normal case
+    // and shows no notice; the server still records first-verified sign-ons
+    // for auditing.
   };
 
   // One enroll at a time, across remounts. A prior attempt may also have
@@ -368,12 +358,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
       {pane === 'online' && (
         <div className="aim-list">
-          {linkedNotice && (
-            <div className="aim-away" style={{ padding: '6px 8px' }}>
-              {linkedNotice}{' '}
-              <button className="aim-x" title="Dismiss" onClick={() => setLinkedNotice('')}>×</button>
-            </div>
-          )}
           {incoming.length > 0 && (
             <div className="aim-group">
               <div className="aim-group-header as-static">
@@ -456,7 +440,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
                     setSignedOut(true);
                     setList(null);
                     setPane('online');
-                    setLinkedNotice('');
                   } catch (e) {
                     setError(friendlyMsg(e));
                   }
