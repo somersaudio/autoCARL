@@ -141,18 +141,19 @@ function SswForm({ status, onChange }: Props) {
         {busy ? 'Saving…' : 'Finish setup'}
       </button>
 
-      <button
-        className="link"
-        style={{ marginLeft: 10 }}
-        disabled={busy}
-        onClick={async () => {
-          // No SSW account, no problem: skip the step; the Timesheet tab
-          // and timesheet settings stay hidden until they opt back in.
-          onChange(await window.api.setup.setSswSkipped(true));
-        }}
-      >
-        I Do Not Submit TimeSheets Through C.A.R.L.
-      </button>
+      <div style={{ marginTop: 12 }}>
+        <button
+          className="secondary"
+          disabled={busy}
+          onClick={async () => {
+            // No SSW account, no problem: skip the step; the Timesheet tab
+            // and timesheet settings stay hidden until they opt back in.
+            onChange(await window.api.setup.setSswSkipped(true));
+          }}
+        >
+          I Do Not Submit TimeSheets Through C.A.R.L.
+        </button>
+      </div>
     </div>
   );
 }
