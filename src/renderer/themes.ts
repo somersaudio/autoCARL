@@ -4,7 +4,7 @@
 // for themes that include a background effect (digital-rain), so the canvas
 // shows through the cards subtly.
 
-export type ThemeId = 'default' | 'digital-rain' | 'constellation';
+export type ThemeId = 'default' | 'digital-rain' | 'constellation' | 'icy-camo';
 
 export type Theme = {
   id: ThemeId;
@@ -13,7 +13,7 @@ export type Theme = {
   // styles.css; anything you omit falls through to the original value.
   vars: Record<string, string>;
   // Which full-window canvas App.tsx mounts behind everything, if any.
-  backdrop?: 'rain' | 'stars';
+  backdrop?: 'rain' | 'stars' | 'camo';
 };
 
 // Constellations leads: it's the default for fresh installs, the fallback for
@@ -57,6 +57,21 @@ export const THEMES: Theme[] = [
       // rain swaps in THE rain's own phosphor green — the same rgb(0,255,70)
       // MatrixRain paints, so the UI accent and the falling code match.
       '--ct-gold': '#00ff46',
+    },
+  },
+  {
+    id: 'icy-camo',
+    name: 'Icy Blue Camo',
+    backdrop: 'camo',
+    vars: {
+      '--bg': '#0e141c',
+      '--panel': 'rgba(18, 26, 38, 0.84)',
+      '--panel-2': 'rgba(26, 36, 50, 0.86)',
+      '--border': 'rgba(164, 184, 205, 0.26)',
+      '--text': '#eef2f7',
+      '--text-subtle': 'rgba(198, 211, 226, 0.66)',
+      // Accent role (the CT Gold slot): the swatch's icy highlight blue.
+      '--ct-gold': '#a9c9ec',
     },
   },
 ];

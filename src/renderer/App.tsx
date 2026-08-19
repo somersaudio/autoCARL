@@ -11,6 +11,7 @@ import FriendsTab from './FriendsTab';
 import ExpensesTab from './ExpensesTab';
 import MatrixRain from './MatrixRain';
 import Starfield from './Starfield';
+import CamoField from './CamoField';
 import { applyTheme, findTheme } from './themes';
 import logoCT from './assets/logoCT.png';
 
@@ -76,6 +77,7 @@ export default function App() {
   const backdrop =
     theme.backdrop === 'rain' ? <MatrixRain />
     : theme.backdrop === 'stars' ? <Starfield />
+    : theme.backdrop === 'camo' ? <CamoField />
     : null;
 
   // "I don't submit timesheets through C.A.R.L." — hides the Timesheet tab
