@@ -68,6 +68,9 @@ function dropFriendsIfEmailChanged(newEmail: string): void {
     lsRemove(K.friendsToken);
     lsRemove(K.friendsName);
     lsRemove(K.friendsSignedOut);   // a new person gets auto sign-on again
+    lsRemove(K.friendsAvatar);
+    lsRemove(K.identity);           // their name/ID, not yours
+    lsRemove(K.sswWeeks);           // their timesheets, not yours
   }
 }
 function readJson<T>(key: string, fallback: T): T {
@@ -902,6 +905,13 @@ const api: Api = {
       lsRemove(K.friendsName);
       lsRemove(K.friendsSignedOut);
       lsRemove(K.sswSkipped);
+      // Who-you-are caches go too — a different person may log in next, and
+      // these would prefill THEIR forms with YOUR name, icon, and miles.
+      // Expense receipts and reports deliberately STAY: logging back in
+      // finds every show's report exactly as left.
+      lsRemove(K.identity);
+      lsRemove(K.friendsAvatar);
+      lsRemove(K.sswWeeks);
     },
     setSswSkipped: async (skipped) => {
       if (skipped) lsSet(K.sswSkipped, '1');

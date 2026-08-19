@@ -487,7 +487,13 @@ function registerIpc(): void {
     // Friends identity follows the CARL login: a reset may be a handoff to a
     // different person, so drop the token too. Auto sign-on re-binds the
     // right identity (same account for the same email) on the next visit.
-    await updateConfig({ carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '', friendsSignedOut: false, sswSkipped: false });
+    // Who-you-are caches go too (a different person may log in next);
+    // expense receipts and reports deliberately survive logout.
+    await updateConfig({
+      carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '',
+      friendsSignedOut: false, sswSkipped: false,
+      identityName: '', identityUserId: '', friendsAvatar: '',
+    });
   });
 
   ipcMain.handle('setup:setSswSkipped', async (_e, skipped: boolean) => {
@@ -654,8 +660,12 @@ function registerIpc(): void {
         await clearCarlPassword(cfg.carlEmail).catch(() => {});
         // Different CARL account = different person as far as friends goes:
         // drop the old identity so schedules never publish to the previous
-        // owner's buddy list. Auto sign-on re-enrolls the new email.
-        await updateConfig({ friendsToken: '', friendsName: '' });
+        // owner's buddy list. Auto sign-on re-enrolls the new email; the
+        // SSW identity cache goes too so forms don't carry the old name.
+        await updateConfig({
+          friendsToken: '', friendsName: '', friendsAvatar: '',
+          identityName: '', identityUserId: '',
+        });
       }
       await saveCarlPassword(cleanEmail, password);
       await updateConfig({ carlEmail: cleanEmail });
