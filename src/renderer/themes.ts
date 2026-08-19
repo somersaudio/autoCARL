@@ -4,7 +4,7 @@
 // for themes that include a background effect (digital-rain), so the canvas
 // shows through the cards subtly.
 
-export type ThemeId = 'default' | 'digital-rain' | 'constellation' | 'icy-camo';
+export type ThemeId = 'default' | 'digital-rain' | 'constellation' | 'icy-camo' | 'for-the-girls';
 
 export type Theme = {
   id: ThemeId;
@@ -13,7 +13,7 @@ export type Theme = {
   // styles.css; anything you omit falls through to the original value.
   vars: Record<string, string>;
   // Which full-window canvas App.tsx mounts behind everything, if any.
-  backdrop?: 'rain' | 'stars' | 'camo';
+  backdrop?: 'rain' | 'stars' | 'camo' | 'sunset';
 };
 
 // Constellations leads: it's the default for fresh installs, the fallback for
@@ -72,6 +72,21 @@ export const THEMES: Theme[] = [
       '--text-subtle': 'rgba(198, 211, 226, 0.66)',
       // Accent role (the CT Gold slot): the swatch's icy highlight blue.
       '--ct-gold': '#a9c9ec',
+    },
+  },
+  {
+    id: 'for-the-girls',
+    name: 'For the Girls',
+    backdrop: 'sunset',
+    vars: {
+      '--bg': '#221726',
+      '--panel': 'rgba(46, 28, 50, 0.82)',
+      '--panel-2': 'rgba(58, 36, 62, 0.84)',
+      '--border': 'rgba(244, 190, 216, 0.32)',
+      '--text': '#fdf3f8',
+      '--text-subtle': 'rgba(250, 224, 238, 0.68)',
+      // Accent role (the CT Gold slot): the sunset's cloud pink.
+      '--ct-gold': '#f7a8cd',
     },
   },
 ];
