@@ -2106,7 +2106,10 @@ a.featured-venue:hover .featured-venue-name {
 
   /* Timesheet: the 8-column day grid keeps its shape and scrolls within
      the card — the page stays put. */
-  .week-grid { overflow-x: auto; padding-bottom: 4px; }
+  /* The today-orb hangs 12px LEFT of its row; a scrollport clips anything
+     left of its padding box. Push the box 18px left and pad the same 18px
+     back — content stays put, the orb gains paint-room. */
+  .week-grid { overflow-x: auto; padding-bottom: 4px; padding-left: 18px; margin-left: -18px; }
   .day-row { min-width: 660px; }
   .week-totals { flex-wrap: wrap; }
   .row-between { flex-wrap: wrap; row-gap: 8px; }
