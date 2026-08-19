@@ -12,6 +12,7 @@ const api: Api = {
     saveSsw: (email, password) =>
       ipcRenderer.invoke('setup:saveSsw', email, password) as Promise<SetupStatus>,
     clear: () => ipcRenderer.invoke('setup:clear') as Promise<void>,
+    setSswSkipped: (skipped) => ipcRenderer.invoke('setup:setSswSkipped', skipped) as Promise<SetupStatus>,
   },
   bookings: {
     getCached: () => ipcRenderer.invoke('bookings:getCached') as Promise<{ bookings: Booking[]; fetchedAt: string | null }>,

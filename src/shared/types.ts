@@ -59,7 +59,7 @@ export type UserSettings = {
 export type SetupStatus =
   | { stage: 'needs-carl-credentials' }
   | { stage: 'needs-ssw-credentials' }
-  | { stage: 'ready'; icalUrl: string }
+  | { stage: 'ready'; icalUrl: string; sswSkipped?: boolean }
   | { stage: 'error'; from: 'carl' | 'ssw'; message: string };
 
 export type RefreshResult =
@@ -287,6 +287,10 @@ export type Api = {
     // happens on the first write. Resolves with 'ready'.
     saveSsw: (email: string, password: string) => Promise<SetupStatus>;
     clear: () => Promise<void>;
+    // "I don't submit timesheets through C.A.R.L." — true skips the SSW
+    // step and hides the Timesheet tab + timesheet settings; false brings
+    // the SSW setup step back.
+    setSswSkipped: (skipped: boolean) => Promise<SetupStatus>;
   };
   bookings: {
     // Returns whatever's cached on disk immediately (may be empty on first run).

@@ -46,6 +46,7 @@ const K = {
   friendsAvatar: 'autocarl.web.friendsAvatar',
   expenses: 'autocarl.web.expenses',
   identity: 'autocarl.web.identity',
+  sswSkipped: 'autocarl.web.sswSkipped',
 } as const;
 
 function lsGet(key: string): string {
@@ -286,6 +287,7 @@ const ICAL_URL_RE = /^https:\/\/calendar\..*carl\.ctus\.live\//;
 function currentStatus(): SetupStatus {
   const url = lsGet(K.icalUrl);
   if (!url || !lsGet(K.carlEmail) || !lsGet(K.carlPassword)) return { stage: 'needs-carl-credentials' };
+  if (lsGet(K.sswSkipped) === '1') return { stage: 'ready', icalUrl: url, sswSkipped: true };
   if (!lsGet(K.sswEmail) || !lsGet(K.sswPassword)) return { stage: 'needs-ssw-credentials' };
   return { stage: 'ready', icalUrl: url };
 }
@@ -899,6 +901,12 @@ const api: Api = {
       lsRemove(K.friendsToken);
       lsRemove(K.friendsName);
       lsRemove(K.friendsSignedOut);
+      lsRemove(K.sswSkipped);
+    },
+    setSswSkipped: async (skipped) => {
+      if (skipped) lsSet(K.sswSkipped, '1');
+      else lsRemove(K.sswSkipped);
+      return currentStatus();
     },
   },
 

@@ -2320,3 +2320,16 @@ a.featured-venue:hover .featured-venue-name {
   color: #999;
   font-size: 28px;
 }
+
+/* Red logout — deliberately alarming, two-click armed. */
+.logout-btn {
+  background: var(--danger);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.logout-btn:hover { background: #dc2626; }

@@ -87,6 +87,9 @@ type Config = {
   friendsSignedOut: boolean;
   // Local copy of the buddy icon (data URI) for instant preview.
   friendsAvatar: string;
+  // "I don't submit timesheets through C.A.R.L." — SSW setup skipped;
+  // Timesheet tab and timesheet settings hidden.
+  sswSkipped: boolean;
 };
 
 const DEFAULT_CONFIG: Config = {
@@ -114,6 +117,7 @@ const DEFAULT_CONFIG: Config = {
   identityUserId: '',
   friendsSignedOut: false,
   friendsAvatar: '',
+  sswSkipped: false,
 };
 
 function configPath(): string { return join(app.getPath('userData'), CONFIG_FILE); }

@@ -78,6 +78,10 @@ export default function App() {
     : theme.backdrop === 'stars' ? <Starfield />
     : null;
 
+  // "I don't submit timesheets through C.A.R.L." — hides the Timesheet tab
+  // and every SSW touchpoint.
+  const sswSkipped = status?.stage === 'ready' && !!status.sswSkipped;
+
   // -------- bookings --------
   useEffect(() => {
     if (status?.stage !== 'ready') return;
@@ -131,16 +135,17 @@ export default function App() {
   };
 
   useEffect(() => {
-    if (status?.stage !== 'ready') return;
+    if (status?.stage !== 'ready' || sswSkipped) return;
     window.api.ssw.getCachedWeeks().then(setSswWeeks).catch(() => {});
-  }, [status?.stage, sswWeek]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.stage, sswSkipped, sswWeek]);
 
   // -------- ssw week --------
   // Paint cached data immediately (sub-ms read from disk) then kick off a
   // live refresh in the background. No loading screen on app open as long as
   // the week has been fetched at least once before.
   useEffect(() => {
-    if (status?.stage !== 'ready') return;
+    if (status?.stage !== 'ready' || sswSkipped) return;
     let cancelled = false;
     setSswError(null);
     window.api.ssw.getCached(currentWeekMonday).then((cached) => {
@@ -153,7 +158,8 @@ export default function App() {
       .catch((e) => { if (!cancelled) setSswError(friendlyError(e, !navigator.onLine)); })
       .finally(() => { if (!cancelled) setSswLoading(false); });
     return () => { cancelled = true; };
-  }, [status?.stage, currentWeekMonday]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.stage, sswSkipped, currentWeekMonday]);
 
   const reloadWeek = async () => {
     setSswLoading(true);
@@ -206,10 +212,12 @@ export default function App() {
             className={`tab ${tab === 'bookings' ? 'is-active' : ''}`}
             onClick={() => setTab('bookings')}
           >Bookings</button>
-          <button
-            className={`tab ${tab === 'timesheet' ? 'is-active' : ''}`}
-            onClick={() => setTab('timesheet')}
-          >Timesheet</button>
+          {!sswSkipped && (
+            <button
+              className={`tab ${tab === 'timesheet' ? 'is-active' : ''}`}
+              onClick={() => setTab('timesheet')}
+            >Timesheet</button>
+          )}
           <button
             className={`tab ${tab === 'expenses' ? 'is-active' : ''}`}
             onClick={() => setTab('expenses')}
@@ -254,7 +262,7 @@ export default function App() {
         />
       )}
 
-      {tab === 'timesheet' && (
+      {tab === 'timesheet' && !sswSkipped && (
         <TimesheetTab
           bookings={bookings}
           contacts={contacts}
@@ -285,6 +293,16 @@ export default function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSaved={setSettings}
+        sswSkipped={sswSkipped}
+        onEnableSsw={async () => {
+          setSettingsOpen(false);
+          setStatus(await window.api.setup.setSswSkipped(false));
+        }}
+        onLogout={async () => {
+          setSettingsOpen(false);
+          await window.api.setup.clear();
+          setStatus({ stage: 'needs-carl-credentials' });
+        }}
       />
     </div>
     </>

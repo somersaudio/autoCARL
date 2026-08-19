@@ -8,6 +8,12 @@ type Props = {
   open: boolean;
   onClose: () => void;
   onSaved: (next: UserSettings) => void;
+  // "I don't submit timesheets through C.A.R.L." — hides timesheet-only
+  // sections and offers the way back.
+  sswSkipped: boolean;
+  onEnableSsw: () => void;
+  // Full sign-out: clears logins and returns to setup.
+  onLogout: () => void;
 };
 
 type SaveState = { tone: 'idle' | 'ok' | 'err' | 'busy'; message: string };
@@ -15,7 +21,9 @@ const IDLE: SaveState = { tone: 'idle', message: '' };
 
 type Tab = 'general' | 'earnings';
 
-export default function SettingsModal({ open, onClose, onSaved }: Props) {
+export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEnableSsw, onLogout }: Props) {
+  // Logging out clears logins — destructive enough for a two-click arm.
+  const [logoutArmed, setLogoutArmed] = useState(false);
   // "Saved!" flash beside whichever Save was clicked; n keys the animation
   // so saving again replays it.
   const [savedFlash, setSavedFlash] = useState<{ tab: 'general' | 'earnings'; n: number } | null>(null);
@@ -186,7 +194,18 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
           >Earnings &amp; Tax</button>
         </div>
 
-        {tab === 'general' && (<>
+        {tab === 'general' && sswSkipped && (<>
+        <h3 style={{ marginTop: 18 }}>Timesheets</h3>
+        <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
+          You told AUTOcarl you don't submit timesheets through C.A.R.L., so
+          the Timesheet tab and its settings are hidden.
+        </p>
+        <button className="secondary" onClick={onEnableSsw}>
+          I submit timesheets now — set up SSW
+        </button>
+        </>)}
+
+        {tab === 'general' && !sswSkipped && (<>
         {/* ---- Timesheet defaults ---- */}
         <h3 style={{ marginTop: 18 }}>Timesheet defaults</h3>
         <p className="subtle" style={{ marginTop: 0, fontSize: 12 }}>
@@ -368,6 +387,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
         {carlState.message && <CredStatus state={carlState} />}
 
         {/* ---- SSW credentials ---- */}
+        {!sswSkipped && (<>
         <h3 style={{ marginTop: 22 }}>Timesheet login (SSW)</h3>
         <p className="subtle" style={{ fontSize: 12, margin: '2px 0 6px' }}>
           Your CT timesheet account on ctts.ctus.com — not your C.A.R.L.
@@ -400,6 +420,7 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
           </button>
         </div>
         {sswState.message && <CredStatus state={sswState} />}
+        </>)}
 
         {/* ---- Theme picker ---- */}
         <h3 style={{ marginTop: 22 }}>Theme</h3>
@@ -409,6 +430,23 @@ export default function SettingsModal({ open, onClose, onSaved }: Props) {
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
           </select>
+        </div>
+
+        {/* ---- Logout ---- */}
+        <div style={{ marginTop: 26, paddingTop: 14, borderTop: '1px solid var(--border)' }}>
+          <button
+            className="logout-btn"
+            onClick={() => {
+              if (!logoutArmed) {
+                setLogoutArmed(true);
+                window.setTimeout(() => setLogoutArmed(false), 4000);
+                return;
+              }
+              onLogout();
+            }}
+          >
+            {logoutArmed ? 'Log out — erase saved logins? Click again' : 'Log Out'}
+          </button>
         </div>
         </>)}
 

@@ -386,6 +386,7 @@ async function currentSetupStatus(): Promise<SetupStatus> {
   if (!url) return { stage: 'needs-carl-credentials' };
   const cfg = await readConfig();
   if (!cfg.carlEmail) return { stage: 'needs-carl-credentials' };
+  if (cfg.sswSkipped) return { stage: 'ready', icalUrl: url, sswSkipped: true };
   if (!cfg.sswEmail) return { stage: 'needs-ssw-credentials' };
   const sswPass = await getSswPassword(cfg.sswEmail);
   if (!sswPass) return { stage: 'needs-ssw-credentials' };
@@ -486,7 +487,12 @@ function registerIpc(): void {
     // Friends identity follows the CARL login: a reset may be a handoff to a
     // different person, so drop the token too. Auto sign-on re-binds the
     // right identity (same account for the same email) on the next visit.
-    await updateConfig({ carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '', friendsSignedOut: false });
+    await updateConfig({ carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '', friendsSignedOut: false, sswSkipped: false });
+  });
+
+  ipcMain.handle('setup:setSswSkipped', async (_e, skipped: boolean) => {
+    await updateConfig({ sswSkipped: skipped === true });
+    return currentSetupStatus();
   });
 
   ipcMain.handle('bookings:getCached', () => readCachedBookings());
