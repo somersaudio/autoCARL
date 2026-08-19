@@ -32,6 +32,9 @@ export type UserSettings = {
   // SSW record on save, this one only feeds the projection on the bookings card.
   basePayDayRate: number;    // your day rate in USD; 0 = unset, estimate is hidden
   subtractTaxes: boolean;    // when true, show take-home after tax alongside gross
+  // When true (default) the estimator folds per diem into the deposit figure;
+  // when false it shows wages, with per diem as its own "+" line (the old look).
+  perDiemInTotal: boolean;
   retirementPct: number;     // 401k contribution as % of gross wages; 0 = none
   // Tax inputs. Federal tax uses real brackets (see shared/taxes.ts) rather
   // than a flat rate, so it needs to know where the user sits in the year.

@@ -424,6 +424,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     theme: cfg.theme,
     basePayDayRate: cfg.basePayDayRate,
     subtractTaxes: cfg.subtractTaxes,
+    perDiemInTotal: cfg.perDiemInTotal,
     retirementPct: cfg.retirementPct,
     filingStatus: cfg.filingStatus,
     ytdWages: cfg.ytdWages,
@@ -614,6 +615,7 @@ function registerIpc(): void {
     if (typeof patch?.theme === 'string' && patch.theme.trim()) allowed.theme = patch.theme.trim();
     if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate as number;
     if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
+    if (typeof patch?.perDiemInTotal === 'boolean') allowed.perDiemInTotal = patch.perDiemInTotal;
     // Percentages are clamped to 0–100 here as well as in the renderer, so a
     // malformed patch can't persist a rate that makes take-home go negative.
     if (nonNegative(patch?.retirementPct)) allowed.retirementPct = Math.min(patch.retirementPct as number, 100);

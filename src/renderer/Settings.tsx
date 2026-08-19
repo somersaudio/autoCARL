@@ -40,6 +40,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   // Earnings-estimate inputs. Empty string = unset (stored as 0).
   const [basePay, setBasePay] = useState('');
   const [subtractTaxes, setSubtractTaxes] = useState(false);
+  const [perDiemInTotal, setPerDiemInTotal] = useState(true);
   const [retirement, setRetirement] = useState('');
   const [filingStatus, setFilingStatus] = useState<FilingStatus>('single');
   const [stateRate, setStateRate] = useState('');
@@ -63,6 +64,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       setTheme(s.theme);
       setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
       setSubtractTaxes(s.subtractTaxes);
+      setPerDiemInTotal(s.perDiemInTotal);
       setRetirement(s.retirementPct > 0 ? String(s.retirementPct) : '');
       setFilingStatus(s.filingStatus);
       setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
@@ -122,6 +124,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     const next = await window.api.settings.update({
       basePayDayRate: num(basePay, 1_000_000),
       subtractTaxes,
+      perDiemInTotal,
       retirementPct: num(retirement, 100),
       filingStatus,
       stateTaxRatePct: num(stateRate, 100),
@@ -136,6 +139,12 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const toggleSubtractTaxes = async (checked: boolean) => {
     setSubtractTaxes(checked);
     const next = await window.api.settings.update({ subtractTaxes: checked });
+    onSaved(next);
+  };
+
+  const togglePerDiemInTotal = async (checked: boolean) => {
+    setPerDiemInTotal(checked);
+    const next = await window.api.settings.update({ perDiemInTotal: checked });
     onSaved(next);
   };
 
@@ -350,10 +359,19 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           </div>
         )}
 
+        <label className="row-actions" style={{ gap: 8, alignItems: 'center', cursor: 'pointer', marginTop: 12 }}>
+          <input
+            type="checkbox"
+            checked={perDiemInTotal}
+            onChange={(e) => togglePerDiemInTotal(e.target.checked)}
+          />
+          <span>Include Per Diem in Total, instead of showing it separate</span>
+        </label>
+
         <p className="subtle" style={{ marginTop: 10, fontSize: 12 }}>
           401k comes out pre-tax, so income tax is figured after it — but Social Security and
-          Medicare still apply to the full amount. Per diem is a reimbursement: never taxed,
-          always shown on its own line.
+          Medicare still apply to the full amount. Per diem is a reimbursement — never taxed,
+          whether it's folded into the paycheck total or listed as its own + line.
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           {savedFlash?.tab === 'earnings' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}

@@ -433,8 +433,10 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
               ))}
             </div>
           </div>
-          {/* The white figure is the whole deposit — wages net of withholding
-              PLUS per diem, matching what the bank statement will show. */}
+          {/* The headline figure is the whole deposit — wages net of
+              withholding PLUS per diem, matching the bank statement. With
+              "include per diem in total" off, it shows wages only and per
+              diem rides underneath as its own + line (the old look). */}
           <div
             className="earnings-mini"
             title={[
@@ -446,13 +448,20 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
               c.state > 0 ? `State: −${money(c.state)}` : null,
               c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
-              `${money(c.net + c.perDiem)} deposit`,
+              settings.perDiemInTotal || c.perDiem <= 0
+                ? `${money(c.net + c.perDiem)} deposit`
+                : `${money(c.net)} wages + ${money(c.perDiem)} per diem`,
               c.actualDays > 0
                 ? `${c.actualDays} of ${c.gigs.reduce((n, g) => n + g.days, 0)} days priced from saved timesheet hours (OT/DT included); the rest assume standard 10-hour days.`
                 : 'Assumes standard 10-hour days — OT and DT push real checks higher.',
             ].filter((l) => l !== null).join('\n')}
           >
-            <div className="earnings-mini-main">{money(c.net + c.perDiem)}</div>
+            <div className="earnings-mini-main">
+              {money(settings.perDiemInTotal ? c.net + c.perDiem : c.net)}
+            </div>
+            {!settings.perDiemInTotal && c.perDiem > 0 && (
+              <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
+            )}
           </div>
         </div>
       ))}

@@ -226,6 +226,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   theme: 'constellation',
   basePayDayRate: 0,
   subtractTaxes: false,
+  perDiemInTotal: true,
   retirementPct: 0,
   filingStatus: 'single',
   ytdWages: 0,
@@ -258,6 +259,7 @@ function applySettingsPatch(patch: Partial<UserSettings>): UserSettings {
   if (typeof patch?.theme === 'string' && patch.theme.trim()) allowed.theme = patch.theme.trim();
   if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate;
   if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
+  if (typeof patch?.perDiemInTotal === 'boolean') allowed.perDiemInTotal = patch.perDiemInTotal;
   if (nonNegative(patch?.retirementPct)) allowed.retirementPct = Math.min(patch.retirementPct as number, 100);
   if (nonNegative(patch?.stateTaxRatePct)) allowed.stateTaxRatePct = Math.min(patch.stateTaxRatePct as number, 100);
   if (nonNegative(patch?.ytdWages)) allowed.ytdWages = patch.ytdWages;

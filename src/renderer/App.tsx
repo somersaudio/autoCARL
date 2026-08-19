@@ -38,7 +38,7 @@ export default function App() {
   const [settings, setSettings] = useState<UserSettings>({
     defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true,
     defaultDailyRate: 0, timesheetEmail: '', theme: 'constellation',
-    basePayDayRate: 0, subtractTaxes: false, retirementPct: 0,
+    basePayDayRate: 0, subtractTaxes: false, perDiemInTotal: true, retirementPct: 0,
     filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0, gigDayRates: {},
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
