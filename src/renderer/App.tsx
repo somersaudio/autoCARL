@@ -9,6 +9,7 @@ import TimesheetTab from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab from './FriendsTab';
 import ExpensesTab from './ExpensesTab';
+import InstallBanner from './InstallBanner';
 import MatrixRain from './MatrixRain';
 import Starfield from './Starfield';
 import CamoField from './CamoField';
@@ -192,6 +193,7 @@ export default function App() {
       <>
         {backdrop}
         {updateProgress && <UpdateOverlay progress={updateProgress} />}
+        {IS_WEB && <InstallBanner />}
         <div className="app">
           <div className="app-header">
             <img src={logoCT} alt="Creative Technology" className="ct-logo" />
@@ -207,6 +209,7 @@ export default function App() {
     <>
     {backdrop}
     {updateProgress && <UpdateOverlay progress={updateProgress} />}
+    {IS_WEB && <InstallBanner />}
     <div className="app">
       <div className="app-header">
         <img src={logoCT} alt="Creative Technology" className="ct-logo" />
