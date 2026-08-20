@@ -2161,6 +2161,53 @@ a.featured-venue:hover .featured-venue-name {
   .modal-card .row-between .link { padding: 6px 10px; }
 }
 
+/* ---- Booking requests: pending accept/deny in CARL ---- */
+.request-bang {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: #f4b942;
+  color: #1a1206;
+  font-weight: 800;
+  font-size: 15px;
+  line-height: 1;
+  animation: request-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes request-pulse {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(244, 185, 66, 0.55); }
+  50% { transform: scale(1.08); box-shadow: 0 0 0 9px rgba(244, 185, 66, 0); }
+}
+
+.request-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  margin: 10px 0 2px;
+  padding: 10px 12px;
+  background: rgba(244, 185, 66, 0.12);
+  border: 1px solid rgba(244, 185, 66, 0.45);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.request-banner:hover { background: rgba(244, 185, 66, 0.2); }
+
+.request-go {
+  margin-left: auto;
+  color: var(--ct-gold);
+  white-space: nowrap;
+}
+
 /* ---- "Add to Home Screen" banner (web build, iOS browser tabs only) ---- */
 .a2hs-banner {
   position: fixed;

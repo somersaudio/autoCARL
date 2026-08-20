@@ -20,6 +20,13 @@ type Props = {
 
 const NO_CONTACTS: BookingContacts = { pmEmail: '', lcEmail: '' };
 
+// CARL publishes pending gig requests to the calendar feed with a "Request"
+// status — they need an accept/deny on the booking-details page before they
+// become real bookings, so the cards flag them loudly.
+function isRequest(b: Booking): boolean {
+  return /\brequest/i.test(b.status);
+}
+
 export default function BookingsList({
   bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, onSetDayRate, onRefresh, onResetSetup,
 }: Props) {
@@ -185,6 +192,9 @@ function BookingCard({ booking, pdfs, contacts, onExpand }: BookingCardProps) {
           {booking.laborCoordinator && <span>· LC: {booking.laborCoordinator}</span>}
         </div>
       </div>
+      {isRequest(booking) && (
+        <span className="request-bang" title="Request — needs to be accepted or denied in C.A.R.L.">!</span>
+      )}
       {notesUnseen(contacts) && (
         <NoteIcon size={24} title="New booking notes — open the card to read them" />
       )}
@@ -324,6 +334,16 @@ function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBo
           </div>
         )}
       </div>
+      {isRequest(booking) && (
+        <button
+          className="request-banner"
+          onClick={() => { void window.api.bookings.openInCarl(booking.bookingId); }}
+        >
+          <span className="request-bang">!</span>
+          <span>This gig is a request — accept or deny it in C.A.R.L.</span>
+          <span className="request-go">Open ›</span>
+        </button>
+      )}
       {(contacts.venue || contacts.venueAddress) && (
         <a
           className="featured-venue subtle"
