@@ -73,6 +73,29 @@ export default function App() {
   // -------- auto-update progress overlay --------
   useEffect(() => window.api.updater.onProgress(setUpdateProgress), []);
 
+  // -------- visual-viewport glue --------
+  // iOS anchors position:fixed to the LAYOUT viewport, which slides away
+  // from the visible one while Safari's toolbar expands or the page
+  // rubber-bands — the settings gear floated mid-screen on scroll-up.
+  // Publish the live gap between the two viewport bottoms as a CSS var;
+  // the gear's `bottom` adds it, staying glued to the visible corner.
+  // Desktop and Android keep the gap at 0.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const update = () => {
+      const gap = window.innerHeight - vv.height - vv.offsetTop;
+      document.documentElement.style.setProperty('--vv-gap', `${Math.round(gap)}px`);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+    };
+  }, []);
+
   // -------- theme: apply CSS-var overrides whenever the selected theme changes
   const theme = findTheme(settings.theme);
   useEffect(() => { applyTheme(theme); }, [theme]);

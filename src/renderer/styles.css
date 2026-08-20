@@ -110,7 +110,9 @@ body {
 .settings-gear {
   position: fixed;
   right: 14px;
-  bottom: 14px;
+  /* --vv-gap (set from the visualViewport API in App.tsx) keeps the gear on
+     the VISIBLE bottom edge while iOS slides the layout viewport around. */
+  bottom: calc(14px + var(--vv-gap, 0px));
   width: 36px;
   height: 36px;
   border-radius: 50%;
