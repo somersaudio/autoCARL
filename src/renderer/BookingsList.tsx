@@ -50,7 +50,22 @@ export default function BookingsList({
   // Map upcoming gig days onto bi-weekly checks and withhold each check the
   // way payroll does. Gig cards show their slice; the Paychecks card shows
   // the checks themselves.
-  const plan = buildPaychecks(upcoming, contacts, settings, sswWeeks);
+  //
+  // Requests aren't earned money yet, so the headline figures come from a
+  // confirmed-only plan; a second plan including requests supplies the
+  // grayed "+$X if accepted" delta per check (and the request's gig chip).
+  const confirmedOnly = upcoming.filter((b) => !isRequest(b));
+  const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks);
+  const planAll = confirmedOnly.length === upcoming.length
+    ? plan
+    : buildPaychecks(upcoming, contacts, settings, sswWeeks);
+  const estimatorRows: EstimatorRow[] = planAll.checks.map((all) => {
+    const base = plan.checks.find((c) => c.periodStart === all.periodStart);
+    const extra = Math.round((all.net + all.perDiem) - (base ? base.net + base.perDiem : 0));
+    if (!base) return { ...all, requestOnly: true, requestExtra: extra };
+    if (extra <= 0) return base;
+    return { ...base, gigs: all.gigs, requestExtra: extra };
+  });
 
   return (
     <>
@@ -117,8 +132,8 @@ export default function BookingsList({
         });
       })()}
 
-      {plan.checks.length > 0 && (
-        <PaychecksCard checks={plan.checks} settings={settings} bookings={bookings} onSetDayRate={onSetDayRate} />
+      {estimatorRows.length > 0 && (
+        <PaychecksCard checks={estimatorRows} settings={settings} bookings={bookings} onSetDayRate={onSetDayRate} />
       )}
 
       {past.length > 0 && (
@@ -398,8 +413,13 @@ function fmtPayDate(iso: string): string {
 // exactly as payroll computes them. This card is also where day rates are
 // edited now that gig cards carry no amounts: click a gig chip to override
 // its rate; clearing the field falls back to base pay.
+// A Paycheck row plus the request overlay: `requestExtra` is the additional
+// deposit if pending request gigs get accepted; `requestOnly` marks checks
+// made up entirely of requests (no confirmed money to headline).
+type EstimatorRow = Paycheck & { requestExtra?: number; requestOnly?: boolean };
+
 function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
-  checks: Paycheck[];
+  checks: EstimatorRow[];
   settings: UserSettings;
   bookings: Booking[];
   onSetDayRate: (bookingId: string, rate: number | null) => void;
@@ -416,6 +436,10 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
   const customJobs = new Set(
     bookings.filter((b) => settings.gigDayRates?.[b.bookingId]).map((b) => b.jobNumber),
   );
+
+  // Pending requests — their gig chips gray out to match their "if accepted"
+  // money line.
+  const requestIds = new Set(bookings.filter(isRequest).map((b) => b.bookingId));
 
   const commit = () => {
     if (!edit) return;
@@ -443,8 +467,8 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
                 <span key={g.bookingId} className="paycheck-gig-wrap">
                   {i > 0 && <span className="paycheck-gig-sep">+</span>}
                   <button
-                    className={`paycheck-gig${customJobs.has(g.jobNumber) ? ' is-custom' : ''}`}
-                    title={`${g.days}d @ ${money(g.dayRate)}${customJobs.has(g.jobNumber) ? ' (custom)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this job's day rate`}
+                    className={`paycheck-gig${customJobs.has(g.jobNumber) ? ' is-custom' : ''}${requestIds.has(g.bookingId) ? ' is-request' : ''}`}
+                    title={`${g.days}d @ ${money(g.dayRate)}${customJobs.has(g.jobNumber) ? ' (custom)' : ''}${requestIds.has(g.bookingId) ? ' (request — not yet accepted)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this job's day rate`}
                     onClick={() => {
                       setDraft(String(g.dayRate));
                       setEdit({ bookingId: g.bookingId, jobName: g.jobName, jobNumber: g.jobNumber });
@@ -471,19 +495,31 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
               c.state > 0 ? `State: −${money(c.state)}` : null,
               c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
-              settings.perDiemInTotal || c.perDiem <= 0
-                ? `${money(c.net + c.perDiem)} deposit`
-                : `${money(c.net)} wages + ${money(c.perDiem)} per diem`,
+              c.requestOnly
+                ? `${money(c.net + c.perDiem)} if accepted — this gig is still a request`
+                : settings.perDiemInTotal || c.perDiem <= 0
+                  ? `${money(c.net + c.perDiem)} deposit`
+                  : `${money(c.net)} wages + ${money(c.perDiem)} per diem`,
+              !c.requestOnly && (c.requestExtra ?? 0) > 0
+                ? `Request gigs not counted above: +${money(c.requestExtra!)} if accepted`
+                : null,
               c.actualDays > 0
                 ? `${c.actualDays} of ${c.gigs.reduce((n, g) => n + g.days, 0)} days priced from saved timesheet hours (OT/DT included); the rest assume standard 10-hour days.`
                 : 'Assumes standard 10-hour days — OT and DT push real checks higher.',
             ].filter((l) => l !== null).join('\n')}
           >
-            <div className="earnings-mini-main">
-              {money(settings.perDiemInTotal ? c.net + c.perDiem : c.net)}
-            </div>
-            {!settings.perDiemInTotal && c.perDiem > 0 && (
+            {!c.requestOnly && (
+              <div className="earnings-mini-main">
+                {money(settings.perDiemInTotal ? c.net + c.perDiem : c.net)}
+              </div>
+            )}
+            {!c.requestOnly && !settings.perDiemInTotal && c.perDiem > 0 && (
               <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
+            )}
+            {(c.requestExtra ?? 0) > 0 && (
+              <div className="earnings-mini-sub is-request">
+                {c.requestOnly ? '' : '+'}{money(c.requestExtra!)} if accepted
+              </div>
             )}
           </div>
         </div>

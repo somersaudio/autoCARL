@@ -2208,6 +2208,10 @@ a.featured-venue:hover .featured-venue-name {
   white-space: nowrap;
 }
 
+/* Estimator: request money is a maybe, not a promise — it grays out. */
+.earnings-mini-sub.is-request { color: var(--text-subtle); }
+.paycheck-gig.is-request { opacity: 0.55; }
+
 /* ---- "Add to Home Screen" banner (web build, iOS browser tabs only) ---- */
 .a2hs-banner {
   position: fixed;
