@@ -3,6 +3,7 @@ import type { UserSettings } from '../shared/types';
 import { FILING_STATUSES, FILING_STATUS_LABELS, TAX_YEAR, type FilingStatus } from '../shared/taxes';
 import { THEMES } from './themes';
 import PasswordInput from './PasswordInput';
+import { privateLinksFor } from './private-links';
 
 type Props = {
   open: boolean;
@@ -47,6 +48,9 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const [earningsBusy, setEarningsBusy] = useState(false);
 
   const [carlEmail, setCarlEmail] = useState('');
+  // The SAVED login, kept apart from the editable field above so typing an
+  // address into the C.A.R.L. box can't conjure someone else's private links.
+  const [accountEmail, setAccountEmail] = useState('');
   const [carlPassword, setCarlPassword] = useState('');
   const [carlState, setCarlState] = useState<SaveState>(IDLE);
 
@@ -71,6 +75,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     });
     window.api.settings.getCredentials().then((c) => {
       setCarlEmail(c.carlEmail);
+      setAccountEmail(c.carlEmail);
       setSswEmail(c.sswEmail);
     });
     // Clear any leftover password state and feedback when re-opening.
@@ -269,6 +274,29 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
           When off, AUTOcarl leaves the per diem field blank for you to type in manually.
         </p>
+
+        {/* ---- Personal links: only ever rendered for their own login ---- */}
+        {privateLinksFor(accountEmail).length > 0 && (
+          <>
+            <h3 style={{ marginTop: 22 }}>Your Links</h3>
+            {privateLinksFor(accountEmail).map((link) => (
+              <div key={link.href} style={{ marginTop: 8 }}>
+                <a
+                  className="private-link"
+                  href={link.href}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {link.label}
+                  <span className="private-link-go">Open ›</span>
+                </a>
+                {link.note && (
+                  <p className="subtle" style={{ margin: '4px 2px 0', fontSize: 12 }}>{link.note}</p>
+                )}
+              </div>
+            ))}
+          </>
+        )}
 
         </>)}
 

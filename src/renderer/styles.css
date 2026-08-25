@@ -2163,6 +2163,29 @@ a.featured-venue:hover .featured-venue-name {
   .modal-card .row-between .link { padding: 6px 10px; }
 }
 
+/* ---- Personal links (Settings > General), gated per login ---- */
+.private-link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.private-link:hover { border-color: var(--ct-gold); }
+
+.private-link-go {
+  margin-left: auto;
+  color: var(--ct-gold);
+  white-space: nowrap;
+}
+
 /* ---- Booking requests: pending accept/deny in CARL ---- */
 .request-bang {
   display: inline-flex;
