@@ -38,6 +38,7 @@ const K = {
   settings: 'autocarl.web.settings',
   bookings: 'autocarl.web.bookings',
   contacts: 'autocarl.web.contacts',
+  contactsSweptAt: 'autocarl.web.contactsSweptAt',
   sswWeeks: 'autocarl.web.sswWeeks',
   logos: 'autocarl.web.logos2',   // v2: GTC→NVIDIA alias — refetch once
   friendsToken: 'autocarl.web.friendsToken',
@@ -433,7 +434,27 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
   if (!email || !password || bookings.length === 0) return;
   sweepRunning = true;
   try {
-    for (const booking of bookings) {
+    // Soonest upcoming gigs first, then most-recent past: phone visits are
+    // short and iOS freezes backgrounded tabs, so the sweep's early slots go
+    // to the bookings whose data (flight flags, per diem) people actually
+    // watch. Entries scraped within the last 20 minutes are skipped, so a
+    // reopened app continues down the list instead of redoing its head —
+    // that starvation is how a flipped "Flight Requests Open" flag on a
+    // mid-list gig went unseen for days.
+    const d = new Date();
+    const todayIso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const upcoming = bookings.filter((b) => b.endDate >= todayIso)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const pastOnes = bookings.filter((b) => b.endDate < todayIso)
+      .sort((a, b) => b.startDate.localeCompare(a.startDate));
+    const FRESH_MS = 20 * 60 * 1000;
+    const stamps0 = readJson<Record<string, number>>(K.contactsSweptAt, {});
+    const cached0 = readJson<BookingContactsCache>(K.contacts, {});
+    const now0 = Date.now();
+    const queue = [...upcoming, ...pastOnes].filter(
+      (b) => !(cached0[b.bookingId] && stamps0[b.bookingId] && now0 - stamps0[b.bookingId] < FRESH_MS),
+    );
+    for (const booking of queue) {
       try {
         const scraped = await postJson<CarlDetails>('/v1/carl/details', {
           email, password, bookingId: booking.bookingId,
@@ -488,6 +509,14 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           writeJson(K.contacts, contacts);
           notifyContacts(contacts);
         }
+        // Mark this booking freshly swept — even when nothing changed — and
+        // drop stamps for bookings that left the list so the map stays small.
+        const stamps = readJson<Record<string, number>>(K.contactsSweptAt, {});
+        stamps[booking.bookingId] = Date.now();
+        for (const id of Object.keys(stamps)) {
+          if (!bookings.some((b) => b.bookingId === id)) delete stamps[id];
+        }
+        writeJson(K.contactsSweptAt, stamps);
       } catch {
         // Booking might be archived/gone from CARL — keep sweeping the rest.
       }
