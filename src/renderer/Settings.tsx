@@ -4,6 +4,7 @@ import { FILING_STATUSES, FILING_STATUS_LABELS, TAX_YEAR, type FilingStatus } fr
 import { THEMES } from './themes';
 import PasswordInput from './PasswordInput';
 import { privateLinksFor } from './private-links';
+import { cleanAirportCode } from '../shared/airports';
 
 type Props = {
   open: boolean;
@@ -35,6 +36,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const [end, setEnd] = useState('');
   const [autofillPerDiem, setAutofillPerDiem] = useState(true);
   const [tsEmail, setTsEmail] = useState('');      // empty string = use SSW's value
+  const [homeAirport, setHomeAirport] = useState('');
   const [theme, setTheme] = useState('default');
   const [busy, setBusy] = useState(false);
 
@@ -65,6 +67,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       setEnd(s.defaultEndTime);
       setAutofillPerDiem(s.autofillPerDiem);
       setTsEmail(s.timesheetEmail);
+      setHomeAirport(s.homeAirport);
       setTheme(s.theme);
       setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
       setSubtractTaxes(s.subtractTaxes);
@@ -108,6 +111,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       // override so it can't keep rewriting timesheets invisibly.
       defaultDailyRate: 0,
       timesheetEmail: tsEmail.trim(),
+      homeAirport: cleanAirportCode(homeAirport),
     });
     setBusy(false);
     onSaved(next);
@@ -253,6 +257,22 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           Goes in the Email field of every timesheet you save. Leave it blank to keep
           whatever SSW already has on your record — this is separate from the address
           you log in with.
+        </p>
+        <div className="field" style={{ margin: '10px 0 0' }}>
+          <label>Home airport</label>
+          <input
+            type="text"
+            value={homeAirport}
+            onChange={(e) => setHomeAirport(e.target.value.toUpperCase().slice(0, 3))}
+            placeholder="AUS"
+            maxLength={3}
+            disabled={busy}
+            style={{ textTransform: 'uppercase', letterSpacing: '0.12em', maxWidth: 120 }}
+          />
+        </div>
+        <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
+          Three-letter code for the airport you fly out of. Travel days that don't
+          connect straight to another gig are shown as heading home to here.
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           {savedFlash?.tab === 'general' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}

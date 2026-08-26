@@ -122,6 +122,8 @@ export async function sweepFlights(
           venue: scraped.venue,
           venueAddress: scraped.venueAddress,
           venueZip: scraped.venueZip,
+          workStartDate: scraped.workStartDate,
+          workEndDate: scraped.workEndDate,
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
@@ -137,6 +139,8 @@ export async function sweepFlights(
           || prevContacts.venue !== next.venue
           || prevContacts.venueAddress !== next.venueAddress
           || prevContacts.venueZip !== next.venueZip
+          || prevContacts.workStartDate !== next.workStartDate
+          || prevContacts.workEndDate !== next.workEndDate
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;

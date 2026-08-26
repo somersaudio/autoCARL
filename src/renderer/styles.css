@@ -2186,6 +2186,92 @@ a.featured-venue:hover .featured-venue-name {
   white-space: nowrap;
 }
 
+/* ---- Travel ribbon on the featured job card ----
+   Three beats: fly in, the show itself, fly out. Same-day legs (travel and
+   work on one date) get the accent treatment — those are the hard days. */
+.travel-ribbon {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  margin: 12px 0 2px;
+  flex-wrap: wrap;
+}
+
+.travel-leg,
+.travel-work {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--panel-2);
+}
+
+.travel-work {
+  flex: 1.2 1 160px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-color: rgba(253, 184, 39, 0.35);
+}
+
+.travel-work-label {
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  color: var(--ct-gold);
+  font-weight: 700;
+}
+
+.travel-work-dates {
+  font-size: 13px;
+  font-weight: 600;
+  margin-top: 2px;
+}
+
+.travel-leg-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-subtle);
+}
+
+.travel-plane { font-size: 12px; }
+
+.travel-leg-date { font-weight: 600; }
+
+.travel-route {
+  margin-top: 2px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.travel-arrow { color: var(--text-subtle); font-weight: 400; }
+
+.travel-leg-kind {
+  margin-top: 1px;
+  font-size: 11px;
+  color: var(--text-subtle);
+}
+
+/* Landing and working the same day (or wrapping and flying) — the day that
+   actually costs you, so it reads hot. */
+.travel-leg.is-sameday {
+  border-color: rgba(244, 185, 66, 0.5);
+  background: rgba(244, 185, 66, 0.1);
+}
+
+.travel-leg.is-sameday .travel-leg-kind { color: #f4b942; font-weight: 600; }
+
+@media (max-width: 560px) {
+  .travel-ribbon { gap: 6px; }
+  .travel-leg, .travel-work { flex-basis: 100%; }
+}
+
 /* ---- Booking requests: pending accept/deny in CARL ---- */
 .request-bang {
   display: inline-flex;

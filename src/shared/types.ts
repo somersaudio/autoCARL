@@ -32,6 +32,9 @@ export type UserSettings = {
   // SSW record on save, this one only feeds the projection on the bookings card.
   basePayDayRate: number;    // your day rate in USD; 0 = unset, estimate is hidden
   subtractTaxes: boolean;    // when true, show take-home after tax alongside gross
+  // Your home-base airport (IATA, e.g. 'AUS'). Travel legs that aren't
+  // connecting to another gig are assumed to run to/from here. '' = unset.
+  homeAirport: string;
   // When true (default) the estimator folds per diem into the deposit figure;
   // when false it shows wages, with per diem as its own "+" line (the old look).
   perDiemInTotal: boolean;
@@ -159,6 +162,11 @@ export type BookingContacts = {
   venueAddress?: string;       // street + city + state line
   venueZip?: string;           // 5-digit US zip
   gsaPerDiem?: number;         // M&IE rate from GSA API, looked up by zip
+  // CARL's work start/end (its own startDate/endDate on the job page). The
+  // booking's own dates are travel-inclusive, so the difference at each end
+  // is a travel day. Undefined until a sweep has visited the booking.
+  workStartDate?: string;
+  workEndDate?: string;
   gsaCity?: string;            // city name returned by GSA (for display sanity)
   // CARL's laborTravel status, e.g. "Flight Requests Open to Crew". The
   // renderer keys the flight-request button off this.

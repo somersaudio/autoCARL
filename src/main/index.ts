@@ -35,6 +35,7 @@ import type {
   UserSettings,
 } from '../shared/types';
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
+import { cleanAirportCode } from '../shared/airports';
 import { friendlyError } from '../shared/errors';
 
 const isDev = !app.isPackaged;
@@ -425,6 +426,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     basePayDayRate: cfg.basePayDayRate,
     subtractTaxes: cfg.subtractTaxes,
     perDiemInTotal: cfg.perDiemInTotal,
+    homeAirport: cfg.homeAirport,
     retirementPct: cfg.retirementPct,
     filingStatus: cfg.filingStatus,
     ytdWages: cfg.ytdWages,
@@ -616,6 +618,7 @@ function registerIpc(): void {
     if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate as number;
     if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
     if (typeof patch?.perDiemInTotal === 'boolean') allowed.perDiemInTotal = patch.perDiemInTotal;
+    if (typeof patch?.homeAirport === 'string') allowed.homeAirport = cleanAirportCode(patch.homeAirport);
     // Percentages are clamped to 0–100 here as well as in the renderer, so a
     // malformed patch can't persist a rate that makes take-home go negative.
     if (nonNegative(patch?.retirementPct)) allowed.retirementPct = Math.min(patch.retirementPct as number, 100);

@@ -67,6 +67,7 @@ type Config = {
   basePayDayRate: number;    // day rate for projections; 0 = unset, estimate hidden
   subtractTaxes: boolean;    // show after-tax take-home as well as gross
   perDiemInTotal: boolean;   // estimator: fold per diem into the deposit figure
+  homeAirport: string;       // IATA home base for travel legs, '' = unset
   retirementPct: number;     // 401k contribution as % of gross wages; 0 = none
   filingStatus: FilingStatus;
   ytdWages: number;          // taxable wages so far this year; 0 = unknown
@@ -105,6 +106,7 @@ const DEFAULT_CONFIG: Config = {
   basePayDayRate: 0,
   subtractTaxes: false,
   perDiemInTotal: true,
+  homeAirport: '',
   retirementPct: 0,
   filingStatus: 'single',
   ytdWages: 0,

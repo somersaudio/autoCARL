@@ -3,6 +3,7 @@ import type {
   Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, SswWeek, UserSettings,
 } from '../shared/types';
 import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
+import { placeLabel } from '../shared/airports';
 
 type Props = {
   bookings: Booking[];
@@ -25,6 +26,105 @@ const NO_CONTACTS: BookingContacts = { pmEmail: '', lcEmail: '' };
 // become real bookings, so the cards flag them loudly.
 function isRequest(b: Booking): boolean {
   return /\brequest/i.test(b.status);
+}
+
+// ---- travel ribbon -------------------------------------------------------
+// A booking's own dates are TRAVEL-INCLUSIVE (that's what CARL publishes to
+// the calendar feed); the sweep scrapes the job's real start/end. The gap at
+// each end is therefore a travel day — and when there's no gap, you're
+// travelling and working the same day, which is the day worth flagging.
+//
+// Where a leg goes: if the neighbouring gig travels on the very same date,
+// it's a direct connection and we name that city's airport. Otherwise you're
+// heading home.
+
+type TravelLeg = {
+  date: string;
+  from: string;
+  to: string;
+  sameDay: boolean;    // travel and work land on one day
+};
+
+type TravelInfo = {
+  arrive: TravelLeg | null;
+  depart: TravelLeg | null;
+  workStart: string;
+  workEnd: string;
+};
+
+function travelFor(
+  booking: Booking,
+  contacts: BookingContacts,
+  upcoming: Booking[],
+  homeAirport: string,
+): TravelInfo | null {
+  const workStart = contacts.workStartDate;
+  const workEnd = contacts.workEndDate;
+  // Without CARL's own dates there's nothing to compare the span against.
+  if (!workStart || !workEnd) return null;
+  // The work window must sit inside the booking's (travel-inclusive) span and
+  // run forwards. Anything else means we scraped a stale or unrelated record,
+  // and a wrong travel day is worse than no ribbon.
+  if (workStart > workEnd) return null;
+  if (workStart < booking.startDate || workEnd > booking.endDate) return null;
+
+  const here = placeLabel(booking.city, booking.state);
+  const home = homeAirport || 'home';
+  const idx = upcoming.findIndex((b) => b.bookingId === booking.bookingId);
+  const prev = idx > 0 ? upcoming[idx - 1] : null;
+  const next = idx >= 0 && idx < upcoming.length - 1 ? upcoming[idx + 1] : null;
+
+  // A neighbour whose travel day IS this one means you fly gig-to-gig.
+  const from = prev && prev.endDate === booking.startDate
+    ? placeLabel(prev.city, prev.state)
+    : home;
+  const to = next && next.startDate === booking.endDate
+    ? placeLabel(next.city, next.state)
+    : home;
+
+  return {
+    workStart,
+    workEnd,
+    arrive: { date: booking.startDate, from, to: here, sameDay: booking.startDate === workStart },
+    depart: { date: booking.endDate, from: here, to, sameDay: booking.endDate === workEnd },
+  };
+}
+
+// "Fri 9/11"
+function fmtTravelDay(iso: string): string {
+  const [y, m, d] = iso.split('-').map(Number);
+  const dt = new Date(y, m - 1, d);
+  const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  return `${DOW[dt.getDay()]} ${m}/${d}`;
+}
+
+function TravelRibbon({ travel }: { travel: TravelInfo }) {
+  const leg = (l: TravelLeg, kind: 'arrive' | 'depart') => (
+    <div className={`travel-leg${l.sameDay ? ' is-sameday' : ''}`}>
+      <div className="travel-leg-top">
+        <span className="travel-plane" aria-hidden="true">{'\u2708'}</span>
+        <span className="travel-leg-date">{fmtTravelDay(l.date)}</span>
+      </div>
+      <div className="travel-route">{l.from} <span className="travel-arrow">{'\u2192'}</span> {l.to}</div>
+      <div className="travel-leg-kind">
+        {l.sameDay
+          ? (kind === 'arrive' ? 'fly in & work' : 'wrap & fly out')
+          : (kind === 'arrive' ? 'travel in' : 'travel out')}
+      </div>
+    </div>
+  );
+  return (
+    <div className="travel-ribbon">
+      {travel.arrive && leg(travel.arrive, 'arrive')}
+      <div className="travel-work">
+        <div className="travel-work-label">SHOW</div>
+        <div className="travel-work-dates">
+          {fmtTravelDay(travel.workStart)} &ndash; {fmtTravelDay(travel.workEnd)}
+        </div>
+      </div>
+      {travel.depart && leg(travel.depart, 'depart')}
+    </div>
+  );
 }
 
 export default function BookingsList({
@@ -109,6 +209,10 @@ export default function BookingsList({
                 pdfs={flights[seg.full.bookingId] || []}
                 contacts={contacts[seg.full.bookingId] || NO_CONTACTS}
                 settings={settings}
+                travel={travelFor(
+                  seg.full, contacts[seg.full.bookingId] || NO_CONTACTS,
+                  upcoming, settings.homeAirport,
+                )}
                 onCollapse={() => setExpandedId('none')}
               />
             );
@@ -272,10 +376,11 @@ function relativeWhen(start: string, end: string): string {
 type FeaturedBookingCardProps = BookingCardProps & {
   contacts: BookingContacts;
   settings: UserSettings;
+  travel?: TravelInfo | null;
   onCollapse?: () => void;
 };
 
-function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBookingCardProps) {
+function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: FeaturedBookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -349,6 +454,7 @@ function FeaturedBookingCard({ booking, pdfs, contacts, onCollapse }: FeaturedBo
           </div>
         )}
       </div>
+      {travel && <TravelRibbon travel={travel} />}
       {isRequest(booking) && (
         <button
           className="request-banner"

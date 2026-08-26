@@ -21,6 +21,7 @@ import {
   multiPageSkipReason, orderedReceipts, receiptFileName, sanitizeReport,
 } from '../shared/expense-logic';
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
+import { cleanAirportCode } from '../shared/airports';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
@@ -228,6 +229,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   basePayDayRate: 0,
   subtractTaxes: false,
   perDiemInTotal: true,
+  homeAirport: '',
   retirementPct: 0,
   filingStatus: 'single',
   ytdWages: 0,
@@ -261,6 +263,7 @@ function applySettingsPatch(patch: Partial<UserSettings>): UserSettings {
   if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate;
   if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
   if (typeof patch?.perDiemInTotal === 'boolean') allowed.perDiemInTotal = patch.perDiemInTotal;
+  if (typeof patch?.homeAirport === 'string') allowed.homeAirport = cleanAirportCode(patch.homeAirport);
   if (nonNegative(patch?.retirementPct)) allowed.retirementPct = Math.min(patch.retirementPct as number, 100);
   if (nonNegative(patch?.stateTaxRatePct)) allowed.stateTaxRatePct = Math.min(patch.stateTaxRatePct as number, 100);
   if (nonNegative(patch?.ytdWages)) allowed.ytdWages = patch.ytdWages;
@@ -381,6 +384,8 @@ type CarlDetails = {
   venueAddress?: string;
   venueZip?: string;
   laborTravel?: string;
+  workStartDate?: string;
+  workEndDate?: string;
   bookingNotes?: string;
 };
 
@@ -486,6 +491,8 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           venue: scraped.venue,
           venueAddress: scraped.venueAddress,
           venueZip: scraped.venueZip,
+          workStartDate: scraped.workStartDate,
+          workEndDate: scraped.workEndDate,
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
@@ -501,6 +508,8 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           || prevContacts.venue !== next.venue
           || prevContacts.venueAddress !== next.venueAddress
           || prevContacts.venueZip !== next.venueZip
+          || prevContacts.workStartDate !== next.workStartDate
+          || prevContacts.workEndDate !== next.workEndDate
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;

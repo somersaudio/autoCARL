@@ -202,6 +202,11 @@ export type CarlBookingDetails = {
   // a string only on bookings where it's populated, which is what asString
   // keys on.
   laborTravel?: string;
+  // CARL's own start/end for the WORK itself (fields 145/146). The calendar
+  // feed's span is travel-inclusive, so these are what separate show days
+  // from travel days. ISO YYYY-MM-DD.
+  workStartDate?: string;
+  workEndDate?: string;
   // The "Booking Notes" text block from the booking page — LC instructions,
   // schedule details, etc. Plain text after entity decoding.
   bookingNotes?: string;
@@ -333,6 +338,24 @@ function mergeResponse(resp: unknown, out: CarlBookingDetails): void {
     // ---- labor travel status (field_254, e.g. "Flight Requests Open to Crew") ----
     const laborTravel = asString(obj.field_254);
     if (laborTravel && !out.laborTravel) out.laborTravel = decodeEntities(laborTravel);
+
+    // ---- work dates (fields 145/146) ----
+    // The iCal feed publishes the TRAVEL-inclusive span; these two are the
+    // job's own start/end, so the gap at each end is a travel day.
+    // A booking whose dates were revised echoes BOTH the old and the new
+    // values across responses (one of John's carries the note "Date Change -
+    // Travel In - 9.6 - Start Date 9.7" beside the newer pair), so first-wins
+    // would be a coin flip. Keep the INNERMOST window — latest start, earliest
+    // end. That matches the revised dates in every observed case and errs
+    // toward calling a boundary day travel rather than work.
+    const ws = asString(obj.field_145);
+    if (ws && /^\d{4}-\d{2}-\d{2}$/.test(ws) && (!out.workStartDate || ws > out.workStartDate)) {
+      out.workStartDate = ws;
+    }
+    const we = asString(obj.field_146);
+    if (we && /^\d{4}-\d{2}-\d{2}$/.test(we) && (!out.workEndDate || we < out.workEndDate)) {
+      out.workEndDate = we;
+    }
 
     // ---- booking notes (field_162 — CARL's own metadata names it
     // "bookingNotes", type Long Text). LC-authored, changes over a show's
