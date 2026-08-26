@@ -55,7 +55,7 @@ type TravelInfo = {
 function travelFor(
   booking: Booking,
   contacts: BookingContacts,
-  upcoming: Booking[],
+  all: Booking[],
   homeAirport: string,
 ): TravelInfo | null {
   const workStart = contacts.workStartDate;
@@ -70,24 +70,39 @@ function travelFor(
 
   const here = placeLabel(booking.city, booking.state);
   const home = homeAirport || 'home';
-  const idx = upcoming.findIndex((b) => b.bookingId === booking.bookingId);
-  const prev = idx > 0 ? upcoming[idx - 1] : null;
-  const next = idx >= 0 && idx < upcoming.length - 1 ? upcoming[idx + 1] : null;
 
-  // A neighbour whose travel day IS this one means you fly gig-to-gig.
-  const from = prev && prev.endDate === booking.startDate
-    ? placeLabel(prev.city, prev.state)
-    : home;
-  const to = next && next.startDate === booking.endDate
-    ? placeLabel(next.city, next.state)
-    : home;
-
-  return {
-    workStart,
-    workEnd,
-    arrive: { date: booking.startDate, from, to: here, sameDay: booking.startDate === workStart },
-    depart: { date: booking.endDate, from: here, to, sameDay: booking.endDate === workEnd },
+  // Find the connecting gig by DATE across EVERY booking, not by position in
+  // the upcoming list: a gig you flew in from leaves that list the day after
+  // it ends, and an overlapping booking (a pending request, typically) would
+  // otherwise sit between the two and either hide the connection or name a
+  // city you never worked. Confirmed bookings beat pending requests.
+  const connecting = (match: (b: Booking) => boolean): Booking | null => {
+    const hits = all.filter((b) => b.bookingId !== booking.bookingId && match(b));
+    return hits.find((b) => !isRequest(b)) || hits[0] || null;
   };
+  const prev = connecting((b) => b.endDate === booking.startDate && b.startDate < booking.startDate);
+  const next = connecting((b) => b.startDate === booking.endDate && b.endDate > booking.endDate);
+
+  const from = prev ? placeLabel(prev.city, prev.state) : home;
+  const to = next ? placeLabel(next.city, next.state) : home;
+
+  // A leg that starts and ends in the same place is not a flight — a local
+  // gig you drive to, or two connecting gigs in one city. Drop it rather
+  // than draw an X → X route and call it travel.
+  const arrive: TravelLeg | null = from === here ? null : {
+    date: booking.startDate, from, to: here, sameDay: booking.startDate === workStart,
+  };
+  const depart: TravelLeg | null = to === here ? null : {
+    date: booking.endDate, from: here, to, sameDay: booking.endDate === workEnd,
+  };
+
+  // No flights and no travel days: the ribbon would say nothing the header
+  // doesn't already.
+  if (!arrive && !depart && workStart === booking.startDate && workEnd === booking.endDate) {
+    return null;
+  }
+
+  return { workStart, workEnd, arrive, depart };
 }
 
 // "Fri 9/11"
@@ -211,7 +226,7 @@ export default function BookingsList({
                 settings={settings}
                 travel={travelFor(
                   seg.full, contacts[seg.full.bookingId] || NO_CONTACTS,
-                  upcoming, settings.homeAirport,
+                  bookings, settings.homeAirport,
                 )}
                 onCollapse={() => setExpandedId('none')}
               />

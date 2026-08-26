@@ -22,6 +22,10 @@ const BY_CITY_STATE: Record<string, string> = {
   'greenville|SC': 'GSP', 'greenville|NC': 'PGV',
   'jackson|MS': 'JAN', 'jackson|WY': 'JAC',
   'auburn|AL': 'ATL', 'auburn|WA': 'SEA',
+  // CARL's city token is a bare name, so these can only be told apart by
+  // state — a compound key like 'hollywood beach' would never match.
+  'hollywood|FL': 'FLL', 'wilmington|NC': 'ILM', 'wilmington|DE': 'PHL',
+  'manchester|GB': 'MAN', 'manchester|UK': 'MAN', 'manchester|EN': 'MAN',
 };
 
 // Unique-enough city names. Suburbs map to the airport people actually fly.
@@ -74,14 +78,14 @@ const BY_CITY: Record<string, string> = {
   'savannah': 'SAV', 'augusta': 'AGS', 'macon': 'MCN',
   'orlando': 'MCO', 'kissimmee': 'MCO', 'lake buena vista': 'MCO',
   'miami': 'MIA', 'miami beach': 'MIA', 'coral gables': 'MIA',
-  'fort lauderdale': 'FLL', 'hollywood beach': 'FLL', 'boca raton': 'FLL',
+  'fort lauderdale': 'FLL', 'boca raton': 'FLL',
   'west palm beach': 'PBI', 'palm beach': 'PBI', 'tampa': 'TPA',
   'st petersburg': 'TPA', 'clearwater': 'TPA', 'sarasota': 'SRQ',
   'fort myers': 'RSW', 'naples': 'RSW', 'jacksonville': 'JAX',
   'key west': 'EYW', 'tallahassee': 'TLH', 'gainesville': 'GNV',
   'daytona beach': 'DAB', 'charlotte': 'CLT', 'raleigh': 'RDU',
   'durham': 'RDU', 'cary': 'RDU', 'greensboro': 'GSO', 'asheville': 'AVL',
-  'wilmington beach': 'ILM', 'columbia': 'CAE', 'myrtle beach': 'MYR',
+  'columbia': 'CAE', 'myrtle beach': 'MYR',
   'hilton head': 'HHH', 'nashville': 'BNA', 'knoxville': 'TYS',
   'chattanooga': 'CHA', 'memphis': 'MEM', 'louisville': 'SDF',
   'lexington': 'LEX', 'birmingham': 'BHM', 'huntsville': 'HSV',
@@ -114,7 +118,7 @@ const BY_CITY: Record<string, string> = {
   'hamburg': 'HAM', 'cologne': 'CGN', 'dusseldorf': 'DUS', 'stuttgart': 'STR',
   'barcelona': 'BCN', 'madrid': 'MAD', 'lisbon': 'LIS', 'rome': 'FCO',
   'milan': 'MXP', 'venice': 'VCE', 'florence': 'FLR', 'dublin': 'DUB',
-  'edinburgh': 'EDI', 'manchester uk': 'MAN', 'zurich': 'ZRH',
+  'edinburgh': 'EDI', 'zurich': 'ZRH',
   'geneva': 'GVA', 'vienna': 'VIE', 'brussels': 'BRU', 'copenhagen': 'CPH',
   'stockholm': 'ARN', 'oslo': 'OSL', 'helsinki': 'HEL', 'prague': 'PRG',
   'warsaw': 'WAW', 'budapest': 'BUD', 'istanbul': 'IST', 'dubai': 'DXB',

@@ -207,6 +207,8 @@ export type CarlBookingDetails = {
   // from travel days. ISO YYYY-MM-DD.
   workStartDate?: string;
   workEndDate?: string;
+  // How complete the record these dates came from was — see the parse below.
+  workDatesScore?: number;
   // The "Booking Notes" text block from the booking page — LC instructions,
   // schedule details, etc. Plain text after entity decoding.
   bookingNotes?: string;
@@ -344,17 +346,30 @@ function mergeResponse(resp: unknown, out: CarlBookingDetails): void {
     // job's own start/end, so the gap at each end is a travel day.
     // A booking whose dates were revised echoes BOTH the old and the new
     // values across responses (one of John's carries the note "Date Change -
-    // Travel In - 9.6 - Start Date 9.7" beside the newer pair), so first-wins
-    // would be a coin flip. Keep the INNERMOST window — latest start, earliest
-    // end. That matches the revised dates in every observed case and errs
-    // toward calling a boundary day travel rather than work.
-    const ws = asString(obj.field_145);
-    if (ws && /^\d{4}-\d{2}-\d{2}$/.test(ws) && (!out.workStartDate || ws > out.workStartDate)) {
-      out.workStartDate = ws;
-    }
-    const we = asString(obj.field_146);
-    if (we && /^\d{4}-\d{2}-\d{2}$/.test(we) && (!out.workEndDate || we < out.workEndDate)) {
-      out.workEndDate = we;
+    // Travel In - 9.6 - Start Date 9.7" beside the newer pair). The CURRENT
+    // record is the fullest one — the stale copies come back thinner, missing
+    // the notes and status the live record carries — so score each object by
+    // how much it holds and keep the dates from the richest. Innermost breaks
+    // an exact tie. Ordering can't matter: nothing here depends on which
+    // response arrived first.
+    const isoDate = (v: unknown): string | undefined => {
+      const s = asString(v);
+      return s && /^\d{4}-\d{2}-\d{2}$/.test(s) ? s : undefined;
+    };
+    const ws = isoDate(obj.field_145);
+    const we = isoDate(obj.field_146);
+    if (ws || we) {
+      const notes = asString(obj.field_162) || '';
+      const score = Object.keys(obj).length * 1000 + Math.min(notes.length, 999);
+      const best = out.workDatesScore ?? -1;
+      if (score > best) {
+        out.workDatesScore = score;
+        if (ws) out.workStartDate = ws;
+        if (we) out.workEndDate = we;
+      } else if (score === best) {
+        if (ws && (!out.workStartDate || ws > out.workStartDate)) out.workStartDate = ws;
+        if (we && (!out.workEndDate || we < out.workEndDate)) out.workEndDate = we;
+      }
     }
 
     // ---- booking notes (field_162 — CARL's own metadata names it
