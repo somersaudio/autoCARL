@@ -258,21 +258,23 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           whatever SSW already has on your record — this is separate from the address
           you log in with.
         </p>
+        {/* No placeholder on the input: a sample code reads as a pre-filled
+            default, and this ships blank for everyone until they set one. */}
         <div className="field" style={{ margin: '10px 0 0' }}>
           <label>Home airport</label>
           <input
             type="text"
             value={homeAirport}
             onChange={(e) => setHomeAirport(e.target.value.toUpperCase().slice(0, 3))}
-            placeholder="AUS"
             maxLength={3}
             disabled={busy}
             style={{ textTransform: 'uppercase', letterSpacing: '0.12em', maxWidth: 120 }}
           />
         </div>
         <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
-          Three-letter code for the airport you fly out of. Travel days that don't
-          connect straight to another gig are shown as heading home to here.
+          Optional. Three-letter code for the airport you fly out of — travel days
+          that don't connect straight to another gig are shown heading home to here.
+          Leave it blank and those legs just say &ldquo;home&rdquo;.
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           {savedFlash?.tab === 'general' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}
