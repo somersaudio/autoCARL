@@ -168,7 +168,10 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
           <span className="travel-flight-dot" aria-hidden="true" />
           Booked
           {l.match.confirmation ? ` \u00b7 ${l.match.confirmation}` : ''}
-          {l.match.leg.via?.length ? ` \u00b7 via ${l.match.leg.via.join(', ')}` : ''}
+          {l.match.leg.via?.length
+            ? ` \u00b7 ${l.match.leg.via.length} stop${l.match.leg.via.length > 1 ? 's' : ''}`
+              + ` in ${l.match.leg.via.join(', ')}`
+            : ' \u00b7 nonstop'}
           {l.match.borrowed && l.match.jobName
             ? ` \u00b7 on ${l.match.jobName}'s itinerary`
             : ''}
@@ -411,7 +414,7 @@ function BookingCard({ booking, pdfs, contacts, onExpand }: BookingCardProps) {
               key={p.url}
               className="secondary"
               title={p.filename}
-              onClick={(e) => { e.stopPropagation(); window.api.flights.open(p.localPath).catch(() => {}); }}
+              onClick={(e) => { e.stopPropagation(); window.api.flights.open(p.localPath || p.url).catch(() => {}); }}
             >
               View itinerary{pdfs.length > 1 ? ` (${pdfs.indexOf(p) + 1})` : ''}
             </button>
@@ -529,7 +532,7 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
                 <button
                   className="secondary"
                   title={p.filename}
-                  onClick={() => window.api.flights.open(p.localPath).catch(() => {})}
+                  onClick={() => window.api.flights.open(p.localPath || p.url).catch(() => {})}
                 >
                   View itinerary{pdfs.length > 1 ? ` (${i + 1})` : ''}
                 </button>
