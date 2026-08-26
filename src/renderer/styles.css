@@ -2074,6 +2074,25 @@ a.featured-venue:hover .featured-venue-name {
     margin-top: 4px;
   }
 
+  /* Airline + confirmation sit BESIDE the button on a phone rather than
+     stacking above it — the card is tall enough already. */
+  .featured-flight {
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .featured-flight-header {
+    text-align: left;
+    justify-content: flex-start;
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  .featured-flight .featured-flight-header + button { flex-shrink: 0; }
+
   .featured-when-tag { white-space: nowrap; }
 
   /* Give the headline the room the logo leaves — never a skinny column. */
