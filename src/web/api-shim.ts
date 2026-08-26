@@ -40,6 +40,7 @@ const K = {
   bookings: 'autocarl.web.bookings',
   contacts: 'autocarl.web.contacts',
   contactsSweptAt: 'autocarl.web.contactsSweptAt',
+  contactsSweptSchema: 'autocarl.web.contactsSweptSchema',
   sswWeeks: 'autocarl.web.sswWeeks',
   logos: 'autocarl.web.logos2',   // v2: GTC→NVIDIA alias — refetch once
   friendsToken: 'autocarl.web.friendsToken',
@@ -430,6 +431,13 @@ async function gsaRateForCity(city: string, state: string): Promise<GsaRateLite 
 // Visit each booking's CARL detail data through the worker and merge results
 // into the contacts cache exactly as the desktop sweep does — one booking at
 // a time, 250 ms apart, notifying subscribers as entries land.
+//
+// Bump SWEEP_SCHEMA whenever a sweep starts storing a field the previous
+// build didn't: it retires the freshness stamps so every booking is
+// re-scraped once instead of waiting out the skip window.
+//   1 = pm/lc, per diem, venue, GSA, labor travel, notes
+//   2 = + workStartDate / workEndDate (travel ribbon)
+const SWEEP_SCHEMA = 2;
 let sweepRunning = false;
 
 async function sweepContacts(bookings: Booking[]): Promise<void> {
@@ -453,6 +461,14 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
     const pastOnes = bookings.filter((b) => b.endDate < todayIso)
       .sort((a, b) => b.startDate.localeCompare(a.startDate));
     const FRESH_MS = 20 * 60 * 1000;
+    // Freshness stamps are only meaningful for data THIS build knows how to
+    // store. When the sweep learns a new field (work dates, say), stamps
+    // written by the old code would mark every booking fresh and hide the new
+    // data behind the window — so a schema bump retires them once.
+    if (readJson<number>(K.contactsSweptSchema, 0) !== SWEEP_SCHEMA) {
+      lsRemove(K.contactsSweptAt);
+      writeJson(K.contactsSweptSchema, SWEEP_SCHEMA);
+    }
     const stamps0 = readJson<Record<string, number>>(K.contactsSweptAt, {});
     const cached0 = readJson<BookingContactsCache>(K.contacts, {});
     const now0 = Date.now();
