@@ -114,30 +114,27 @@ function fmtTravelDay(iso: string): string {
 }
 
 function TravelRibbon({ travel }: { travel: TravelInfo }) {
-  const leg = (l: TravelLeg, kind: 'arrive' | 'depart') => (
-    <div className={`travel-leg${l.sameDay ? ' is-sameday' : ''}`}>
-      <div className="travel-leg-top">
-        <span className="travel-plane" aria-hidden="true">{'\u2708'}</span>
-        <span className="travel-leg-date">{fmtTravelDay(l.date)}</span>
-      </div>
-      <div className="travel-route">{l.from} <span className="travel-arrow">{'\u2192'}</span> {l.to}</div>
-      <div className="travel-leg-kind">
+  const row = (l: TravelLeg, kind: 'arrive' | 'depart') => (
+    <div className={`travel-row${l.sameDay ? ' is-sameday' : ''}`}>
+      <span className="travel-plane" aria-hidden="true">{'\u2708'}</span>
+      <span className="travel-row-kind">
         {l.sameDay
-          ? (kind === 'arrive' ? 'fly in & work' : 'wrap & fly out')
-          : (kind === 'arrive' ? 'travel in' : 'travel out')}
-      </div>
+          ? (kind === 'arrive' ? 'Fly in & work' : 'Wrap & fly out')
+          : (kind === 'arrive' ? 'Travel in' : 'Travel out')}
+      </span>
+      <span className="travel-row-date">{fmtTravelDay(l.date)}</span>
+      <span className="travel-row-route">
+        {l.from} <span className="travel-arrow">{'\u2192'}</span> {l.to}
+      </span>
     </div>
   );
   return (
-    <div className="travel-ribbon">
-      {travel.arrive && leg(travel.arrive, 'arrive')}
-      <div className="travel-work">
-        <div className="travel-work-label">SHOW</div>
-        <div className="travel-work-dates">
-          {fmtTravelDay(travel.workStart)} &ndash; {fmtTravelDay(travel.workEnd)}
-        </div>
+    <div className="travel-card">
+      {travel.arrive && row(travel.arrive, 'arrive')}
+      {travel.depart && row(travel.depart, 'depart')}
+      <div className="travel-show">
+        Show days: {fmtTravelDay(travel.workStart)} &ndash; {fmtTravelDay(travel.workEnd)}
       </div>
-      {travel.depart && leg(travel.depart, 'depart')}
     </div>
   );
 }
