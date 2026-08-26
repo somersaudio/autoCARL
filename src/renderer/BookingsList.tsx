@@ -50,7 +50,34 @@ type TravelInfo = {
   depart: TravelLeg | null;
   workStart: string;
   workEnd: string;
+  flight: FlightStatus;
 };
+
+// Whether the travel is actually ticketed, straight from CARL's flight rows.
+type FlightStatus = {
+  tone: 'booked' | 'open' | 'none';
+  label: string;
+  detail: string;
+};
+
+function flightStatusFor(contacts: BookingContacts): FlightStatus {
+  const rows = contacts.flightBookings || [];
+  const ticketed = rows.filter((f) => f.confirmation || /book|tick|confirm/i.test(f.status || ''));
+  if (ticketed.length > 0) {
+    const first = ticketed[0];
+    const extra = ticketed.length > 1 ? ` +${ticketed.length - 1} more` : '';
+    const parts = [first.vendor, first.confirmation].filter(Boolean).join(' \u00b7 ');
+    return {
+      tone: 'booked',
+      label: 'Flight booked',
+      detail: `${parts || first.status || 'confirmed'}${extra}`,
+    };
+  }
+  if (flightRequestOpen(contacts)) {
+    return { tone: 'open', label: 'No flight booked', detail: 'requests are open' };
+  }
+  return { tone: 'none', label: 'No flight booked yet', detail: '' };
+}
 
 function travelFor(
   booking: Booking,
@@ -102,7 +129,7 @@ function travelFor(
     return null;
   }
 
-  return { workStart, workEnd, arrive, depart };
+  return { workStart, workEnd, arrive, depart, flight: flightStatusFor(contacts) };
 }
 
 // "Fri 9/11"
@@ -132,6 +159,13 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
     <div className="travel-card">
       {travel.arrive && row(travel.arrive, 'arrive')}
       {travel.depart && row(travel.depart, 'depart')}
+      <div className={`travel-flight is-${travel.flight.tone}`}>
+        <span className="travel-flight-dot" aria-hidden="true" />
+        <span className="travel-flight-label">{travel.flight.label}</span>
+        {travel.flight.detail && (
+          <span className="travel-flight-detail">{travel.flight.detail}</span>
+        )}
+      </div>
       <div className="travel-show">
         Show days: {fmtTravelDay(travel.workStart)} &ndash; {fmtTravelDay(travel.workEnd)}
       </div>

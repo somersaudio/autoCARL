@@ -2233,6 +2233,40 @@ a.featured-venue:hover .featured-venue-name {
 .travel-row.is-sameday .travel-row-kind,
 .travel-row.is-sameday .travel-plane { color: #f4b942; font-weight: 600; }
 
+.travel-flight {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  margin-top: 5px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+
+.travel-flight-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.travel-flight.is-booked .travel-flight-dot { background: #7cd9a0; }
+.travel-flight.is-open .travel-flight-dot { background: #f4b942; }
+.travel-flight.is-none .travel-flight-dot { background: var(--text-subtle); opacity: 0.5; }
+
+.travel-flight.is-booked .travel-flight-label { color: #7cd9a0; font-weight: 600; }
+.travel-flight.is-open .travel-flight-label { color: #f4b942; font-weight: 600; }
+.travel-flight.is-none .travel-flight-label { color: var(--text-subtle); }
+
+.travel-flight-detail {
+  color: var(--text-subtle);
+  letter-spacing: 0.03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .travel-show {
   margin-top: 5px;
   padding-top: 6px;

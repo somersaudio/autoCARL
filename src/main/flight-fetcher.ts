@@ -30,6 +30,20 @@ function normalizeName(s: string): string {
   return parts.sort().join(' ');
 }
 
+// One entry per distinct confirmation — CARL lists a row per itinerary PDF
+// and round trips repeat the same confirmation across legs.
+function summariseFlights(
+  flights: Array<{ vendor?: string; confirmation?: string; status?: string }>,
+): Array<{ vendor?: string; confirmation?: string; status?: string }> {
+  const out: Array<{ vendor?: string; confirmation?: string; status?: string }> = [];
+  for (const f of flights) {
+    const key = f.confirmation || `${f.vendor || ''}|${f.status || ''}`;
+    if (out.some((o) => (o.confirmation || `${o.vendor || ''}|${o.status || ''}`) === key)) continue;
+    out.push({ vendor: f.vendor, confirmation: f.confirmation, status: f.status });
+  }
+  return out;
+}
+
 function matchEmailForRole(emailsByName: Record<string, string>, roleName: string): string {
   if (!roleName) return '';
   const want = normalizeName(roleName);
@@ -124,6 +138,7 @@ export async function sweepFlights(
           venueZip: scraped.venueZip,
           workStartDate: scraped.workStartDate,
           workEndDate: scraped.workEndDate,
+          flightBookings: summariseFlights(scraped.flights),
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
@@ -141,6 +156,7 @@ export async function sweepFlights(
           || prevContacts.venueZip !== next.venueZip
           || prevContacts.workStartDate !== next.workStartDate
           || prevContacts.workEndDate !== next.workEndDate
+          || JSON.stringify(prevContacts.flightBookings) !== JSON.stringify(next.flightBookings)
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;

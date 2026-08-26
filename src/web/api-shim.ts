@@ -378,7 +378,7 @@ function matchEmailForRole(emailsByName: Record<string, string>, roleName: strin
 // What POST /v1/carl/details returns — the worker-side port of
 // src/main/carl-api.ts's CarlBookingDetails (flights unused on web v1).
 type CarlDetails = {
-  flights?: Array<{ pdfUrl: string; vendor?: string; confirmation?: string }>;
+  flights?: Array<{ pdfUrl: string; vendor?: string; confirmation?: string; status?: string }>;
   emailsByName?: Record<string, string>;
   perDiem?: number;
   venue?: string;
@@ -437,7 +437,21 @@ async function gsaRateForCity(city: string, state: string): Promise<GsaRateLite 
 // re-scraped once instead of waiting out the skip window.
 //   1 = pm/lc, per diem, venue, GSA, labor travel, notes
 //   2 = + workStartDate / workEndDate (travel ribbon)
-const SWEEP_SCHEMA = 2;
+// One entry per distinct confirmation (round trips repeat theirs per leg).
+function summariseFlights(
+  flights: Array<{ vendor?: string; confirmation?: string; status?: string }>,
+): Array<{ vendor?: string; confirmation?: string; status?: string }> {
+  const out: Array<{ vendor?: string; confirmation?: string; status?: string }> = [];
+  for (const f of flights) {
+    const key = f.confirmation || `${f.vendor || ''}|${f.status || ''}`;
+    if (out.some((o) => (o.confirmation || `${o.vendor || ''}|${o.status || ''}`) === key)) continue;
+    out.push({ vendor: f.vendor, confirmation: f.confirmation, status: f.status });
+  }
+  return out;
+}
+
+//   3 = + flightBookings (is the flight actually ticketed?)
+const SWEEP_SCHEMA = 3;
 let sweepRunning = false;
 
 async function sweepContacts(bookings: Booking[]): Promise<void> {
@@ -509,6 +523,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           venueZip: scraped.venueZip,
           workStartDate: scraped.workStartDate,
           workEndDate: scraped.workEndDate,
+          flightBookings: summariseFlights(scraped.flights || []),
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
@@ -526,6 +541,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           || prevContacts.venueZip !== next.venueZip
           || prevContacts.workStartDate !== next.workStartDate
           || prevContacts.workEndDate !== next.workEndDate
+          || JSON.stringify(prevContacts.flightBookings) !== JSON.stringify(next.flightBookings)
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;

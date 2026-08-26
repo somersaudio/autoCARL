@@ -167,6 +167,10 @@ export type BookingContacts = {
   // is a travel day. Undefined until a sweep has visited the booking.
   workStartDate?: string;
   workEndDate?: string;
+  // Flight rows from CARL's booking table — enough to tell whether travel
+  // is actually ticketed. (The itinerary PDFs are a separate cache, and
+  // desktop-only; this summary works on both platforms.)
+  flightBookings?: Array<{ vendor?: string; confirmation?: string; status?: string }>;
   gsaCity?: string;            // city name returned by GSA (for display sanity)
   // CARL's laborTravel status, e.g. "Flight Requests Open to Crew". The
   // renderer keys the flight-request button off this.
