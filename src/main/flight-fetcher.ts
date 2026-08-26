@@ -7,7 +7,7 @@ import {
   flightsDir, readFlightsCache, writeFlightsCache,
   readContactsCache, writeContactsCache,
 } from './store';
-import { parseFlightPdf } from './flight-parser';
+import { parseFlightPdf, parseItineraryLegs } from './flight-parser';
 import { gsaRateForCity, gsaRateForZip } from './gsa-perdiem';
 import { fetchBookingDetails, resetCarlSession, drainPostDiags } from './carl-api';
 
@@ -207,6 +207,7 @@ export async function sweepFlights(
           // (The CARL XHR doesn't expose those columns — only vendor /
           // confirmation / status. PDF parsing is the source of truth now.)
           const parsed = await parseFlightPdf(localPath);
+          const legs = await parseItineraryLegs(localPath);
           fresh.push({
             url, filename, localPath, fetchedAt,
             vendor: f.vendor, confirmation: f.confirmation,
@@ -217,6 +218,7 @@ export async function sweepFlights(
             returnFrom: parsed?.returnFrom,
             returnTo: parsed?.returnTo,
             legCount: parsed?.legCount,
+            legs,
           });
         }
 

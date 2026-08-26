@@ -8,7 +8,7 @@
 // window.api and window.__AUTOCARL_WEB__.
 
 import type {
-  Api, Booking, BookingContacts, BookingContactsCache, ExpenseReceipt,
+  Api, Booking, BookingContacts, BookingContactsCache, ExpenseReceipt, FlightPdf,
   ExpenseReport, ExpensesCache, FlightsCache, FriendsList, FriendsStatus,
   IngestOutcome, RefreshResult, SetupStatus, SswPushResult,
   SswWeek, UserSettings,
@@ -22,6 +22,7 @@ import {
 } from '../shared/expense-logic';
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
 import { cleanAirportCode } from '../shared/airports';
+import { parseItinerary } from '../shared/flight-itinerary';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
@@ -41,6 +42,7 @@ const K = {
   contacts: 'autocarl.web.contacts',
   contactsSweptAt: 'autocarl.web.contactsSweptAt',
   contactsSweptSchema: 'autocarl.web.contactsSweptSchema',
+  flights: 'autocarl.web.flights',
   sswWeeks: 'autocarl.web.sswWeeks',
   logos: 'autocarl.web.logos2',   // v2: GTC→NVIDIA alias — refetch once
   friendsToken: 'autocarl.web.friendsToken',
@@ -437,6 +439,56 @@ async function gsaRateForCity(city: string, state: string): Promise<GsaRateLite 
 // re-scraped once instead of waiting out the skip window.
 //   1 = pm/lc, per diem, venue, GSA, labor travel, notes
 //   2 = + workStartDate / workEndDate (travel ribbon)
+const flightsListeners = new Set<(c: FlightsCache) => void>();
+function notifyFlights(cache: FlightsCache): void {
+  for (const fn of flightsListeners) { try { fn(cache); } catch { /* listener error */ } }
+}
+
+// Read a booking's itinerary PDFs and keep the journeys they book.
+//
+// The PDFs sit on CARL's S3 — public, but with no CORS headers, so they come
+// through the worker's proxy. Parsing is the SAME shared parser the desktop
+// runs; only the bytes arrive differently. Each URL is parsed once and cached,
+// because these are ~400 KB apiece and this runs on phone data.
+async function ingestItineraries(
+  bookingId: string,
+  rows: Array<{ pdfUrl: string; vendor?: string; confirmation?: string; status?: string }>,
+): Promise<void> {
+  if (rows.length === 0) return;
+  const cache = readJson<FlightsCache>(K.flights, {});
+  const existing = cache[bookingId] || [];
+  const out: FlightPdf[] = [];
+  let changed = false;
+  for (const row of rows) {
+    if (!row.pdfUrl) continue;
+    const already = existing.find((e) => e.url === row.pdfUrl);
+    if (already?.legs) { out.push(already); continue; }
+    try {
+      const res = await fetch(`${API}/v1/flight-pdf?u=${encodeURIComponent(row.pdfUrl)}`);
+      if (!res.ok) continue;
+      const bytes = new Uint8Array(await res.arrayBuffer());
+      const text = await pdfPlainTextFromBytes(bytes);
+      const parsed = parseItinerary(text);
+      out.push({
+        url: row.pdfUrl,
+        filename: decodeURIComponent(row.pdfUrl.split('/').pop() || 'itinerary.pdf'),
+        localPath: '',                 // web keeps no local copy
+        fetchedAt: new Date().toISOString(),
+        vendor: row.vendor,
+        confirmation: row.confirmation || parsed.confirmation,
+        legs: parsed.legs,
+      });
+      changed = true;
+    } catch { /* offline or unparseable — try again next sweep */ }
+  }
+  // Drop entries for PDFs the booking no longer lists.
+  if (out.length !== existing.length) changed = true;
+  if (!changed) return;
+  if (out.length > 0) cache[bookingId] = out; else delete cache[bookingId];
+  writeJson(K.flights, cache);
+  notifyFlights(cache);
+}
+
 // One entry per distinct confirmation (round trips repeat theirs per leg).
 function summariseFlights(
   flights: Array<{ vendor?: string; confirmation?: string; status?: string }>,
@@ -451,7 +503,8 @@ function summariseFlights(
 }
 
 //   3 = + flightBookings (is the flight actually ticketed?)
-const SWEEP_SCHEMA = 3;
+//   4 = + parsed itinerary legs (which travel day each flight covers)
+const SWEEP_SCHEMA = 4;
 let sweepRunning = false;
 
 async function sweepContacts(bookings: Booking[]): Promise<void> {
@@ -550,6 +603,12 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           writeJson(K.contacts, contacts);
           notifyContacts(contacts);
         }
+        // Itineraries only for gigs still ahead — no point spending phone
+        // data parsing PDFs for shows that already happened.
+        if (booking.endDate >= todayIso) {
+          await ingestItineraries(booking.bookingId, scraped.flights || []);
+        }
+
         // Mark this booking freshly swept — even when nothing changed — and
         // drop stamps for bookings that left the list so the map stays small.
         const stamps = readJson<Record<string, number>>(K.contactsSweptAt, {});
@@ -811,6 +870,36 @@ async function pdfTextFromBytes(bytes: Uint8Array): Promise<string> {
   }
 }
 
+// Itineraries want the text in READING order, not visual-line order: an
+// airline lays "DEPARTS / AUS" out as stacked columns, so layout clustering
+// (right for receipts) splits every label from its airport code. This mirrors
+// extractText() in src/main/flight-parser.ts so both platforms parse the same
+// string.
+async function pdfPlainTextFromBytes(bytes: Uint8Array): Promise<string> {
+  const pdfjs = await import('pdfjs-dist');
+  if (!pdfjs.GlobalWorkerOptions.workerSrc) {
+    const worker = await import('pdfjs-dist/build/pdf.worker.min.mjs?url');
+    pdfjs.GlobalWorkerOptions.workerSrc = worker.default;
+  }
+  const doc = await pdfjs.getDocument({
+    data: bytes.slice(),
+    disableFontFace: true,
+    isEvalSupported: false,
+  }).promise;
+  try {
+    const pages: string[] = [];
+    for (let i = 1; i <= doc.numPages; i++) {
+      const content = await (await doc.getPage(i)).getTextContent();
+      pages.push((content.items as Array<{ str?: string }>)
+        .map((it) => (it && typeof it.str === 'string' ? it.str : ''))
+        .join(' '));
+    }
+    return pages.join('\n');
+  } finally {
+    void doc.destroy().catch(() => {});
+  }
+}
+
 const RECEIPT_IMAGE_EXTS = ['.jpg', '.jpeg', '.png', '.heic', '.heif', '.webp', '.tif', '.tiff', '.bmp'];
 
 async function ingestOneWeb(f: File, bookings: Booking[], assignTo?: string): Promise<ExpenseReceipt> {
@@ -1025,9 +1114,15 @@ const api: Api = {
   },
 
   flights: {
-    getCached: async () => ({} as FlightsCache),
-    open: async () => { /* flight PDFs are desktop-only on web v1 */ },
-    subscribe: () => () => { /* never fires on web */ },
+    getCached: async () => readJson<FlightsCache>(K.flights, {}),
+    // No local copy on web — open the itinerary straight from CARL's bucket.
+    open: async (localPath: string) => {
+      if (/^https?:/i.test(localPath)) window.open(localPath, '_blank', 'noopener');
+    },
+    subscribe: (handler) => {
+      flightsListeners.add(handler);
+      return () => { flightsListeners.delete(handler); };
+    },
   },
 
   contacts: {

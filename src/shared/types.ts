@@ -128,6 +128,8 @@ export type SswPushResult =
 //   1. PDF-parsed fields (outboundTo / returnTo populated → trusted)
 //   2. CARL flights-table row data (departure airports + dates only)
 // The renderer falls back from (1) → (2) → round-trip inference.
+import type { ItineraryLeg } from './flight-itinerary';
+
 export type FlightPdf = {
   url: string;            // original S3 URL on CARL's bucket
   filename: string;       // e.g. "John-Somers-...-CTLA024572-PO039270.pdf"
@@ -146,6 +148,11 @@ export type FlightPdf = {
   returnFrom?: string;
   returnTo?: string;      // PDF-parsed; undefined for one-way trips
   legCount?: number;      // PDF-parsed leg count (1 = one-way, 2 = round-trip)
+  // Journeys this itinerary books, connections collapsed — one entry per
+  // day you actually fly. A single itinerary often spans two gigs (fly out
+  // to one show, fly on to the next), which is what makes these matchable
+  // against any booking's travel day, not just the one that owns the file.
+  legs?: ItineraryLeg[];
 };
 
 // Cache of flight PDFs per booking. Map keyed by bookingId.

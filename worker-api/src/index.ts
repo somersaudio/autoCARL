@@ -229,6 +229,27 @@ export default {
         });
       }
 
+      // Itinerary PDFs live on CARL's S3 and are publicly readable, but the
+      // bucket sends no CORS headers — so the browser build can't fetch one
+      // directly. Proxy it (same shape as /v1/ical), locked to that bucket.
+      if (path === '/v1/flight-pdf' && req.method === 'GET') {
+        const raw = url.searchParams.get('u') || '';
+        let target: URL;
+        try { target = new URL(raw); } catch { return json(req, { error: 'bad url' }, 400); }
+        if (target.protocol !== 'https:' || !/(^|\.)s3[.-][a-z0-9-]*\.?amazonaws\.com$/.test(target.hostname)) {
+          return json(req, { error: 'unsupported host' }, 400);
+        }
+        const up = await fetch(target.toString(), { headers: { accept: 'application/pdf' } });
+        if (!up.ok) return json(req, { error: `HTTP ${up.status}` }, 502);
+        return new Response(up.body, {
+          status: 200,
+          headers: {
+            'Content-Type': 'application/pdf',
+            'Cache-Control': 'private, max-age=86400',
+            ...corsHeaders(req),
+          },
+        });
+      }
       if (req.method !== 'POST' && path !== '/v1/gsa') {
         return json(req, { error: 'not found' }, 404);
       }

@@ -4,6 +4,7 @@ import type {
 } from '../shared/types';
 import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
 import { placeLabel } from '../shared/airports';
+import { matchLeg, type ItinerarySource, type LegMatch } from '../shared/flight-itinerary';
 
 type Props = {
   bookings: Booking[];
@@ -43,6 +44,10 @@ type TravelLeg = {
   from: string;
   to: string;
   sameDay: boolean;    // travel and work land on one day
+  // The itinerary journey that books this day — from ANY gig's itinerary,
+  // since one trip routinely covers the flight out to a show and the flight
+  // on to the next one.
+  match: LegMatch | null;
 };
 
 type TravelInfo = {
@@ -84,6 +89,7 @@ function travelFor(
   contacts: BookingContacts,
   all: Booking[],
   homeAirport: string,
+  itineraries: ItinerarySource[],
 ): TravelInfo | null {
   const workStart = contacts.workStartDate;
   const workEnd = contacts.workEndDate;
@@ -118,9 +124,13 @@ function travelFor(
   // than draw an X → X route and call it travel.
   const arrive: TravelLeg | null = from === here ? null : {
     date: booking.startDate, from, to: here, sameDay: booking.startDate === workStart,
+    match: matchLeg(
+      { date: booking.startDate, from, to: here, bookingId: booking.bookingId }, itineraries),
   };
   const depart: TravelLeg | null = to === here ? null : {
     date: booking.endDate, from: here, to, sameDay: booking.endDate === workEnd,
+    match: matchLeg(
+      { date: booking.endDate, from: here, to, bookingId: booking.bookingId }, itineraries),
   };
 
   // No flights and no travel days: the ribbon would say nothing the header
@@ -153,12 +163,24 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
       <span className="travel-row-route">
         {l.from} <span className="travel-arrow">{'\u2192'}</span> {l.to}
       </span>
+      {l.match && (
+        <span className="travel-row-flight">
+          <span className="travel-flight-dot" aria-hidden="true" />
+          Booked
+          {l.match.confirmation ? ` \u00b7 ${l.match.confirmation}` : ''}
+          {l.match.leg.via?.length ? ` \u00b7 via ${l.match.leg.via.join(', ')}` : ''}
+          {l.match.borrowed && l.match.jobName
+            ? ` \u00b7 on ${l.match.jobName}'s itinerary`
+            : ''}
+        </span>
+      )}
     </div>
   );
   return (
     <div className="travel-card">
       {travel.arrive && row(travel.arrive, 'arrive')}
       {travel.depart && row(travel.depart, 'depart')}
+      {!travel.arrive?.match && !travel.depart?.match && (
       <div className={`travel-flight is-${travel.flight.tone}`}>
         <span className="travel-flight-dot" aria-hidden="true" />
         <span className="travel-flight-label">{travel.flight.label}</span>
@@ -166,6 +188,7 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
           <span className="travel-flight-detail">{travel.flight.detail}</span>
         )}
       </div>
+      )}
       <div className="travel-show">
         Show days: {fmtTravelDay(travel.workStart)} &ndash; {fmtTravelDay(travel.workEnd)}
       </div>
@@ -200,6 +223,21 @@ export default function BookingsList({
   // Requests aren't earned money yet, so the headline figures come from a
   // confirmed-only plan; a second plan including requests supplies the
   // grayed "+$X if accepted" delta per check (and the request's gig chip).
+  // Every itinerary on file, whichever booking it was filed under — one
+  // trip routinely books travel for two gigs.
+  const itineraries: ItinerarySource[] = [];
+  for (const [bookingId, pdfs] of Object.entries(flights)) {
+    const job = bookings.find((b) => b.bookingId === bookingId);
+    for (const pdf of pdfs) {
+      if (pdf.legs && pdf.legs.length > 0) {
+        itineraries.push({
+          bookingId, jobName: job?.jobName,
+          vendor: pdf.vendor, confirmation: pdf.confirmation, legs: pdf.legs,
+        });
+      }
+    }
+  }
+
   const confirmedOnly = upcoming.filter((b) => !isRequest(b));
   const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks);
   const planAll = confirmedOnly.length === upcoming.length
@@ -257,7 +295,7 @@ export default function BookingsList({
                 settings={settings}
                 travel={travelFor(
                   seg.full, contacts[seg.full.bookingId] || NO_CONTACTS,
-                  bookings, settings.homeAirport,
+                  bookings, settings.homeAirport, itineraries,
                 )}
                 onCollapse={() => setExpandedId('none')}
               />

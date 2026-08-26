@@ -1,3 +1,4 @@
+import { parseItinerary, type ItineraryLeg } from '../shared/flight-itinerary';
 import { promises as fs } from 'node:fs';
 import { createRequire } from 'node:module';
 
@@ -228,6 +229,19 @@ function extractLegsByAirportPairs(text: string): ParsedLeg[] {
     legs.push({ from: from.code, to: to.code, date });
   }
   return legs;
+}
+
+// Journeys (day-level flights, connections collapsed) via the shared
+// itinerary parser — the web build runs the identical code on text it
+// pulls through the worker.
+export async function parseItineraryLegs(localPath: string): Promise<ItineraryLeg[]> {
+  try {
+    const text = await extractText(localPath);
+    if (!text || text.length < 20) return [];
+    return parseItinerary(text).legs;
+  } catch {
+    return [];
+  }
 }
 
 export async function parseFlightPdf(localPath: string): Promise<ParsedFlights | null> {
