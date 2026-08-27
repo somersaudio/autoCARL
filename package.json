@@ -12,6 +12,7 @@
     "dist": "electron-vite build && electron-builder -mw",
     "dist:mac": "electron-vite build && electron-builder --mac --arm64 --x64",
     "dist:win": "electron-vite build && electron-builder --win --x64",
+    "prerelease": "bash scripts/prune-releases.sh",
     "release": "electron-vite build && electron-builder --publish always",
     "postrelease": "electron-rebuild -f -w keytar --arch arm64",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
