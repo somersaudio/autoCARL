@@ -56,6 +56,11 @@ type TravelInfo = {
   workStart: string;
   workEnd: string;
   flight: FlightStatus;
+  // This booking's own ticket, for when no itinerary has been parsed yet: the
+  // rows still say "Booked · <conf>" rather than the whole card dropping to a
+  // single summary line. Keeps every platform's card the same shape whether
+  // or not the PDF has been read.
+  ownTicket: { vendor?: string; confirmation?: string } | null;
 };
 
 // Whether the travel is actually ticketed, straight from CARL's flight rows.
@@ -139,7 +144,13 @@ function travelFor(
     return null;
   }
 
-  return { workStart, workEnd, arrive, depart, flight: flightStatusFor(contacts) };
+  const ticket = (contacts.flightBookings || [])
+    .find((f) => f.confirmation || /book|tick|confirm/i.test(f.status || ''));
+  return {
+    workStart, workEnd, arrive, depart,
+    flight: flightStatusFor(contacts),
+    ownTicket: ticket ? { vendor: ticket.vendor, confirmation: ticket.confirmation } : null,
+  };
 }
 
 // "Fri 9/11"
@@ -151,7 +162,14 @@ function fmtTravelDay(iso: string): string {
 }
 
 function TravelRibbon({ travel }: { travel: TravelInfo }) {
-  const row = (l: TravelLeg, kind: 'arrive' | 'depart') => (
+  const row = (l: TravelLeg, kind: 'arrive' | 'depart') => {
+    const ticket = l.match
+      ? { confirmation: l.match.confirmation, borrowedFrom: l.match.borrowed ? l.match.jobName : null,
+          stops: l.match.leg.via || [], exact: true }
+      : travel.ownTicket
+        ? { confirmation: travel.ownTicket.confirmation, borrowedFrom: null, stops: [], exact: false }
+        : null;
+    return (
     <div className={`travel-row${l.sameDay ? ' is-sameday' : ''}`}>
       <span className="travel-plane" aria-hidden="true">{'\u2708'}</span>
       <span className="travel-row-kind">
@@ -163,27 +181,28 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
       <span className="travel-row-route">
         {l.from} <span className="travel-arrow">{'\u2192'}</span> {l.to}
       </span>
-      {l.match && (
+      {ticket && (
         <span className="travel-row-flight">
           <span className="travel-flight-dot" aria-hidden="true" />
           Booked
-          {l.match.confirmation ? ` \u00b7 ${l.match.confirmation}` : ''}
-          {l.match.leg.via?.length
-            ? ` \u00b7 ${l.match.leg.via.length} stop${l.match.leg.via.length > 1 ? 's' : ''}`
-              + ` in ${l.match.leg.via.join(', ')}`
-            : ' \u00b7 nonstop'}
-          {l.match.borrowed && l.match.jobName
-            ? ` \u00b7 on ${l.match.jobName}'s itinerary`
+          {ticket.confirmation ? ` \u00b7 ${ticket.confirmation}` : ''}
+          {ticket.exact
+            ? (ticket.stops.length
+                ? ` \u00b7 ${ticket.stops.length} stop${ticket.stops.length > 1 ? 's' : ''}`
+                  + ` in ${ticket.stops.join(', ')}`
+                : ' \u00b7 nonstop')
             : ''}
+          {ticket.borrowedFrom ? ` \u00b7 on ${ticket.borrowedFrom}'s itinerary` : ''}
         </span>
       )}
     </div>
-  );
+    );
+  };
   return (
     <div className="travel-card">
       {travel.arrive && row(travel.arrive, 'arrive')}
       {travel.depart && row(travel.depart, 'depart')}
-      {!travel.arrive?.match && !travel.depart?.match && (
+      {!travel.arrive?.match && !travel.depart?.match && !travel.ownTicket && (
       <div className={`travel-flight is-${travel.flight.tone}`}>
         <span className="travel-flight-dot" aria-hidden="true" />
         <span className="travel-flight-label">{travel.flight.label}</span>
