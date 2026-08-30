@@ -165,26 +165,25 @@ async function gsaRateForCity(env: Env, city: string, state: string): Promise<un
   return gsaFetch(env, `city/${encodeURIComponent(c)}/state/${st}`);
 }
 
-// Some shows are branded by the EVENT, not the company — map those to the
-// company the logo API should be asked for.
-const ALIAS_RULES: Array<[RegExp, string]> = [
-  // nVIDIA's GPU Technology Conference: "GTC", "GTC26", "GTC DC"…
-  [/^GTC\d*$/i, 'NVIDIA'],
-  // Elon Musk's AI company is a SEPARATE brand from X itself, and a bare
-  // "X" query lands on x.com.
-  [/^X\s*AI$/i, 'xAI'],
-  // Internal CT job codes that name no company at all.
-  [/^CC\d+$/i, 'Apple'],
-  // Abbreviations a search can't resolve on its own — the letters never
-  // appear in the company's real name.
-  [/^BofA$/i, 'Bank of America'],
-  [/^AMAT$/i, 'Applied Materials'],
+// Companies a search can't resolve on its own, pinned straight to a DOMAIN.
+// Going through the search would work for most of these, but the domain it
+// picks decides which IMAGE we get: searching "Applied Materials" lands on
+// appliedmaterials.com, whose logo is an opaque white block (no alpha channel
+// at all), while amat.com's is the transparent blue mark. Pinning the domain
+// makes the picture stable instead of a search result that can drift.
+const DOMAIN_ALIASES: Array<[RegExp, string]> = [
+  [/^GTC\d*$/i, 'nvidia.com'],        // nVIDIA's GPU Technology Conference
+  [/^X\s*AI$/i, 'x.ai'],              // its own company, not X/x.com
+  [/^CC\d+$/i, 'apple.com'],          // internal CT job codes
+  [/^BofA$/i, 'bankofamerica.com'],   // letters never appear in the real name
+  [/^AMAT$/i, 'amat.com'],            // transparent blue mark, not the white block
 ];
 
-function applyAlias(query: string): string {
-  for (const [pattern, company] of ALIAS_RULES) if (pattern.test(query)) return company;
-  return query;
+function aliasDomain(query: string): string | null {
+  for (const [pattern, domain] of DOMAIN_ALIASES) if (pattern.test(query)) return domain;
+  return null;
 }
+
 
 // The leading ONE and TWO words of a job name. One word alone is often a
 // plain English word — "Live Nation Leadership Conference" searched as
@@ -195,9 +194,7 @@ function companyQueries(jobName: string): string[] {
   const words = beforeDash.split(/\s+/).filter(Boolean);
   const out: string[] = [];
   for (const take of [1, 2]) {
-    const q = applyAlias(
-      words.slice(0, take).join(' ').replace(/[^A-Za-z0-9& ]/g, '').trim(),
-    );
+    const q = words.slice(0, take).join(' ').replace(/[^A-Za-z0-9& ]/g, '').trim();
     if (q && !out.includes(q)) out.push(q);
   }
   return out;
@@ -236,6 +233,8 @@ async function jobLogo(env: Env, jobName: string): Promise<string | null> {
   // resolve belongs in ALIAS_RULES above.
   let domain: string | null = null;
   for (const q of queries) {
+    const pinned = aliasDomain(q);
+    if (pinned) { domain = pinned; break; }
     const hit = await searchTop(env, q);
     if (hit && hitRelates(hit.name, hit.domain, q)) { domain = hit.domain; break; }
   }
