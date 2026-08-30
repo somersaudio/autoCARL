@@ -2300,6 +2300,8 @@ a.featured-venue:hover .featured-venue-name {
   white-space: nowrap;
 }
 
+.travel-show-note { color: #f4b942; font-weight: 600; }
+
 .travel-show {
   margin-top: 5px;
   padding-top: 6px;
