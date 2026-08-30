@@ -44,7 +44,9 @@ const K = {
   contactsSweptSchema: 'autocarl.web.contactsSweptSchema',
   flights: 'autocarl.web.flights',
   sswWeeks: 'autocarl.web.sswWeeks',
-  logos: 'autocarl.web.logos2',   // v2: GTC→NVIDIA alias — refetch once
+  // v3: one-word queries were resolving to the wrong brand ("Live" →
+  // Microsoft); bumping the key discards those cached logos once.
+  logos: 'autocarl.web.logos3',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',

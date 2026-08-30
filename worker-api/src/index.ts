@@ -166,26 +166,72 @@ async function gsaRateForCity(env: Env, city: string, state: string): Promise<un
 }
 
 // Some shows are branded by the EVENT, not the company — map those to the
-// company the logo API should be asked for. First-word match, case-insensitive.
-const QUERY_ALIASES: Record<string, string> = {
-  GTC: 'NVIDIA',   // nVIDIA's GPU Technology Conference gigs are labeled "GTC …"
-};
+// company the logo API should be asked for.
+const ALIAS_RULES: Array<[RegExp, string]> = [
+  // nVIDIA's GPU Technology Conference: "GTC", "GTC26", "GTC DC"…
+  [/^GTC\d*$/i, 'NVIDIA'],
+];
 
-function logoQuery(jobName: string): string {
-  const beforeDash = (jobName.split(/\s[-–—]\s/)[0] || jobName).trim();
-  const cleaned = (beforeDash.split(/\s+/)[0] || '').replace(/[^A-Za-z0-9&]/g, '');
-  return QUERY_ALIASES[cleaned.toUpperCase()] ?? cleaned;
+function applyAlias(query: string): string {
+  for (const [pattern, company] of ALIAS_RULES) if (pattern.test(query)) return company;
+  return query;
 }
 
-async function jobLogo(env: Env, jobName: string): Promise<string | null> {
-  const query = logoQuery(jobName);
-  if (!query || !env.LOGODEV_SECRET || !env.LOGODEV_PUBLISHABLE) return null;
+// The leading ONE and TWO words of a job name. One word alone is often a
+// plain English word — "Live Nation Leadership Conference" searched as
+// "Live" returns Microsoft, who own live.com — so a second, more specific
+// query is kept in reserve.
+function companyQueries(jobName: string): string[] {
+  const beforeDash = (jobName.split(/\s[-–—]\s/)[0] || jobName).trim();
+  const words = beforeDash.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const take of [1, 2]) {
+    const q = applyAlias(
+      words.slice(0, take).join(' ').replace(/[^A-Za-z0-9& ]/g, '').trim(),
+    );
+    if (q && !out.includes(q)) out.push(q);
+  }
+  return out;
+}
+
+function tokens(s: string): string[] {
+  return (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+// Does the hit have anything to do with what we asked for? Logo.dev always
+// returns its best guess, so a query that matches nothing still comes back
+// with a confident wrong answer. Tokens under three characters are ignored.
+function hitRelates(name: string, domain: string, query: string): boolean {
+  const hay = new Set([...tokens(name), ...tokens(domain)]);
+  return tokens(query).some((t) => t.length >= 3 && hay.has(t));
+}
+
+async function searchTop(env: Env, query: string): Promise<{ name: string; domain: string } | null> {
+  if (!env.LOGODEV_SECRET) return null;
   const sr = await fetch(`https://api.logo.dev/search?q=${encodeURIComponent(query)}`, {
     headers: { Authorization: `Bearer ${env.LOGODEV_SECRET}` },
   });
   if (!sr.ok) return null;
-  const list = await sr.json() as Array<{ domain?: string }>;
-  const domain = Array.isArray(list) && list[0]?.domain ? list[0].domain : null;
+  const list = await sr.json() as Array<{ name?: string; domain?: string }>;
+  const top = Array.isArray(list) ? list[0] : null;
+  return top?.domain ? { name: top.name || '', domain: top.domain } : null;
+}
+
+async function jobLogo(env: Env, jobName: string): Promise<string | null> {
+  const queries = companyQueries(jobName);
+  if (queries.length === 0 || !env.LOGODEV_SECRET || !env.LOGODEV_PUBLISHABLE) return null;
+  // Take the first hit that actually relates to its query; failing that, keep
+  // the one-word answer rather than showing nothing (an abbreviation like
+  // "BofA" never appears inside "Bank of America", and that hit is right).
+  let chosen: string | null = null;
+  let firstHit: string | null = null;
+  for (const q of queries) {
+    const hit = await searchTop(env, q);
+    if (!hit) continue;
+    if (firstHit === null) firstHit = hit.domain;
+    if (hitRelates(hit.name, hit.domain, q)) { chosen = hit.domain; break; }
+  }
+  const domain = chosen ?? firstHit;
   if (!domain) return null;
   const ir = await fetch(`https://img.logo.dev/${encodeURIComponent(domain)}?token=${env.LOGODEV_PUBLISHABLE}&size=64&format=png&retina=true`);
   if (!ir.ok) return null;

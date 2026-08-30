@@ -4,29 +4,59 @@ import { LOGODEV_PUBLISHABLE, LOGODEV_SECRET } from './secrets';
 // API keys never reach the renderer. Session-cached per company-query.
 
 // Some shows are branded by the EVENT, not the company — map those to the
-// company the logo API should be asked for. First-word match, case-insensitive.
-const QUERY_ALIASES: Record<string, string> = {
-  GTC: 'NVIDIA',   // nVIDIA's GPU Technology Conference gigs are labeled "GTC …"
-};
+// company the logo API should be asked for.
+const ALIAS_RULES: Array<[RegExp, string]> = [
+  // nVIDIA's GPU Technology Conference: "GTC", "GTC26", "GTC DC"…
+  [/^GTC\d*$/i, 'NVIDIA'],
+];
+
+function applyAlias(query: string): string {
+  for (const [pattern, company] of ALIAS_RULES) if (pattern.test(query)) return company;
+  return query;
+}
 
 const cache = new Map<string, string | null>();
 
-function companyQuery(jobName: string): string {
+// The leading ONE and TWO words of a job name. One word alone is often a
+// plain English word — "Live Nation Leadership Conference" searched as
+// "Live" returns Microsoft, who own live.com — so a second, more specific
+// query is kept in reserve.
+function companyQueries(jobName: string): string[] {
   const beforeDash = (jobName.split(/\s[-–—]\s/)[0] || jobName).trim();
-  const firstWord = beforeDash.split(/\s+/)[0] || '';
-  const cleaned = firstWord.replace(/[^A-Za-z0-9&]/g, '');
-  return QUERY_ALIASES[cleaned.toUpperCase()] ?? cleaned;
+  const words = beforeDash.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const take of [1, 2]) {
+    const q = applyAlias(
+      words.slice(0, take).join(' ').replace(/[^A-Za-z0-9& ]/g, '').trim(),
+    );
+    if (q && !out.includes(q)) out.push(q);
+  }
+  return out;
 }
 
-async function searchDomain(query: string): Promise<string | null> {
+function tokens(s: string): string[] {
+  return (s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean);
+}
+
+// Does the hit have anything to do with what we asked for? Logo.dev always
+// returns its best guess, so a query that matches nothing still comes back
+// with a confident wrong answer. Tokens under three characters are ignored:
+// "X" would match half the internet.
+function hitRelates(name: string, domain: string, query: string): boolean {
+  const hay = new Set([...tokens(name), ...tokens(domain)]);
+  return tokens(query).some((t) => t.length >= 3 && hay.has(t));
+}
+
+async function searchTop(query: string): Promise<{ name: string; domain: string } | null> {
   if (!LOGODEV_SECRET) return null;
   try {
     const res = await fetch(`https://api.logo.dev/search?q=${encodeURIComponent(query)}`, {
       headers: { Authorization: `Bearer ${LOGODEV_SECRET}` },
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as Array<{ domain?: string }>;
-    return Array.isArray(data) && data[0]?.domain ? data[0].domain : null;
+    const data = (await res.json()) as Array<{ name?: string; domain?: string }>;
+    const top = Array.isArray(data) ? data[0] : null;
+    return top?.domain ? { name: top.name || '', domain: top.domain } : null;
   } catch { return null; }
 }
 
@@ -44,11 +74,24 @@ async function fetchLogoDataUri(domain: string): Promise<string | null> {
 }
 
 export async function getJobLogo(jobName: string): Promise<string | null> {
-  const query = companyQuery(jobName);
-  if (!query) return null;
-  if (cache.has(query)) return cache.get(query) ?? null;
-  const domain = await searchDomain(query);
+  const queries = companyQueries(jobName);
+  if (queries.length === 0) return null;
+  const key = queries.join('|');
+  if (cache.has(key)) return cache.get(key) ?? null;
+
+  // Take the first hit that actually relates to its query; failing that, keep
+  // the one-word answer rather than showing nothing (an abbreviation like
+  // "BofA" never appears inside "Bank of America", and that hit is right).
+  let chosen: string | null = null;
+  let firstHit: string | null = null;
+  for (const q of queries) {
+    const hit = await searchTop(q);
+    if (!hit) continue;
+    if (firstHit === null) firstHit = hit.domain;
+    if (hitRelates(hit.name, hit.domain, q)) { chosen = hit.domain; break; }
+  }
+  const domain = chosen ?? firstHit;
   const dataUri = domain ? await fetchLogoDataUri(domain) : null;
-  cache.set(query, dataUri);
+  cache.set(key, dataUri);
   return dataUri;
 }
