@@ -165,6 +165,14 @@ async function gsaRateForCity(env: Env, city: string, state: string): Promise<un
   return gsaFetch(env, `city/${encodeURIComponent(c)}/state/${st}`);
 }
 
+// Production companies and agencies that FRONT a client's show. The logo
+// belongs to the client, so a leading agency name is skipped and the query
+// moves to the words after it: "GPJ Dreamforce" is a Salesforce show and
+// "GPJ Cisco Live" a Cisco one, not George P Johnson ones.
+const SKIP_LEADING: RegExp[] = [
+  /^GPJ$/i,   // George P Johnson
+];
+
 // Companies a search can't resolve on its own, pinned straight to a DOMAIN.
 // Going through the search would work for most of these, but the domain it
 // picks decides which IMAGE we get: searching "Applied Materials" lands on
@@ -172,6 +180,10 @@ async function gsaRateForCity(env: Env, city: string, state: string): Promise<un
 // at all), while amat.com's is the transparent blue mark. Pinning the domain
 // makes the picture stable instead of a search result that can drift.
 const DOMAIN_ALIASES: Array<[RegExp, string]> = [
+  // Salesforce brands its events "…force" — Dreamforce and its siblings.
+  // The everyday compounds are excluded so a workforce or task-force show
+  // doesn't get a Salesforce logo.
+  [/^(?!work|air|task|labou?r|police|life|space|bruteforce)[A-Za-z]{3,}force$/i, 'salesforce.com'],
   [/^GTC\d*$/i, 'nvidia.com'],        // nVIDIA's GPU Technology Conference
   [/^X\s*AI$/i, 'x.ai'],              // its own company, not X/x.com
   [/^CC\d+$/i, 'apple.com'],          // internal CT job codes
@@ -192,6 +204,10 @@ function aliasDomain(query: string): string | null {
 function companyQueries(jobName: string): string[] {
   const beforeDash = (jobName.split(/\s[-–—]\s/)[0] || jobName).trim();
   const words = beforeDash.split(/\s+/).filter(Boolean);
+  // Step past a leading agency name, but never past the last word — a job
+  // named only for its agency still gets to try.
+  const bare = (w: string) => w.replace(/[^A-Za-z0-9&]/g, '');
+  while (words.length > 1 && SKIP_LEADING.some((p) => p.test(bare(words[0])))) words.shift();
   const out: string[] = [];
   for (const take of [1, 2]) {
     const q = words.slice(0, take).join(' ').replace(/[^A-Za-z0-9& ]/g, '').trim();

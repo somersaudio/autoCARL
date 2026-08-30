@@ -47,7 +47,7 @@ const K = {
   // v4: one-word queries resolved to the wrong brand ("Live" → Microsoft,
   // "X" → x.com rather than xAI), and unresolvable job codes now get named
   // aliases instead of a wrong guess. Bumping the key drops stale logos once.
-  logos: 'autocarl.web.logos5',
+  logos: 'autocarl.web.logos6',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',
