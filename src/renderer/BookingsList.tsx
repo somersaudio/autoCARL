@@ -161,26 +161,19 @@ function fmtTravelDay(iso: string): string {
   return `${DOW[dt.getDay()]} ${m}/${d}`;
 }
 
-// "9/7" — the note beside the show days is tight on a phone, so it drops
-// the weekday the rows above already carry.
-function fmtShortDay(iso: string): string {
-  const [, m, d] = iso.split('-').map(Number);
-  return `${m}/${d}`;
-}
-
 function TravelRibbon({ travel }: { travel: TravelInfo }) {
-  // Days that are a show day AND a travel day — you're working and flying on
-  // the same date, which is worth saying beside the show dates and not only
-  // on the leg rows.
-  const doubleDays: string[] = [];
-  for (const leg of [travel.arrive, travel.depart]) {
-    if (leg?.sameDay && !doubleDays.includes(leg.date)) doubleDays.push(leg.date);
-  }
-  const doubleNote = doubleDays.length === 0
-    ? null
-    : doubleDays.length === 1
-      ? `${fmtShortDay(doubleDays[0])} is a travel day too`
-      : `${doubleDays.map(fmtShortDay).join(' & ')} are travel days too`;
+  // A travel day that is ALSO a work day is the one that actually costs you.
+  // Say which end it lands on rather than just listing dates.
+  const arriveSame = !!travel.arrive?.sameDay;
+  const departSame = !!travel.depart?.sameDay;
+  const doubleNote = arriveSame && departSame
+    ? '*Both Travel Dates are also Work Days'
+    : arriveSame
+      ? '*Work Starts on your Travel In Date'
+      : departSame
+        ? '*Work Ends on your Travel Out Date'
+        : null;
+
   const row = (l: TravelLeg, kind: 'arrive' | 'depart') => {
     const ticket = l.match
       ? { confirmation: l.match.confirmation, borrowedFrom: l.match.borrowed ? l.match.jobName : null,
