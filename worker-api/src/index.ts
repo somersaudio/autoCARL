@@ -170,6 +170,15 @@ async function gsaRateForCity(env: Env, city: string, state: string): Promise<un
 const ALIAS_RULES: Array<[RegExp, string]> = [
   // nVIDIA's GPU Technology Conference: "GTC", "GTC26", "GTC DC"…
   [/^GTC\d*$/i, 'NVIDIA'],
+  // Elon Musk's AI company is a SEPARATE brand from X itself, and a bare
+  // "X" query lands on x.com.
+  [/^X\s*AI$/i, 'xAI'],
+  // Internal CT job codes that name no company at all.
+  [/^CC\d+$/i, 'Apple'],
+  // Abbreviations a search can't resolve on its own — the letters never
+  // appear in the company's real name.
+  [/^BofA$/i, 'Bank of America'],
+  [/^AMAT$/i, 'Applied Materials'],
 ];
 
 function applyAlias(query: string): string {
@@ -220,18 +229,16 @@ async function searchTop(env: Env, query: string): Promise<{ name: string; domai
 async function jobLogo(env: Env, jobName: string): Promise<string | null> {
   const queries = companyQueries(jobName);
   if (queries.length === 0 || !env.LOGODEV_SECRET || !env.LOGODEV_PUBLISHABLE) return null;
-  // Take the first hit that actually relates to its query; failing that, keep
-  // the one-word answer rather than showing nothing (an abbreviation like
-  // "BofA" never appears inside "Bank of America", and that hit is right).
-  let chosen: string | null = null;
-  let firstHit: string | null = null;
+  // Only a hit that actually relates to its query is used. Logo.dev always
+  // answers with SOMETHING, and a confident wrong brand on a job card is
+  // worse than no logo at all — "America" returns American Express, which is
+  // not who the America PAC show is for. Anything a search genuinely can't
+  // resolve belongs in ALIAS_RULES above.
+  let domain: string | null = null;
   for (const q of queries) {
     const hit = await searchTop(env, q);
-    if (!hit) continue;
-    if (firstHit === null) firstHit = hit.domain;
-    if (hitRelates(hit.name, hit.domain, q)) { chosen = hit.domain; break; }
+    if (hit && hitRelates(hit.name, hit.domain, q)) { domain = hit.domain; break; }
   }
-  const domain = chosen ?? firstHit;
   if (!domain) return null;
   const ir = await fetch(`https://img.logo.dev/${encodeURIComponent(domain)}?token=${env.LOGODEV_PUBLISHABLE}&size=64&format=png&retina=true`);
   if (!ir.ok) return null;

@@ -44,9 +44,10 @@ const K = {
   contactsSweptSchema: 'autocarl.web.contactsSweptSchema',
   flights: 'autocarl.web.flights',
   sswWeeks: 'autocarl.web.sswWeeks',
-  // v3: one-word queries were resolving to the wrong brand ("Live" →
-  // Microsoft); bumping the key discards those cached logos once.
-  logos: 'autocarl.web.logos3',
+  // v4: one-word queries resolved to the wrong brand ("Live" → Microsoft,
+  // "X" → x.com rather than xAI), and unresolvable job codes now get named
+  // aliases instead of a wrong guess. Bumping the key drops stale logos once.
+  logos: 'autocarl.web.logos4',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',
