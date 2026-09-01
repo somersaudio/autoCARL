@@ -200,6 +200,20 @@ export type CarlBookingDetails = {
   // a `name` field. We collect them all here and let the caller disambiguate
   // by matching against booking.projectManager / booking.laborCoordinator.
   emailsByName: Record<string, string>;
+  // Hotel reservations (fields 586-595) — laid out exactly like the flight
+  // block above: name, booked-by, status, confirmation, files, notes, and
+  // the two dates.
+  hotels: Array<{
+    name?: string;
+    bookedBy?: string;
+    status?: string;
+    confirmation?: string;
+    checkIn?: string;
+    checkOut?: string;
+    notes?: string;
+    pdfUrl?: string;
+  }>;
+
   perDiem?: number;
   venue?: string;
   venueAddress?: string;
@@ -324,6 +338,22 @@ function decodeEntities(s: string): string {
     .trim();
 }
 
+
+// CARL wraps some values in a record-id map, sometimes with the value in an
+// array: {"VWQW7XRQZ4":["AC Hotel Palo Alto"]}. Dig out the first string.
+function firstLeafString(v: unknown): string | undefined {
+  if (typeof v === 'string') return v.trim() || undefined;
+  if (Array.isArray(v)) {
+    for (const x of v) { const s = firstLeafString(x); if (s) return s; }
+    return undefined;
+  }
+  if (v && typeof v === 'object') {
+    for (const x of Object.values(v)) { const s = firstLeafString(x); if (s) return s; }
+    return undefined;
+  }
+  return undefined;
+}
+
 // Mine a single XHR response payload for booking facts.
 function mergeResponse(resp: unknown, out: CarlBookingDetails): void {
   if (!resp || typeof resp !== 'object') return;
@@ -353,6 +383,44 @@ function mergeResponse(resp: unknown, out: CarlBookingDetails): void {
     // ---- labor travel status (field_254, e.g. "Flight Requests Open to Crew") ----
     const laborTravel = asString(obj.field_254);
     if (laborTravel && !out.laborTravel) out.laborTravel = decodeEntities(laborTravel);
+
+    // ---- hotel reservation (fields 586-595) ----
+    const hotelName = firstLeafString(obj.field_586);
+    const checkIn = asString(obj.field_594);
+    const checkOut = asString(obj.field_595);
+    const hotelFiles = obj.field_591;
+    const hasHotel = !!hotelName
+      || (!!checkIn && /^\d{4}-\d{2}-\d{2}$/.test(checkIn))
+      || (Array.isArray(hotelFiles) && hotelFiles.length > 0);
+    if (hasHotel) {
+      let pdfUrl: string | undefined;
+      if (Array.isArray(hotelFiles)) {
+        for (const f of hotelFiles) {
+          if (f && typeof f === 'object') {
+            const u = asString((f as Record<string, unknown>).url);
+            if (u) { pdfUrl = u; break; }
+          }
+        }
+      }
+      const confirmation = asString(obj.field_589);
+      const key = `${confirmation || ''}|${checkIn || ''}|${hotelName || ''}`;
+      const already = out.hotels.some(
+        (h) => `${h.confirmation || ''}|${h.checkIn || ''}|${h.name || ''}` === key,
+      );
+      if (!already) {
+        const notes = asString(obj.field_593);
+        out.hotels.push({
+          name: hotelName,
+          bookedBy: asString(obj.field_587),
+          status: asString(obj.field_588),
+          confirmation,
+          checkIn: checkIn && /^\d{4}-\d{2}-\d{2}$/.test(checkIn) ? checkIn : undefined,
+          checkOut: checkOut && /^\d{4}-\d{2}-\d{2}$/.test(checkOut) ? checkOut : undefined,
+          notes: notes ? decodeEntities(notes) : undefined,
+          pdfUrl,
+        });
+      }
+    }
 
     // ---- work dates (fields 145/146) ----
     // The iCal feed publishes the TRAVEL-inclusive span; these two are the
@@ -467,6 +535,7 @@ export async function fetchBookingDetails(
   const tokens = extractTokens(html);
   const out: CarlBookingDetails & { __debug?: { htmlBytes: number; tokenCount: number } } = {
     flights: [],
+    hotels: [],
     emailsByName: {},
     __debug: { htmlBytes: html.length, tokenCount: tokens.length },
   };

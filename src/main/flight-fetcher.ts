@@ -139,6 +139,7 @@ export async function sweepFlights(
           workStartDate: scraped.workStartDate,
           workEndDate: scraped.workEndDate,
           flightBookings: summariseFlights(scraped.flights),
+          hotels: scraped.hotels,
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
@@ -157,6 +158,7 @@ export async function sweepFlights(
           || prevContacts.workStartDate !== next.workStartDate
           || prevContacts.workEndDate !== next.workEndDate
           || JSON.stringify(prevContacts.flightBookings) !== JSON.stringify(next.flightBookings)
+          || JSON.stringify(prevContacts.hotels) !== JSON.stringify(next.hotels)
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;

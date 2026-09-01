@@ -10,7 +10,7 @@
 import type {
   Api, Booking, BookingContacts, BookingContactsCache, ExpenseReceipt, FlightPdf,
   ExpenseReport, ExpensesCache, FlightsCache, FriendsList, FriendsStatus,
-  IngestOutcome, RefreshResult, SetupStatus, SswPushResult,
+  HotelBooking, IngestOutcome, RefreshResult, SetupStatus, SswPushResult,
   SswWeek, UserSettings,
 } from '../shared/types';
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
@@ -384,6 +384,7 @@ function matchEmailForRole(emailsByName: Record<string, string>, roleName: strin
 // src/main/carl-api.ts's CarlBookingDetails (flights unused on web v1).
 type CarlDetails = {
   flights?: Array<{ pdfUrl: string; vendor?: string; confirmation?: string; status?: string }>;
+  hotels?: HotelBooking[];
   emailsByName?: Record<string, string>;
   perDiem?: number;
   venue?: string;
@@ -507,7 +508,8 @@ function summariseFlights(
 
 //   3 = + flightBookings (is the flight actually ticketed?)
 //   4 = + parsed itinerary legs (which travel day each flight covers)
-const SWEEP_SCHEMA = 4;
+//   5 = + hotel reservations
+const SWEEP_SCHEMA = 5;
 let sweepRunning = false;
 
 async function sweepContacts(bookings: Booking[]): Promise<void> {
@@ -580,6 +582,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           workStartDate: scraped.workStartDate,
           workEndDate: scraped.workEndDate,
           flightBookings: summariseFlights(scraped.flights || []),
+          hotels: scraped.hotels,
           gsaPerDiem,
           gsaCity,
           laborTravel: scraped.laborTravel,
@@ -598,6 +601,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           || prevContacts.workStartDate !== next.workStartDate
           || prevContacts.workEndDate !== next.workEndDate
           || JSON.stringify(prevContacts.flightBookings) !== JSON.stringify(next.flightBookings)
+          || JSON.stringify(prevContacts.hotels) !== JSON.stringify(next.hotels)
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;

@@ -130,6 +130,17 @@ export type SswPushResult =
 // The renderer falls back from (1) → (2) → round-trip inference.
 import type { ItineraryLeg } from './flight-itinerary';
 
+export type HotelBooking = {
+  name?: string;
+  bookedBy?: string;
+  status?: string;
+  confirmation?: string;
+  checkIn?: string;      // ISO YYYY-MM-DD
+  checkOut?: string;
+  notes?: string;
+  pdfUrl?: string;      // public S3 link to the confirmation
+};
+
 export type FlightPdf = {
   url: string;            // original S3 URL on CARL's bucket
   filename: string;       // e.g. "John-Somers-...-CTLA024572-PO039270.pdf"
@@ -178,6 +189,8 @@ export type BookingContacts = {
   // is actually ticketed. (The itinerary PDFs are a separate cache, and
   // desktop-only; this summary works on both platforms.)
   flightBookings?: Array<{ vendor?: string; confirmation?: string; status?: string }>;
+  // Hotel reservations CARL has on the booking, with the confirmation PDF.
+  hotels?: HotelBooking[];
   gsaCity?: string;            // city name returned by GSA (for display sanity)
   // CARL's laborTravel status, e.g. "Flight Requests Open to Crew". The
   // renderer keys the flight-request button off this.

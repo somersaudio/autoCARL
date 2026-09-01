@@ -2316,6 +2316,31 @@ a.featured-venue:hover .featured-venue-name {
   .travel-row-route { margin-left: 0; flex-basis: 100%; }
 }
 
+/* ---- Hotel reservations on the featured job card ---- */
+.hotel-card { margin-top: 8px; }
+
+.hotel-entry + .hotel-entry {
+  margin-top: 4px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.hotel-card .travel-row-kind {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.hotel-view {
+  margin-left: auto;
+  padding: 4px 9px !important;
+  font-size: 11px !important;
+}
+
+.travel-row-flight.is-pending { color: var(--text-subtle); }
+.travel-row-flight.is-pending .travel-flight-dot { background: var(--text-subtle); }
+
+.hotel-card .travel-show { border-top: none; padding-top: 2px; }
+
 /* ---- Booking requests: pending accept/deny in CARL ---- */
 .request-bang {
   display: inline-flex;

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
-  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, SswWeek, UserSettings,
+  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, HotelBooking,
+  SswWeek, UserSettings,
 } from '../shared/types';
 import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
 import { placeLabel } from '../shared/airports';
@@ -159,6 +160,60 @@ function fmtTravelDay(iso: string): string {
   const dt = new Date(y, m - 1, d);
   const DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
   return `${DOW[dt.getDay()]} ${m}/${d}`;
+}
+
+// Nights between two ISO dates — "1 night" reads better than the raw range.
+function nightCount(checkIn?: string, checkOut?: string): number | null {
+  if (!checkIn || !checkOut) return null;
+  const ms = Date.parse(`${checkOut}T00:00:00`) - Date.parse(`${checkIn}T00:00:00`);
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  return Math.round(ms / 86400000);
+}
+
+// Hotel reservations CARL has on the booking, shown like the travel card:
+// where, when, and the confirmation, with the PDF a tap away.
+function HotelCard({ hotels }: { hotels: HotelBooking[] }) {
+  return (
+    <div className="travel-card hotel-card">
+      {hotels.map((h, i) => {
+        const nights = nightCount(h.checkIn, h.checkOut);
+        const booked = !!h.confirmation || /book|confirm/i.test(h.status || '');
+        return (
+          <div className="hotel-entry" key={`${h.confirmation || ''}-${h.checkIn || ''}-${i}`}>
+            <div className="travel-row">
+              <span className="travel-plane" aria-hidden="true">{'\u{1F3E8}'}</span>
+              <span className="travel-row-kind">{h.name || 'Hotel'}</span>
+              {h.checkIn && (
+                <span className="travel-row-date">
+                  {fmtTravelDay(h.checkIn)}
+                  {h.checkOut ? ` \u2192 ${fmtTravelDay(h.checkOut)}` : ''}
+                  {nights ? ` \u00b7 ${nights} night${nights > 1 ? 's' : ''}` : ''}
+                </span>
+              )}
+              {h.pdfUrl && (
+                <button
+                  className="secondary hotel-view"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    window.api.flights.open(h.pdfUrl as string).catch(() => {});
+                  }}
+                >
+                  View reservation
+                </button>
+              )}
+              <span className={`travel-row-flight${booked ? '' : ' is-pending'}`}>
+                <span className="travel-flight-dot" aria-hidden="true" />
+                {booked ? 'Booked' : (h.status || 'Not booked')}
+                {h.confirmation ? ` \u00b7 ${h.confirmation}` : ''}
+                {h.bookedBy ? ` \u00b7 ${h.bookedBy}` : ''}
+              </span>
+            </div>
+            {h.notes && <div className="travel-show">{h.notes}</div>}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function TravelRibbon({ travel }: { travel: TravelInfo }) {
@@ -574,6 +629,7 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
         )}
       </div>
       {travel && <TravelRibbon travel={travel} />}
+      {(contacts.hotels || []).length > 0 && <HotelCard hotels={contacts.hotels!} />}
       {isRequest(booking) && (
         <button
           className="request-banner"
