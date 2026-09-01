@@ -145,8 +145,19 @@ function travelFor(
     return null;
   }
 
-  const ticket = (contacts.flightBookings || [])
-    .find((f) => f.confirmation || /book|tick|confirm/i.test(f.status || ''));
+  // Once this booking's own itinerary has actually been read, leg matching is
+  // authoritative and the blanket "this gig has a ticket" fallback must stop:
+  // a ONE-WAY booking covers a single travel day, and stamping "Booked" on
+  // the other one claims a flight that was never bought. (Google AITE flies
+  // home SJC->AUS only — the inbound hop from the San Francisco show is a
+  // car ride; there isn't even a commercial SFO->SJC flight.)
+  const parsedOwnItinerary = itineraries.some(
+    (src) => src.bookingId === booking.bookingId && src.legs.length > 0,
+  );
+  const ticket = parsedOwnItinerary
+    ? undefined
+    : (contacts.flightBookings || [])
+      .find((f) => f.confirmation || /book|tick|confirm/i.test(f.status || ''));
   return {
     workStart, workEnd, arrive, depart,
     flight: flightStatusFor(contacts),
@@ -231,8 +242,12 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
 
   const row = (l: TravelLeg, kind: 'arrive' | 'depart') => {
     const ticket = l.match
-      ? { confirmation: l.match.confirmation, borrowedFrom: l.match.borrowed ? l.match.jobName : null,
-          stops: l.match.leg.via || [], exact: true }
+      ? { confirmation: l.match.confirmation,
+          borrowedFrom: l.match.borrowed ? l.match.jobName : null,
+          stops: l.match.leg.via || [],
+          // A loose match knows there's a flight that day but not its route,
+          // so it stays quiet about stops.
+          exact: !l.match.loose }
       : travel.ownTicket
         ? { confirmation: travel.ownTicket.confirmation, borrowedFrom: null, stops: [], exact: false }
         : null;

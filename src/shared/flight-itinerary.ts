@@ -174,6 +174,8 @@ export type LegMatch = {
   jobName?: string;
   /** true when the itinerary belongs to a different booking than the one asking */
   borrowed: boolean;
+  /** the DATE matched but neither endpoint did — a flight that day, route unclaimed */
+  loose: boolean;
 };
 
 // Find the itinerary journey that covers a travel day. The date must match;
@@ -185,16 +187,23 @@ export function matchLeg(
   sources: ItinerarySource[],
 ): LegMatch | null {
   let best: LegMatch | null = null;
-  let bestScore = 0;
+  let bestScore = -1;
   for (const src of sources) {
     for (const leg of src.legs) {
       if (leg.date !== opts.date) continue;
       const toHit = !!opts.to && leg.to === opts.to;
       const fromHit = !!opts.from && leg.from === opts.from;
-      if (!toHit && !fromHit) continue;
-      // Both ends matching is a certainty; one end is still a real match
-      // (the other side may be "home" with no airport code set).
+      if (!toHit && src.bookingId !== opts.bookingId) continue;
+      // Both ends matching is a certainty; one end is still a real match (the
+      // other side may be "home", with no airport code to compare). Neither
+      // end matching is kept as a LOOSE match — there is a flight that day,
+      // but we won't claim its route: crews fly into a neighbouring airport
+      // often enough (OAK for SFO) that dropping it would hide a real ticket.
       const score = (toHit ? 2 : 0) + (fromHit ? 1 : 0);
+      // Another gig's itinerary only counts when the flight ARRIVES where
+      // this gig is. Sharing a date, or even a departure airport, proves
+      // nothing: two trips can leave the same city the same morning, and
+      // matching on that claims a flight for what is really a car ride.
       if (score > bestScore) {
         bestScore = score;
         best = {
@@ -204,6 +213,7 @@ export function matchLeg(
           bookingId: src.bookingId,
           jobName: src.jobName,
           borrowed: src.bookingId !== opts.bookingId,
+          loose: score === 0,
         };
       }
     }
