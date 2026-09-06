@@ -437,6 +437,18 @@ function mkInput(ref: string, value: string): SswInput {
   return { Ref: ref, Value: [[{ Type: '', Value: value, Format: '', Text: '' }]] };
 }
 
+// The day rate to write onto the timesheet. The General tab's own daily-rate
+// field is gone — Earnings' base pay is the one rate now — so that is the
+// source, with the legacy field still honoured if an old config carries one.
+//
+// This matters beyond cosmetics: a new week copies its rate from the newest
+// existing record, so a week that lands on 0 hands 0 to every week after it.
+// Writing the configured rate breaks that chain.
+function configuredDayRate(cfg: { defaultDailyRate: number; basePayDayRate: number }): number {
+  if (cfg.defaultDailyRate > 0) return cfg.defaultDailyRate;
+  return cfg.basePayDayRate > 0 ? cfg.basePayDayRate : 0;
+}
+
 // Placeholder for the future case where we need to derive iDailyRate without
 // a prior GetRecordExtended. Today pushWeek re-fetches the record to read the
 // stored iDailyRate verbatim.
@@ -645,8 +657,8 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
     const template = await getRecordExtended(templateId);
     const pt = template.PrimaryTable;
     const cfg = await readConfig();
-    const dailyRate = cfg.defaultDailyRate > 0
-      ? cfg.defaultDailyRate.toFixed(2)
+    const dailyRate = configuredDayRate(cfg) > 0
+      ? configuredDayRate(cfg).toFixed(2)
       : String(pt.iDailyRate || '');
 
     // 2. Assemble a draft SswWeek with the template identity + blank days.
@@ -733,8 +745,8 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       // Settings.timesheetEmail does the same for the address on the sheet:
       // blank keeps SSW's stored iEmail, anything else replaces it.
       const emailForSave = cfg.timesheetEmail || week.email;
-      const dailyRate = cfg.defaultDailyRate > 0
-        ? cfg.defaultDailyRate.toFixed(2)
+      const dailyRate = configuredDayRate(cfg) > 0
+        ? configuredDayRate(cfg).toFixed(2)
         : String(pt.iDailyRate || '');
       const originalRates: Record<string, string> = {};
       for (const row of current.SecondaryTables.tblDay || []) {

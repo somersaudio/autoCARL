@@ -690,7 +690,15 @@ function requireSsw(): { email: string; password: string } {
 
 function sswCfg(): { defaultDailyRate: number; timesheetEmail: string } {
   const s = getSettings();
-  return { defaultDailyRate: s.defaultDailyRate, timesheetEmail: s.timesheetEmail };
+  // The rate written onto the timesheet. General's own daily-rate field is
+  // gone — Earnings' base pay is the one rate now — so it is what gets sent,
+  // with the legacy field still winning if some old profile still carries it.
+  // Sending 0 leaves SSW's stored value in place, and once a week lands on 0
+  // every week created after it inherits that 0.
+  const dayRate = s.defaultDailyRate > 0
+    ? s.defaultDailyRate
+    : (s.basePayDayRate > 0 ? s.basePayDayRate : 0);
+  return { defaultDailyRate: dayRate, timesheetEmail: s.timesheetEmail };
 }
 
 function unwrapWeek(r: unknown): SswWeek | null {
