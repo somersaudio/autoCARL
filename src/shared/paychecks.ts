@@ -145,7 +145,15 @@ function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | 
   const week = weeks[monday];
   if (!week) return null;
   const day = week.days.find((d) => d.date === iso);
-  return day && day.totalHours > 0 ? day : null;
+  if (!day) return null;
+  // Only a day with PAYABLE hours may override the day-rate assumption.
+  // SSW can hand back a day carrying a total with no reg/OT/DT split — a
+  // freshly created week, or one saved before its spreadsheet recalculated —
+  // and pricing that day from those hours pays it $0, which silently wipes an
+  // otherwise real paycheck. A day with nothing payable on it simply hasn't
+  // been filled in yet, so it falls back to the standard-day estimate.
+  const payable = day.regHours + day.otHours + day.dtHours;
+  return payable > 0 ? day : null;
 }
 
 /**
