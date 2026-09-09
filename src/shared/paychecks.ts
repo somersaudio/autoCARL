@@ -14,6 +14,7 @@
 // The rates here are cash-flow truth per check, not the year's blended rate:
 // over-withholding on heavy checks comes back at tax time.
 
+import { withSplit } from './hours';
 import type { Booking, BookingContactsCache, SswWeek, SswDay, UserSettings } from './types';
 import {
   STANDARD_DEDUCTION, SS_RATE, MEDICARE_RATE, federalIncomeTax,
@@ -166,8 +167,11 @@ function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | 
   const monday = addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
   const week = weeks[monday];
   if (!week) return null;
-  const day = week.days.find((d) => d.date === iso);
-  if (!day) return null;
+  const found = week.days.find((d) => d.date === iso);
+  if (!found) return null;
+  // SSW returns a day the app saved with its total right and the reg/OT/DT
+  // buckets all zero; derive them so overtime doesn't vanish.
+  const day = withSplit(found);
   // Only a day with PAYABLE hours may override the day-rate assumption.
   // SSW can hand back a day carrying a total with no reg/OT/DT split — a
   // freshly created week, or one saved before its spreadsheet recalculated —

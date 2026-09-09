@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Booking, BookingContactsCache, SswDay, SswWeek } from '../shared/types';
 import { friendlyError } from '../shared/errors';
+import { ctSplit } from '../shared/hours';
 import WeekPicker from './WeekPicker';
 
 type Props = {
@@ -173,46 +174,6 @@ function normalizeTime(raw: string, defaultMeridiem: 'am' | 'pm'): string {
   else if (h === 0) { h = 12; mer = 'am'; }
   else if (h > 23) return raw;
   return `${h}:${String(mins).padStart(2, '0')} ${mer}`;
-}
-
-// "8:00 am" / "12:30 pm" → minutes from midnight, or null if unparseable.
-function parseTime(t: string): number | null {
-  const m = t.match(/^\s*(\d{1,2}):(\d{2})\s*(am|pm)\s*$/i);
-  if (!m) return null;
-  let h = parseInt(m[1], 10);
-  const min = parseInt(m[2], 10);
-  const ap = m[3].toLowerCase();
-  if (ap === 'pm' && h !== 12) h += 12;
-  if (ap === 'am' && h === 12) h = 0;
-  return h * 60 + min;
-}
-
-// Worked hours = end - start - lunch. Returns 0 when start or end is blank.
-function workedHours(d: SswDay): number {
-  const start = parseTime(d.startTime);
-  const end = parseTime(d.endTime);
-  if (start == null || end == null) return 0;
-  let mins = end - start;
-  if (mins < 0) mins += 24 * 60; // crossed midnight
-  const lunchStart = parseTime(d.lunchStart);
-  const lunchEnd = parseTime(d.lunchEnd);
-  if (lunchStart != null && lunchEnd != null) {
-    mins -= Math.max(0, lunchEnd - lunchStart);
-  }
-  return Math.max(0, mins / 60);
-}
-
-// CT business rule: worked days are paid at a 10-hour minimum (8 reg + 2 OT),
-// OT continues up to 12, anything over 12 is double time. Non-worked days
-// stay at zero.
-function ctSplit(d: SswDay): { reg: number; ot: number; dt: number; total: number } {
-  const raw = workedHours(d);
-  if (raw === 0) return { reg: 0, ot: 0, dt: 0, total: 0 };
-  const paid = Math.max(10, raw);
-  const reg = Math.min(8, paid);
-  const ot = Math.min(4, Math.max(0, paid - 8));
-  const dt = Math.max(0, paid - 12);
-  return { reg, ot, dt, total: reg + ot + dt };
 }
 
 function weekTotals(days: SswDay[]) {

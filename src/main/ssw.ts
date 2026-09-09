@@ -1,6 +1,7 @@
 import { net, session } from 'electron';
 import { readConfig, writeSswWeek } from './store';
 import { getSswPassword } from './credentials';
+import { withSplit } from '../shared/hours';
 import type { SswDay, SswPushResult, SswWeek } from '../shared/types';
 
 const SSW = 'https://ctts.ctus.com/SpreadsheetWeb';
@@ -510,7 +511,10 @@ function hourlyFromDaily(dailyRateStr: string): string {
 function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: Record<string, string>, emailForSave: string): SswInput[] {
   const inputs: SswInput[] = [];
   const date = isoToPaddedMDY(week.weekStartDate);
-  const saveDays = week.days.map((d) => isFutureISO(d.date) ? blankFutureDay(d) : d);
+  // Fill in the reg/OT/DT buckets before writing them: the local week never
+  // computes them, and SSW does not compute them on this save path either, so
+  // without this every day went up as 0 / 0 / 0.
+  const saveDays = week.days.map((d) => isFutureISO(d.date) ? blankFutureDay(d) : withSplit(d));
   const hourly = hourlyFromDaily(originalDailyRate);
 
   // ---- PrimaryTable identity ----

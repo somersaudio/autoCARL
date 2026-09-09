@@ -23,6 +23,7 @@ import {
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
 import { cleanAirportCode } from '../shared/airports';
 import { parseItinerary } from '../shared/flight-itinerary';
+import { withSplit } from '../shared/hours';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
@@ -1235,8 +1236,12 @@ const api: Api = {
     pushWeek: async (week) => {
       try {
         const { email, password } = requireSsw();
-        const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week, cfg: sswCfg() });
-        if (r && r.ok) cacheWeek(week);
+        // The reg/OT/DT buckets are filled here, before the week leaves the
+        // phone: the local week never computes them and SSW won't on this
+        // path, so the worker would otherwise write 0 / 0 / 0 for every day.
+        const filled: SswWeek = { ...week, days: week.days.map(withSplit) };
+        const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg: sswCfg() });
+        if (r && r.ok) cacheWeek(filled);
         return r;
       } catch (e) {
         // Desktop pushWeek resolves with the error union rather than throwing.
