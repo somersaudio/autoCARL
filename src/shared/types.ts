@@ -38,6 +38,9 @@ export type UserSettings = {
   // When true (default) the estimator folds per diem into the deposit figure;
   // when false it shows wages, with per diem as its own "+" line (the old look).
   perDiemInTotal: boolean;
+  // Same idea for overtime: when true (default) the OT premium just sits
+  // inside the deposit figure; when false it's pulled onto its own line.
+  otInTotal: boolean;
   retirementPct: number;     // 401k contribution as % of gross wages; 0 = none
   // Tax inputs. Federal tax uses real brackets (see shared/taxes.ts) rather
   // than a flat rate, so it needs to know where the user sits in the year.

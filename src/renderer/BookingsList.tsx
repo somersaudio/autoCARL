@@ -751,7 +751,15 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
   return (
     <div className="card">
       <h3>Paycheck Estimator</h3>
-      {checks.map((c) => (
+      {checks.map((c) => {
+        // OT is part of your wages, so it already sits inside `net`. Pulling
+        // it onto its own line means taking its share back OUT of the
+        // headline — its slice of take-home rather than its gross, so the
+        // two still add up to exactly the same deposit.
+        const otShare = !settings.otInTotal && c.gross > 0
+          ? Math.round(c.net * (c.otPay / c.gross))
+          : 0;
+        return (
         <div className="paycheck-row" key={c.periodStart}>
           <div className="paycheck-main">
             <div className="paycheck-line1">
@@ -812,17 +820,18 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
           >
             {!c.requestOnly && (
               <div className="earnings-mini-main">
-                {money(settings.perDiemInTotal ? c.net + c.perDiem : c.net)}
+                {money((settings.perDiemInTotal ? c.net + c.perDiem : c.net) - otShare)}
               </div>
             )}
             {!c.requestOnly && !settings.perDiemInTotal && c.perDiem > 0 && (
               <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
             )}
-            {/* Overtime earns its own line: an 11-hour day prices to exactly
-                the day rate, so OT can be in a check without moving the
-                headline figure at all. */}
-            {!c.requestOnly && c.otPay > 0 && (
-              <div className="earnings-mini-sub is-ot">OT +{money(c.otPay)}</div>
+            {/* Overtime on its own line, when asked for. It hides by default
+                because it is already inside the figure above; an 11-hour day
+                prices to exactly the day rate, so OT can sit in a check
+                without moving that number at all. */}
+            {!c.requestOnly && otShare > 0 && (
+              <div className="earnings-mini-sub is-ot">OT +{money(otShare)}</div>
             )}
             {(c.requestExtra ?? 0) > 0 && (
               <div className="earnings-mini-sub is-request">
@@ -831,7 +840,8 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {edit && (
         <div className="modal-backdrop" onClick={() => setEdit(null)}>
