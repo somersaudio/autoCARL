@@ -142,12 +142,19 @@ function hoursPay(day: SswDay, dayRate: number): number {
   return hourly * (day.regHours + 1.5 * day.otHours + 2 * day.dtHours);
 }
 
-// The slice of a day's pay that came from OT and DT, at their premium rates.
-// Shown on its own line: a ten-hour day prices to exactly the day rate, so
-// the total moves not at all even though overtime is in there.
+// A standard show day is ten hours, which SSW books as 8 regular + 2 OT — and
+// the app autofills exactly that (8:00 am - 6:00 pm) into every day you don't
+// type over. Those two hours are the normal day, not overtime worked, so they
+// stay out of the figure: only OT beyond them counts, plus all double time.
+const STANDARD_OT_HOURS = 2;
+
+// The slice of a day's pay that came from genuine overtime, at premium rates.
+// It earns its own line because a ten-hour day prices to exactly the day rate,
+// so real extra hours can be in a check without moving the headline at all.
 function overtimePay(day: SswDay, dayRate: number): number {
   const hourly = dayRate / 11;
-  return hourly * (1.5 * day.otHours + 2 * day.dtHours);
+  const extraOt = Math.max(0, day.otHours - STANDARD_OT_HOURS);
+  return hourly * (1.5 * extraOt + 2 * day.dtHours);
 }
 
 // The saved timesheet entry for a date, if its week is cached and the day has

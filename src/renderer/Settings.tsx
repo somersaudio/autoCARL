@@ -436,9 +436,11 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           <span>Include Overtime in Total, instead of showing it separate</span>
         </label>
         <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
-          Overtime only appears once a week's hours are saved to your timesheet.
-          Turn this off and the check shows your straight-time take-home with the
-          OT on its own line; the two still add up to the same deposit.
+          Counts hours past a standard 10-hour day, plus double time past 12 —
+          the 2 OT hours on a normal day aren't overtime worked. Only appears
+          once a week's hours are saved to your timesheet. Leave this off and
+          the check shows the rest of your take-home with the OT on its own
+          line; the two still add up to the same deposit.
         </p>
 
         <p className="subtle" style={{ marginTop: 10, fontSize: 12 }}>

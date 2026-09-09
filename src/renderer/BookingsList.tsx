@@ -803,7 +803,7 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
               c.medicare > 0 ? `Medicare: −${money(c.medicare)}` : null,
               c.state > 0 ? `State: −${money(c.state)}` : null,
               c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
-              c.otPay > 0 ? `Of that, OT + DT hours: ${money(c.otPay)}` : null,
+              c.otPay > 0 ? `Of that, hours past a standard 10-hour day: ${money(c.otPay)}` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
               c.requestOnly
                 ? `${money(c.net + c.perDiem)} if accepted — this gig is still a request`
