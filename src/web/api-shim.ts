@@ -235,7 +235,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   basePayDayRate: 0,
   subtractTaxes: false,
   perDiemInTotal: true,
-  otInTotal: true,
+  otInTotal: false,
   homeAirport: '',
   retirementPct: 0,
   filingStatus: 'single',
@@ -250,6 +250,22 @@ const DEFAULT_SETTINGS: UserSettings = {
 function getSettings(): UserSettings {
   return { ...DEFAULT_SETTINGS, ...readJson<Partial<UserSettings>>(K.settings, {}) };
 }
+
+// The overtime line shipped for a short window with the wrong default — folded
+// into the total, so the line it was meant to expose never appeared. Settings
+// writes persist the WHOLE resolved object, so anyone who touched settings in
+// that window had the bad value frozen into storage, where a corrected default
+// can never reach them. Flip it once, then never again (a deliberate choice
+// made after this point is respected).
+const OT_DEFAULT_FIXED = 'autocarl.web.otDefaultFixed';
+(function correctOtDefaultOnce(): void {
+  try {
+    if (lsGet(OT_DEFAULT_FIXED)) return;
+    const stored = readJson<Partial<UserSettings>>(K.settings, {});
+    if (stored.otInTotal === true) writeJson(K.settings, { ...stored, otInTotal: false });
+    lsSet(OT_DEFAULT_FIXED, '1');
+  } catch { /* private mode — the default already does the right thing */ }
+})();
 
 function nonNegative(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v >= 0;
