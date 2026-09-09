@@ -128,6 +128,19 @@ const delay = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
 // half-finished deploy must not strand us on a broken page), and remember
 // attempted targets so a stale CDN copy can't cause a reload loop.
 
+const UPDATE_ATTEMPT = 'autocarl.web.updateAttempt';
+
+// The cache-busting marker has done its job by the time the new bundle runs —
+// take it back out so the address stays clean and the app's start URL keeps
+// matching.
+try {
+  const here = new URL(location.href);
+  if (here.searchParams.has('u')) {
+    here.searchParams.delete('u');
+    history.replaceState(null, '', here.pathname + here.search + here.hash);
+  }
+} catch { /* nothing to clean */ }
+
 let updateCheckBusy = false;
 async function checkForNewBuild(): Promise<void> {
   if (updateCheckBusy) return;
@@ -140,8 +153,6 @@ async function checkForNewBuild(): Promise<void> {
     if (!res.ok) return;
     const liveHash = (await res.text()).match(/assets\/(index-[A-Za-z0-9_-]+\.js)/)?.[1];
     if (!liveHash || liveHash === currentHash) return;
-    // Don't chase the same target twice in one session (reload-loop guard).
-    if (sessionStorage.getItem('autocarl.web.updateTried') === liveHash) return;
     // Mid-deploy safety: the new bundle must really be there.
     const probe = await fetch(new URL(`assets/${liveHash}`, document.baseURI).toString(), { method: 'HEAD', cache: 'no-store' });
     if (!probe.ok) return;
@@ -149,8 +160,33 @@ async function checkForNewBuild(): Promise<void> {
     // interval tick will catch it.
     const el = document.activeElement;
     if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) return;
-    sessionStorage.setItem('autocarl.web.updateTried', liveHash);
-    location.reload();
+
+    // A home-screen app can come back from location.reload() running the SAME
+    // document it started with, and the old guard recorded the attempt before
+    // reloading — so one reload that didn't take wedged the app on that build
+    // for the life of the session, which on iOS is until it's swiped away.
+    // Allow a few tries, then back off for an hour so a genuinely broken
+    // deploy can't spin.
+    let tries = 0;
+    try {
+      const prev = JSON.parse(sessionStorage.getItem(UPDATE_ATTEMPT) || 'null') as
+        { hash: string; tries: number; at: number } | null;
+      if (prev && prev.hash === liveHash) {
+        if (prev.tries >= 3 && Date.now() - prev.at < 60 * 60 * 1000) return;
+        tries = prev.tries;
+      }
+    } catch { /* unparseable — treat as a first attempt */ }
+    try {
+      sessionStorage.setItem(UPDATE_ATTEMPT,
+        JSON.stringify({ hash: liveHash, tries: tries + 1, at: Date.now() }));
+    } catch { /* private mode — the reload below still runs */ }
+
+    // Navigate to a URL that has never been seen rather than reloading this
+    // one, so the document itself cannot come back from cache. The marker is
+    // stripped again on the way in, below.
+    const target = new URL(location.href);
+    target.searchParams.set('u', Date.now().toString(36));
+    location.replace(target.toString());
   } catch { /* offline or transient — try again next resume */ } finally {
     updateCheckBusy = false;
   }
