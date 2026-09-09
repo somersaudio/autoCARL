@@ -40,6 +40,10 @@ export type GigOnCheck = {
   dayRate: number;
   gross: number;         // standard days * dayRate, actual-hours days by hours
   perDiem: number;       // per-diem dollars accrued on this check (untaxed)
+  // Gross dollars on this gig that came from OT and DT hours (time-and-a-half
+  // and double time), 0 when the days are priced from the standard-day
+  // assumption rather than a saved timesheet.
+  otPay: number;
   // Days whose pay came from saved timesheet hours rather than the standard
   // 10-hour-day assumption.
   actualDays: number;
@@ -59,6 +63,7 @@ export type Paycheck = {
   taxes: number;         // sum of the four above; 0 when subtractTaxes is off
   net: number;           // gross - retirement - taxes  (per diem NOT included)
   perDiem: number;       // untaxed, lands on the same deposit
+  otPay: number;         // gross dollars from OT + DT hours across this check
   withholdingRate: number; // taxes / gross — varies per check, by design
   actualDays: number;    // days priced from saved timesheet hours
 };
@@ -137,6 +142,14 @@ function hoursPay(day: SswDay, dayRate: number): number {
   return hourly * (day.regHours + 1.5 * day.otHours + 2 * day.dtHours);
 }
 
+// The slice of a day's pay that came from OT and DT, at their premium rates.
+// Shown on its own line: a ten-hour day prices to exactly the day rate, so
+// the total moves not at all even though overtime is in there.
+function overtimePay(day: SswDay, dayRate: number): number {
+  const hourly = dayRate / 11;
+  return hourly * (1.5 * day.otHours + 2 * day.dtHours);
+}
+
 // The saved timesheet entry for a date, if its week is cached and the day has
 // SSW-computed hours. Unsaved grid edits don't qualify — the reg/OT/DT split
 // comes from SSW's spreadsheet on save, and we won't guess it locally.
@@ -194,7 +207,7 @@ export function buildPaychecks(
       if (!gig) {
         gig = {
           bookingId: b.bookingId, jobName: b.jobName, jobNumber: b.jobNumber,
-          days: 0, dayRate: rate, gross: 0, perDiem: 0, actualDays: 0,
+          days: 0, dayRate: rate, gross: 0, perDiem: 0, otPay: 0, actualDays: 0,
         };
         bucket.set(b.bookingId, gig);
       }
@@ -202,6 +215,7 @@ export function buildPaychecks(
       const sheet = timesheetDayFor(day, weeks);
       if (sheet) {
         gig.gross += hoursPay(sheet, rate);
+        gig.otPay += overtimePay(sheet, rate);
         // A blank per-diem box on the timesheet means "not filled in", not
         // "none owed" — taking it literally quietly removes the day's per
         // diem from the estimate, so a saved sheet could LOWER the projected
@@ -222,6 +236,7 @@ export function buildPaychecks(
     const gigs = Array.from(periods.get(idx)!.values());
     const gross = gigs.reduce((s, g) => s + g.gross, 0);
     const perDiem = gigs.reduce((s, g) => s + g.perDiem, 0);
+    const otPay = gigs.reduce((s, g) => s + g.otPay, 0);
     const retirement = gross * retirementRate;
     const taxable = gross - retirement;            // 401k is pre-tax for income tax…
     let federal = 0, socialSecurity = 0, medicare = 0, state = 0;
@@ -240,7 +255,7 @@ export function buildPaychecks(
       periodEnd,
       payDate: addDays(periodEnd, PAY_LAG_DAYS),
       gigs, gross, retirement, federal, socialSecurity, medicare, state, taxes,
-      net, perDiem,
+      net, perDiem, otPay,
       withholdingRate: gross > 0 ? taxes / gross : 0,
       actualDays: gigs.reduce((s2, g) => s2 + g.actualDays, 0),
     };

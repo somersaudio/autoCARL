@@ -2404,6 +2404,7 @@ a.featured-venue:hover .featured-venue-name {
 
 /* Estimator: request money is a maybe, not a promise — it grays out. */
 .earnings-mini-sub.is-request { color: var(--text-subtle); }
+.earnings-mini-sub.is-ot { color: #7cd9a0; }
 .paycheck-gig.is-request { opacity: 0.55; }
 
 /* ---- "Add to Home Screen" banner (web build, iOS browser tabs only) ---- */

@@ -795,6 +795,7 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
               c.medicare > 0 ? `Medicare: −${money(c.medicare)}` : null,
               c.state > 0 ? `State: −${money(c.state)}` : null,
               c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
+              c.otPay > 0 ? `Of that, OT + DT hours: ${money(c.otPay)}` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
               c.requestOnly
                 ? `${money(c.net + c.perDiem)} if accepted — this gig is still a request`
@@ -816,6 +817,12 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
             )}
             {!c.requestOnly && !settings.perDiemInTotal && c.perDiem > 0 && (
               <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
+            )}
+            {/* Overtime earns its own line: an 11-hour day prices to exactly
+                the day rate, so OT can be in a check without moving the
+                headline figure at all. */}
+            {!c.requestOnly && c.otPay > 0 && (
+              <div className="earnings-mini-sub is-ot">OT +{money(c.otPay)}</div>
             )}
             {(c.requestExtra ?? 0) > 0 && (
               <div className="earnings-mini-sub is-request">
