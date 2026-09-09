@@ -168,6 +168,45 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.stage, sswSkipped, sswWeek]);
 
+  // The estimator prices a day from saved timesheet hours when it has them,
+  // but the app only ever LOADED the current week — so a gig that began in an
+  // earlier week had those days priced at the flat day rate and any overtime
+  // on them stayed invisible. (A home-screen app has its own storage, quite
+  // separate from Safari's, so it can be missing weeks the browser already
+  // holds.) Load the weeks that actually cover upcoming gigs; only ones that
+  // have already begun, since a week still ahead has no hours in it yet.
+  useEffect(() => {
+    if (status?.stage !== 'ready' || sswSkipped || bookings.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const wanted = new Set<string>();
+      for (const b of bookings) {
+        const end = new Date(`${b.endDate}T00:00:00`);
+        if (end < today) continue;                       // finished gig
+        const last = end < today ? end : today;          // nothing logged past today
+        const cursor = new Date(`${b.startDate}T00:00:00`);
+        while (cursor <= last) {
+          wanted.add(mondayOfDate(cursor));
+          cursor.setDate(cursor.getDate() + 7);
+        }
+        wanted.add(mondayOfDate(last));
+      }
+      const cached = await window.api.ssw.getCachedWeeks().catch(() => ({} as Record<string, SswWeek>));
+      // Cap the burst: each miss is a round trip to SSW.
+      const missing = Array.from(wanted).filter((m) => !cached[m]).sort().slice(0, 6);
+      for (const monday of missing) {
+        if (cancelled) return;
+        await window.api.ssw.fetchWeek(monday).catch(() => null);
+      }
+      if (!cancelled && missing.length > 0) {
+        window.api.ssw.getCachedWeeks().then(setSswWeeks).catch(() => {});
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.stage, sswSkipped, bookings.length]);
+
   // -------- ssw week --------
   // Paint cached data immediately (sub-ms read from disk) then kick off a
   // live refresh in the background. No loading screen on app open as long as

@@ -44,6 +44,7 @@ export type GigOnCheck = {
   // and double time), 0 when the days are priced from the standard-day
   // assumption rather than a saved timesheet.
   otPay: number;
+  actualHours: number;   // hours actually read off the timesheet
   // Days whose pay came from saved timesheet hours rather than the standard
   // 10-hour-day assumption.
   actualDays: number;
@@ -64,6 +65,7 @@ export type Paycheck = {
   net: number;           // gross - retirement - taxes  (per diem NOT included)
   perDiem: number;       // untaxed, lands on the same deposit
   otPay: number;         // gross dollars from OT + DT hours across this check
+  actualHours: number;   // hours read off saved timesheets for this check
   withholdingRate: number; // taxes / gross — varies per check, by design
   actualDays: number;    // days priced from saved timesheet hours
 };
@@ -214,7 +216,7 @@ export function buildPaychecks(
       if (!gig) {
         gig = {
           bookingId: b.bookingId, jobName: b.jobName, jobNumber: b.jobNumber,
-          days: 0, dayRate: rate, gross: 0, perDiem: 0, otPay: 0, actualDays: 0,
+          days: 0, dayRate: rate, gross: 0, perDiem: 0, otPay: 0, actualHours: 0, actualDays: 0,
         };
         bucket.set(b.bookingId, gig);
       }
@@ -223,6 +225,7 @@ export function buildPaychecks(
       if (sheet) {
         gig.gross += hoursPay(sheet, rate);
         gig.otPay += overtimePay(sheet, rate);
+        gig.actualHours += sheet.regHours + sheet.otHours + sheet.dtHours;
         // A blank per-diem box on the timesheet means "not filled in", not
         // "none owed" — taking it literally quietly removes the day's per
         // diem from the estimate, so a saved sheet could LOWER the projected
@@ -244,6 +247,7 @@ export function buildPaychecks(
     const gross = gigs.reduce((s, g) => s + g.gross, 0);
     const perDiem = gigs.reduce((s, g) => s + g.perDiem, 0);
     const otPay = gigs.reduce((s, g) => s + g.otPay, 0);
+    const actualHours = gigs.reduce((s, g) => s + g.actualHours, 0);
     const retirement = gross * retirementRate;
     const taxable = gross - retirement;            // 401k is pre-tax for income tax…
     let federal = 0, socialSecurity = 0, medicare = 0, state = 0;
@@ -262,7 +266,7 @@ export function buildPaychecks(
       periodEnd,
       payDate: addDays(periodEnd, PAY_LAG_DAYS),
       gigs, gross, retirement, federal, socialSecurity, medicare, state, taxes,
-      net, perDiem, otPay,
+      net, perDiem, otPay, actualHours,
       withholdingRate: gross > 0 ? taxes / gross : 0,
       actualDays: gigs.reduce((s2, g) => s2 + g.actualDays, 0),
     };

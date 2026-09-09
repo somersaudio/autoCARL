@@ -783,8 +783,11 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
                 </span>
               ))}
               {c.actualDays > 0 && (
-                <span className="paycheck-actual" title="Priced from the hours saved on your timesheet, OT and DT included">
-                  {c.actualDays}d from timesheet
+                <span
+                  className="paycheck-actual"
+                  title="Priced from the hours saved on your timesheet. Overtime counts hours past a standard 10-hour day, plus double time past 12."
+                >
+                  {c.actualDays}d &middot; {Math.round(c.actualHours)}h from timesheet
                 </span>
               )}
             </div>
