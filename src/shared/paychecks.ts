@@ -202,7 +202,11 @@ export function buildPaychecks(
       const sheet = timesheetDayFor(day, weeks);
       if (sheet) {
         gig.gross += hoursPay(sheet, rate);
-        gig.perDiem += sheet.perDiem;
+        // A blank per-diem box on the timesheet means "not filled in", not
+        // "none owed" — taking it literally quietly removes the day's per
+        // diem from the estimate, so a saved sheet could LOWER the projected
+        // deposit. Fall back to the rate the day would otherwise have used.
+        gig.perDiem += sheet.perDiem > 0 ? sheet.perDiem : perDiemRate;
         gig.actualDays += 1;
       } else {
         gig.gross += rate;

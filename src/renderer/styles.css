@@ -806,6 +806,20 @@ a.featured-venue:hover .featured-venue-name {
   border-bottom: 1px dotted var(--ct-gold);
 }
 
+/* Phones have no hover, so the fact that a check was priced from saved
+   timesheet hours (rather than the standard-day assumption) has to be
+   visible on the row itself. */
+.paycheck-actual {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--ct-gold);
+  font-size: 10px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .paycheck-gig-sep {
   margin: 0 4px;
 }

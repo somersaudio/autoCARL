@@ -774,6 +774,11 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
                   </button>
                 </span>
               ))}
+              {c.actualDays > 0 && (
+                <span className="paycheck-actual" title="Priced from the hours saved on your timesheet, OT and DT included">
+                  {c.actualDays}d from timesheet
+                </span>
+              )}
             </div>
           </div>
           {/* The headline figure is the whole deposit — wages net of
