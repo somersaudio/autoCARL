@@ -16,6 +16,14 @@
 // time (a sixth-consecutive-day rule, most likely). A split SSW has actually
 // stored always wins over this derivation, so that only affects a week SSW
 // left blank.
+//
+// A day with only one of its two times filled in is a day still in progress
+// (or half-entered), not a worked day. SSW's spreadsheet treats the blank end
+// as midnight and reports "8:00 am –" as SIXTEEN hours, and a split derived
+// from that total paid four hours of double time for a day that had barely
+// started. So nothing here trusts a total, or a stored split, until both
+// times are present; such a day carries no payable hours and the estimator
+// prices it as a standard day.
 
 import type { SswDay } from './types';
 
@@ -56,16 +64,29 @@ export function splitWorkedHours(hours: number): HoursSplit {
   };
 }
 
-// True when SSW handed back a day with hours on it but none of them sorted
-// into a bucket — the exact shape a save through the app produces.
+// Both a start and an end time are present. Only then does a total (SSW's or
+// ours) describe a finished day — see the note at the top of the file.
+export function hasBothTimes(d: Pick<SswDay, 'startTime' | 'endTime'>): boolean {
+  return !!(d.startTime && d.startTime.trim()) && !!(d.endTime && d.endTime.trim());
+}
+
+// True when SSW handed back a finished day with hours on it but none of them
+// sorted into a bucket — the exact shape a save through the app produces.
 export function splitIsMissing(d: SswDay): boolean {
-  return d.regHours + d.otHours + d.dtHours === 0 && (d.totalHours > 0 || workedHours(d) > 0);
+  return hasBothTimes(d)
+    && d.regHours + d.otHours + d.dtHours === 0
+    && (d.totalHours > 0 || workedHours(d) > 0);
 }
 
 // The day's split: SSW's own when it stored one, otherwise derived from its
-// total (or, failing that, from the times). Returned as a new day so callers
-// never mutate cached data.
+// total (or, failing that, from the times). A day missing either time gets
+// no split at all, whatever SSW stored for it. Returned as a new day so
+// callers never mutate cached data.
 export function withSplit(d: SswDay): SswDay {
+  if (!hasBothTimes(d)) {
+    if (d.regHours === 0 && d.otHours === 0 && d.dtHours === 0) return d;
+    return { ...d, regHours: 0, otHours: 0, dtHours: 0 };
+  }
   if (!splitIsMissing(d)) return d;
   const hours = d.totalHours > 0 ? d.totalHours : workedHours(d);
   const s = splitWorkedHours(hours);
