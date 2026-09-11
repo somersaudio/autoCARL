@@ -728,6 +728,13 @@ function publishScheduleQuietly(bookings: Booking[]): void {
   });
 }
 
+// The buddy list this browser last received and the tag the friends service
+// gave it. The Friends tab polls while it's open; sending the tag back turns
+// an unchanged list into a tiny {unchanged} reply, and this copy is what
+// the tab gets. Keyed by token so a sign-out/sign-in never serves another
+// account's list.
+let friendsListCache: { token: string; etag: string; list: FriendsList } | null = null;
+
 function friendsToken(): string {
   const token = lsGet(K.friendsToken);
   if (!token) throw new Error('Friends is not turned on.');
@@ -1341,7 +1348,20 @@ const api: Api = {
       else lsRemove(K.friendsAvatar);
     },
 
-    list: async () => postJson<FriendsList>('/v1/friends/list', { token: friendsToken() }),
+    list: async () => {
+      const token = friendsToken();
+      const cached = friendsListCache && friendsListCache.token === token ? friendsListCache : null;
+      type Reply = FriendsList & { etag?: string; unchanged?: boolean };
+      let r = await postJson<Reply>('/v1/friends/list', { token, etag: cached?.etag || '' });
+      if (r.unchanged) {
+        if (cached) return cached.list;
+        // Can't happen (we only send a tag we hold) — but never return nothing.
+        r = await postJson<Reply>('/v1/friends/list', { token, etag: '' });
+      }
+      const { etag, unchanged: _unchanged, ...list } = r;
+      friendsListCache = etag ? { token, etag, list } : null;
+      return list;
+    },
     request: async (email) => { await postJson('/v1/friends/request', { token: friendsToken(), email }); },
     respond: async (email, accept) => {
       await postJson('/v1/friends/respond', { token: friendsToken(), email, accept: accept === true });

@@ -539,7 +539,19 @@ export default {
           return passthrough(await call('/v1/schedule', { method: 'PUT', token, body: { gigs: b.gigs } }));
         }
         if (path === '/v1/friends/list') {
-          return passthrough(await call('/v1/friends', { method: 'GET', token }));
+          // A polling client sends the tag of the list it already holds; an
+          // unchanged list comes back as a tiny {unchanged} instead of every
+          // buddy icon again. The tag rides in the JSON body both ways —
+          // this relay is CORS'd JSON, and a body field needs no header
+          // exposure on the browser side.
+          const etag = str(b.etag);
+          const r = await call('/v1/friends', {
+            method: 'GET', token, headers: etag ? { 'If-None-Match': etag } : {},
+          });
+          if (r.status === 304) return json(req, { unchanged: true, etag });
+          if (!r.ok) return passthrough(r);
+          const list = await r.json() as Record<string, unknown>;
+          return json(req, { ...list, etag: (r.headers.get('etag') || '').replace(/^W\//, '') });
         }
         if (path === '/v1/friends/request') {
           return passthrough(await call('/v1/friends/request', { token, body: { email: str(b.email) } }));

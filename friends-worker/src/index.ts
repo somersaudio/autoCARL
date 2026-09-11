@@ -319,7 +319,21 @@ export default {
             incoming.push({ email: r.email, name: r.name });
           }
         }
-        return json({ accepted, incoming, outgoing });
+        // Clients poll this while the buddy list is on screen. The tag is a
+        // hash of the payload; a matching If-None-Match gets a bodyless 304,
+        // so a quiet list costs a D1 query and a few bytes, not every buddy
+        // icon over again.
+        const body = JSON.stringify({ accepted, incoming, outgoing });
+        const etag = `"${(await sha256b64(body)).slice(0, 22)}"`;
+        // Weak comparison, as If-None-Match requires: an intermediary that
+        // compresses the body (Cloudflare's edge, on the desktop's direct
+        // path) may hand the client W/"tag", and a list of tags is legal.
+        const offered = (req.headers.get('if-none-match') || '')
+          .split(',').map((t) => t.trim().replace(/^W\//, ''));
+        if (offered.includes(etag)) {
+          return new Response(null, { status: 304, headers: { etag } });
+        }
+        return new Response(body, { status: 200, headers: { 'content-type': 'application/json', etag } });
       }
 
       if (req.method === 'DELETE' && url.pathname.startsWith('/v1/friends/')) {

@@ -28,6 +28,10 @@ type Props = {
 let enrollAttemptActive = false;
 let enrollAttemptedThisSession = false;
 
+// How often the open Buddy List re-checks the server. Cheap: an unchanged
+// list is a bodyless reply (ETag), so this is one small round trip.
+const FRIENDS_POLL_MS = 20_000;
+
 type Pane = 'online' | 'setup' | 'customize';
 
 export default function FriendsTab({ bookings, suggestedName }: Props) {
@@ -50,8 +54,23 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const upcoming = bookings.filter((b) => parseISOLocal(b.endDate) >= today);
 
-  const loadList = () => {
-    window.api.friends.list().then(setList).catch((e) => setError(friendlyMsg(e)));
+  // Every load is numbered so a slow reply can't overwrite a newer one —
+  // a background poll that left before you accepted a request must not
+  // land after the reload that followed it. The gate is "newer than the
+  // last reply APPLIED", not "the last one dispatched": a poll that fires
+  // and fails while your reload is in flight must not swallow the reload.
+  const loadGen = useRef(0);
+  const appliedGen = useRef(0);
+  const loadList = (quiet = false) => {
+    const gen = ++loadGen.current;
+    window.api.friends.list()
+      .then((l) => {
+        if (gen <= appliedGen.current) return;
+        appliedGen.current = gen;
+        setList(l);
+        setError('');   // a list that just loaded is not "failed to load"
+      })
+      .catch((e) => { if (!quiet) setError(friendlyMsg(e)); });
   };
 
   const [signedOut, setSignedOut] = useState(false);
@@ -75,6 +94,34 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   useEffect(() => {
     if (!name && suggestedName) setName(suggestedName);
   }, [suggestedName]);   // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Nothing on this screen changes by your own hand alone: the request you
+  // sent gets accepted on someone else's phone, an invite arrives while
+  // you're looking at the list. So while the tab is open and the app is in
+  // front, re-check on a timer (an unchanged list is a bodyless reply — see
+  // friends.list), and re-check the moment the app comes back to the
+  // foreground. Background failures stay silent; the ⟳ button still
+  // reports its own.
+  useEffect(() => {
+    if (!enrolled) return;
+    let lastAt = Date.now();
+    const tick = () => {
+      if (document.visibilityState !== 'visible') return;
+      lastAt = Date.now();
+      loadList(true);
+    };
+    const onWake = () => {
+      if (document.visibilityState === 'visible' && Date.now() - lastAt > 3_000) tick();
+    };
+    const id = window.setInterval(tick, FRIENDS_POLL_MS);
+    document.addEventListener('visibilitychange', onWake);
+    window.addEventListener('focus', onWake);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onWake);
+      window.removeEventListener('focus', onWake);
+    };
+  }, [enrolled]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true); setError('');
@@ -575,7 +622,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
       {error && <div className="aim-error">{error}</div>}
       <div className="aim-statusbar">
         <span>{total} buddies</span>
-        <button className="aim-refresh" onClick={loadList} disabled={busy}>⟳</button>
+        <button className="aim-refresh" onClick={() => loadList()} disabled={busy}>⟳</button>
       </div>
     </div>
   );

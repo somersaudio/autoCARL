@@ -178,8 +178,34 @@ async function authed(): Promise<string> {
   return cfg.friendsToken;
 }
 
+// The list this app last received and the tag the service gave it. The
+// Friends tab polls while it's open; an If-None-Match hit is a bodyless 304
+// and this copy is what the tab gets. Keyed by token so a sign-out/sign-in
+// never serves another account's list.
+let listCache: { token: string; etag: string; list: FriendsList } | null = null;
+
 export async function friendsList(): Promise<FriendsList> {
-  return call<FriendsList>('/v1/friends', {}, await authed());
+  const token = await authed();
+  const cached = listCache && listCache.token === token ? listCache : null;
+  const headers: Record<string, string> = { authorization: `Bearer ${token}` };
+  if (cached) headers['if-none-match'] = cached.etag;
+  const res = await fetch(`${FRIENDS_URL}/v1/friends`, { headers });
+  if (res.status === 304 && cached) return cached.list;
+  const text = await res.text();
+  let parsed: unknown = null;
+  try { parsed = JSON.parse(text); } catch { /* non-JSON error body */ }
+  if (!res.ok) {
+    const msg = parsed && typeof parsed === 'object' && 'error' in parsed
+      ? String((parsed as { error: unknown }).error)
+      : `Friends service HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  const list = parsed as FriendsList;
+  // The edge may weaken the tag (W/"…") when it compresses the body; the
+  // service compares weakly, but store the canonical form regardless.
+  const etag = (res.headers.get('etag') || '').replace(/^W\//, '');
+  listCache = etag ? { token, etag, list } : null;
+  return list;
 }
 
 export async function friendsRequest(email: string): Promise<void> {
