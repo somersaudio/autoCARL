@@ -14,8 +14,11 @@
 //
 // One known approximation: SSW moved a Saturday's hours past 10 into double
 // time (a sixth-consecutive-day rule, most likely). A split SSW has actually
-// stored always wins over this derivation, so that only affects a week SSW
-// left blank.
+// stored wins over this derivation — but only while it still adds up to the
+// day's hours. The times are what the user edits, and a split stored for an
+// earlier version of the day (8/4/4 from a 16-hour phantom, say, after the
+// end time was corrected to make it 14) is stale, not authoritative: it gets
+// re-derived from the hours the times actually describe.
 //
 // A day with only one of its two times filled in is a day still in progress
 // (or half-entered), not a worked day. SSW's spreadsheet treats the blank end
@@ -70,17 +73,29 @@ export function hasBothTimes(d: Pick<SswDay, 'startTime' | 'endTime'>): boolean 
   return !!(d.startTime && d.startTime.trim()) && !!(d.endTime && d.endTime.trim());
 }
 
-// True when SSW handed back a finished day with hours on it but none of them
-// sorted into a bucket — the exact shape a save through the app produces.
-export function splitIsMissing(d: SswDay): boolean {
-  return hasBothTimes(d)
-    && d.regHours + d.otHours + d.dtHours === 0
-    && (d.totalHours > 0 || workedHours(d) > 0);
+// The hours a finished day is priced at. The two times are the source of
+// truth — they are what the user edits, and a cached total goes stale the
+// moment they change — with SSW's total as the fallback when the times are
+// present but in a form parseTime can't read. 0 for a day missing a time.
+export function pricedHours(d: SswDay): number {
+  if (!hasBothTimes(d)) return 0;
+  const fromTimes = workedHours(d);
+  return fromTimes > 0 ? fromTimes : Math.max(0, d.totalHours);
 }
 
-// The day's split: SSW's own when it stored one, otherwise derived from its
-// total (or, failing that, from the times). A day missing either time gets
-// no split at all, whatever SSW stored for it. Returned as a new day so
+// True when a finished day's stored split can't be used: either none of its
+// hours sorted into a bucket (the shape a save through the app used to
+// produce) or the buckets add up to a different day than the times describe
+// (a split left over from before the times were edited).
+export function splitIsMissing(d: SswDay): boolean {
+  const hours = pricedHours(d);
+  if (hours <= 0) return false;
+  return Math.abs(d.regHours + d.otHours + d.dtHours - hours) > 0.01;
+}
+
+// The day's split: SSW's own when it stored one that still adds up to the
+// day's hours, otherwise derived from those hours. A day missing either time
+// gets no split at all, whatever SSW stored for it. Returned as a new day so
 // callers never mutate cached data.
 export function withSplit(d: SswDay): SswDay {
   if (!hasBothTimes(d)) {
@@ -88,7 +103,7 @@ export function withSplit(d: SswDay): SswDay {
     return { ...d, regHours: 0, otHours: 0, dtHours: 0 };
   }
   if (!splitIsMissing(d)) return d;
-  const hours = d.totalHours > 0 ? d.totalHours : workedHours(d);
+  const hours = pricedHours(d);
   const s = splitWorkedHours(hours);
   return { ...d, regHours: s.reg, otHours: s.ot, dtHours: s.dt, totalHours: hours };
 }
