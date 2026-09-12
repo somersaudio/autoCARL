@@ -279,24 +279,62 @@ export default {
       }
 
       if (route === 'GET /v1/friends') {
-        // PRIVACY MODEL: a friend only ever sees the gigs you SHARE, never
-        // your whole schedule. A gig is shared when it has the same job
-        // number as one of yours, or is in the same city on overlapping
-        // dates: one show is often split across several CT job numbers
-        // (offices, departments), and everyone on it lists the same city.
-        // Publishing a full schedule to the server is what makes that
-        // computable; revealing it wholesale is exactly what we don't do.
+        // PRIVACY MODEL: a friend only ever sees what you SHARE, never your
+        // whole schedule. Two kinds of sharing:
+        //  - the same job number as one of yours: that gig in full (job, city,
+        //    dates), because you're booked on it together;
+        //  - the same city on overlapping dates under a different job number:
+        //    ONLY the city and the days you're both there. One show is often
+        //    split across several CT job numbers, but a convention city is
+        //    also full of unrelated shows whose clients can be confidential,
+        //    so no job name or number crosses the wire for these.
+        // The city rule runs against the caller's own published schedule,
+        // which the caller controls, so a caller gig only counts for it when
+        // it's plausible as real travel: at most a month long, and not one of
+        // several places the caller claims to be at the same time. A crafted
+        // schedule listing every major city can't map a buddy's whereabouts.
         const mine = await env.DB.prepare(
           'SELECT gigs_json FROM schedules WHERE user_id = ?1',
         ).bind(me.id).first<{ gigs_json: string | null }>();
         const myGigs = mine?.gigs_json ? JSON.parse(mine.gigs_json) as Gig[] : [];
         const myJobs = new Set(myGigs.map((g) => g.jobNumber).filter(Boolean));
+        const hasCity = (g: Gig) => !!(g.city || '').trim();
         const place = (g: Gig) =>
           `${(g.city || '').trim().toLowerCase()}|${(g.state || '').trim().toLowerCase().slice(0, 2)}`;
-        const sharedWithMe = (g: Gig): boolean =>
-          (!!g.jobNumber && myJobs.has(g.jobNumber))
-          || (!!(g.city || '').trim() && myGigs.some((m) =>
-            place(m) === place(g) && g.start <= m.end && m.start <= g.end));
+        const spanDays = (g: Gig) => Math.round((Date.parse(g.end) - Date.parse(g.start)) / 86_400_000) + 1;
+        // Strict overlap: back-to-back gigs share a travel day, and that isn't
+        // being in two places at once.
+        const concurrent = (a: Gig, b: Gig) => a.start < b.end && b.start < a.end;
+        const cityEligible = myGigs.filter((m) => {
+          if (!hasCity(m) || !(spanDays(m) <= 31)) return false;
+          const elsewhere = new Set(myGigs
+            .filter((o) => o !== m && hasCity(o) && place(o) !== place(m) && concurrent(o, m))
+            .map(place));
+          return elsewhere.size <= 2;
+        });
+        const sharedGigs = (theirs: Gig[]): Gig[] => {
+          const out: Gig[] = [];
+          const seen = new Set<string>();
+          for (const g of theirs) {
+            if (g.jobNumber && myJobs.has(g.jobNumber)) { out.push(g); continue; }
+            if (!hasCity(g)) continue;
+            const hits = cityEligible.filter((m) =>
+              place(m) === place(g) && g.start <= m.end && m.start <= g.end);
+            if (hits.length === 0) continue;
+            const hitStart = hits.reduce((d, m) => (m.start < d ? m.start : d), hits[0].start);
+            const hitEnd = hits.reduce((d, m) => (m.end > d ? m.end : d), hits[0].end);
+            const shared: Gig = {
+              jobNumber: '', jobName: '', city: g.city, state: g.state,
+              start: g.start > hitStart ? g.start : hitStart,
+              end: g.end < hitEnd ? g.end : hitEnd,
+            };
+            const key = `${place(shared)}|${shared.start}|${shared.end}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            out.push(shared);
+          }
+          return out;
+        };
 
         const rows = await env.DB.prepare(
           `SELECT u.email, u.name, u.avatar, f.status, f.requester_id = ?1 AS outgoing,
@@ -317,7 +355,7 @@ export default {
               email: r.email, name: r.name,
               avatar: r.avatar || null,
               // Only shared shows cross the wire.
-              gigs: theirs.filter(sharedWithMe),
+              gigs: sharedGigs(theirs),
               updatedAt: r.updated_at,
             });
           } else if (r.outgoing) {

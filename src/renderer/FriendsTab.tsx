@@ -9,11 +9,11 @@ import runnerLogo from './assets/aim-runner.png';
 //
 // AIM-to-AUTOcarl mapping:
 //   Sign On screen      -> enrollment
-//   Buddies group       -> friends on a show WITH you: the same job number,
-//                          or the same city on overlapping dates (one show
-//                          is often split across several CT job numbers).
-//                          The only case where gig details are ever
-//                          revealed; the server sends nothing else.
+//   Buddies group       -> friends on a show WITH you (same job number: the
+//                          gig in full) or in the same city at the same time
+//                          (a different job number: the server sends only the
+//                          city and the days you overlap, never the job). One
+//                          show is often split across several CT job numbers.
 //   (One list only, no Co-Workers/Offline split. Show-sharers sort first.)
 //   Away message        -> the shared show + its city + dates
 //   List Setup tab      -> add friend / pending invites / account
@@ -270,8 +270,9 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           <p className="aim-fineprint" style={{ maxWidth: 240 }}>
             You sign in with your C.A.R.L. login{acctEmail ? <> (<b>{acctEmail}</b>)</> : null} —
             it proves who you are, no extra password. Friends only ever see
-            shows you're BOTH booked on — job, city, dates of the shared gig,
-            nothing else. Both sides must accept.
+            shows you're BOTH booked on (job, city, dates) and, when you're in
+            the same city at the same time, just that city and those days.
+            Nothing else. Both sides must accept.
           </p>
           <div className="aim-actions">
             <button
@@ -356,11 +357,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
                   : 'No schedule shared yet.'}
               </div>
             )}
-            {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g) => {
+            {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g, i) => {
               const k = gigOverlapKind(g, upcoming);
+              const where = `${g.city}${g.state ? `, ${g.state}` : ''}`;
               return (
-                <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}`}>
-                  {fmtRange(g.start, g.end)} · {g.jobName} ({g.city}{g.state ? `, ${g.state}` : ''})
+                <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}-${i}`}>
+                  {fmtRange(g.start, g.end)} · {g.jobName ? `${g.jobName} (${where})` : `in ${where}`}
                   {k === 'gig' ? ' \u2014 with you' : k === 'near' ? ' \u2014 same city, same dates' : ''}
                 </div>
               );
@@ -473,7 +475,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             {myAvatar && <img className="aim-buddy-avatar" src={myAvatar} alt="" />}
             <span>
               Signed on as <b>{myName}</b>. Friends only ever see the shows
-              you share with them — nothing else.
+              you share with them, plus just the city and days when you're in
+              the same city at the same time. Nothing else.
             </span>
           </div>
           {acctEmail && (
@@ -704,7 +707,7 @@ function awayMessage(f: FriendEntry, mine: Booking[]): string {
   }
   for (const g of f.gigs) {
     if (gigOverlapKind(g, mine) === 'near') {
-      return `in ${g.city} with you · ${g.jobName} · ${fmtRange(g.start, g.end)}`;
+      return `in ${g.city} with you · ${fmtRange(g.start, g.end)}`;
     }
   }
   return '';
