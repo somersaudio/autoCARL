@@ -2648,6 +2648,20 @@ a.featured-venue:hover .featured-venue-name {
   color: #999;
   font-size: 28px;
 }
+/* Default icon: the buddy's initial in white on a gradient (see BuddyIcon). */
+.aim-icon-default {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
+  font-weight: 700;
+  line-height: 1;
+  text-shadow: 0 1px 1px rgba(0, 0, 0, 0.25);
+  user-select: none;
+}
+.aim-buddy-avatar.aim-icon-default { font-size: 16px; }
+.aim-avatar-preview.aim-icon-default { font-size: 40px; }
 
 /* Red logout — deliberately alarming, two-click armed. */
 .logout-btn {

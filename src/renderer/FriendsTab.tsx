@@ -335,7 +335,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           {kind && (
             <span className="plane-icon aim-buddy-plane" style={{ width: 16, backgroundColor: '#003a9e' }} />
           )}
-          {f.avatar && <img className="aim-buddy-avatar" src={f.avatar} alt="" />}
+          <BuddyIcon src={f.avatar} name={f.name} seed={f.email} />
           <span className="aim-buddy-name">{f.name}</span>
           <button
             className="aim-x"
@@ -472,7 +472,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           )}
           <div className="aim-setup-section">Account</div>
           <div className="aim-fineprint" style={{ margin: '2px 2px', display: 'flex', alignItems: 'center', gap: 6 }}>
-            {myAvatar && <img className="aim-buddy-avatar" src={myAvatar} alt="" />}
+            <BuddyIcon src={myAvatar} name={myName} seed={acctEmail || myName} />
             <span>
               Signed on as <b>{myName}</b>. Friends only ever see the shows
               you share with them, plus just the city and days when you're in
@@ -554,9 +554,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             — save one you like, then Choose Icon.
           </div>
           <div className="aim-avatar-row">
-            {myAvatar
-              ? <img className="aim-avatar-preview" src={myAvatar} alt="Your buddy icon" />
-              : <div className="aim-avatar-preview aim-avatar-empty">?</div>}
+            <BuddyIcon src={myAvatar} name={myName} seed={acctEmail || myName} preview />
             <div className="aim-actions" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
               <input
                 ref={avatarInputRef}
@@ -657,6 +655,37 @@ function RunnerIcon({ size }: { size: number }) {
       aria-hidden="true"
       style={{ height: size, width: 'auto', display: 'block' }}
     />
+  );
+}
+
+// ---- default buddy icon ----
+// Anyone who hasn't chosen an icon gets their initial in white on a
+// gradient. The colour comes from the account email, so a person looks the
+// same on every buddy list and keeps their colour if they rename themselves.
+const ICON_COLOURS = ['#1e6bd6', '#d6441e', '#2fa84f', '#8e44d6', '#d6961e', '#1e9fd6', '#d61e74', '#56697d'];
+
+function iconColour(seed: string): string {
+  const key = seed.trim().toLowerCase();
+  let h = 0;
+  for (let i = 0; i < key.length; i++) h = (h * 31 + key.charCodeAt(i)) >>> 0;
+  return ICON_COLOURS[h % ICON_COLOURS.length];
+}
+
+function BuddyIcon({ src, name, seed, preview = false }: {
+  src?: string | null; name: string; seed: string; preview?: boolean;
+}) {
+  const cls = preview ? 'aim-avatar-preview' : 'aim-buddy-avatar';
+  if (src) return <img className={cls} src={src} alt={preview ? 'Your buddy icon' : ''} />;
+  const letter = (name.match(/[A-Za-z0-9]/)?.[0] || seed.match(/[A-Za-z0-9]/)?.[0] || '?').toUpperCase();
+  return (
+    <span
+      className={`${cls} aim-icon-default`}
+      style={{ background: `linear-gradient(135deg, ${iconColour(seed || name)} 0%, #222 100%)` }}
+      aria-hidden={preview ? undefined : true}
+      title={preview ? 'Your default buddy icon. Choose one to replace it.' : undefined}
+    >
+      {letter}
+    </span>
   );
 }
 
