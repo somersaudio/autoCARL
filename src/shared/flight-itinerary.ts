@@ -235,7 +235,8 @@ export function matchLeg(
 //  - the leg must run in this travel day's direction: land at this gig's
 //    airport on the way in, leave it on the way out. On this booking's OWN
 //    itinerary a flight between a neighbouring airport and the right far
-//    end also counts (OAK->AUS for an SFO show), as matchLeg allows;
+//    end also counts (OAK->AUS for an SFO show), as matchLeg allows, but
+//    only within the short window, since it proves less;
 //  - the far end must match whenever it's a real airport code;
 //  - another booking's itinerary counts only when BOTH ends match, within a
 //    few days; otherwise a nearby flight between the same cities is just
@@ -297,7 +298,8 @@ export function findRebookNeeded(
       if (!ok) continue;
       const offset = isoDayNumber(leg.date) - day;
       if (!Number.isFinite(offset) || offset === 0) continue;
-      if (Math.abs(offset) > (own ? OWN_WINDOW_DAYS : BORROWED_WINDOW_DAYS)) continue;
+      const windowDays = own && hereHit ? OWN_WINDOW_DAYS : BORROWED_WINDOW_DAYS;
+      if (Math.abs(offset) > windowDays) continue;
       if (opts.isClaimed?.(leg, src)) continue;
       // Closest day first; then this booking's own itinerary; then both ends.
       const rank = Math.abs(offset) * 4 + (own ? 0 : 2) + (hereHit && thereHit ? 0 : 1);

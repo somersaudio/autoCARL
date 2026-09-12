@@ -2371,6 +2371,8 @@ a.featured-venue:hover .featured-venue-name {
 
 @media (max-width: 560px) {
   .featured-flight-rebook { flex-basis: 100%; }
+  /* Rows wrap with a 1px gap on phones, so the -4px pull would overlap. */
+  .travel-row-note { margin-top: 1px; }
 }
 
 .hotel-card .travel-show { border-top: none; padding-top: 2px; }

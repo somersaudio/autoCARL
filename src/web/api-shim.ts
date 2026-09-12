@@ -513,6 +513,10 @@ async function ingestItineraries(
   bookingId: string,
   rows: Array<{ pdfUrl: string; vendor?: string; confirmation?: string; status?: string }>,
 ): Promise<void> {
+  // An empty list leaves the cache alone. So far it has only ever meant a
+  // failed fetch: cancelled tickets keep their CARL rows and PDFs, and in the
+  // desktop sweep log every drop to zero flights came back within minutes.
+  // Clearing here would make tickets, and the wrong-day warning, flicker off.
   if (rows.length === 0) return;
   const cache = readJson<FlightsCache>(K.flights, {});
   const existing = cache[bookingId] || [];

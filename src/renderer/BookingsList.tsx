@@ -157,22 +157,41 @@ function travelFor(
     { date: booking.endDate, from: here, to, bookingId: booking.bookingId }, itineraries);
 
   // A travel day with no ticket may still have one on the WRONG day, when
-  // the gig's dates moved after the flight was bought. Two guards keep that
-  // note honest. A leg that another booking's own travel day lands on is
-  // that booking's flight, and a leg this card already shows as the other
-  // row's ticket isn't a candidate. And while this booking's itinerary
-  // hasn't been read, its CARL ticket row may well BE the rebooked flight,
-  // so no note is raised on the strength of someone else's itinerary.
+  // the gig's dates moved after the flight was bought. A false "needs to be
+  // changed" sends someone chasing a travel coordinator for nothing, so the
+  // note is held back whenever the flight could belong to something else:
+  //  - a leg dated inside another confirmed gig's dates is that gig's travel,
+  //    whatever airport its city maps to (the flight home from an Oakland
+  //    show can leave from SFO); a leg this card already shows isn't a
+  //    candidate either;
+  //  - a CARL ticket the app hasn't read may BE the rebooked flight: the
+  //    replacement can be on an airline the parser can't read, filed next to
+  //    the old PDF. So every ticketed CARL row must be matched to a parsed
+  //    itinerary first;
+  //  - an itinerary whose CARL row is marked cancelled isn't a ticket at all.
+  const flightRows = contacts.flightBookings || [];
+  const isCancelled = (status?: string) => /cancel|void|refund/i.test(status || '');
+  const cancelledConfs = new Set(flightRows
+    .filter((f) => f.confirmation && isCancelled(f.status))
+    .map((f) => f.confirmation as string));
+  const ownReadConfs = new Set(itineraries
+    .filter((src) => src.bookingId === booking.bookingId && src.legs.length > 0)
+    .map((src) => src.confirmation || ''));
+  const unreadTicket = flightRows.some((f) =>
+    (f.confirmation || /book|tick|confirm/i.test(f.status || ''))
+    && !isCancelled(f.status)
+    && (f.confirmation ? !ownReadConfs.has(f.confirmation) : !parsedOwnItinerary));
+  const rebookSources = itineraries.filter((src) =>
+    !(src.bookingId === booking.bookingId && src.confirmation && cancelledConfs.has(src.confirmation)));
   const claimed = (leg: ItineraryLeg): boolean =>
     leg === arriveMatch?.leg || leg === departMatch?.leg
-    || all.some((b) => b.bookingId !== booking.bookingId && (
-      (b.startDate === leg.date && placeLabel(b.city, b.state) === leg.to)
-      || (b.endDate === leg.date && placeLabel(b.city, b.state) === leg.from)));
+    || all.some((b) => b.bookingId !== booking.bookingId && !isRequest(b)
+      && b.startDate <= leg.date && leg.date <= b.endDate);
   const rebookFor = (
     side: 'arrive' | 'depart', date: string, legFrom: string, legTo: string, match: LegMatch | null,
-  ): DateMismatch | null => (match || ticket ? null : findRebookNeeded(
+  ): DateMismatch | null => (match || ticket || unreadTicket ? null : findRebookNeeded(
     { date, from: legFrom, to: legTo, side, bookingId: booking.bookingId, isClaimed: claimed },
-    itineraries,
+    rebookSources,
   ));
 
   const arrive: TravelLeg | null = from === here ? null : {
@@ -395,6 +414,10 @@ export default function BookingsList({
   const itineraries: ItinerarySource[] = [];
   for (const [bookingId, pdfs] of Object.entries(flights)) {
     const job = bookings.find((b) => b.bookingId === bookingId);
+    // An itinerary for a booking that's no longer in the calendar can't be
+    // checked against that gig's dates, and its flight most likely went with
+    // it. It isn't evidence about anyone else's travel.
+    if (!job) continue;
     for (const pdf of pdfs) {
       if (pdf.legs && pdf.legs.length > 0) {
         itineraries.push({
