@@ -119,6 +119,13 @@ function periodStartOf(index: number): string {
   return addDays(PERIOD_ANCHOR_ISO, index * PERIOD_DAYS);
 }
 
+// The payday for a worked day: the Friday after the Sunday that closes its
+// period. A gig's days stay owed, and belong in the estimate, until the
+// payday for its LAST day has come.
+export function payDateOf(iso: string): string {
+  return addDays(periodStartOf(periodIndex(iso)), PERIOD_DAYS - 1 + PAY_LAG_DAYS);
+}
+
 function pct(value: number): number {
   return Number.isFinite(value) && value > 0 ? Math.min(value, 100) / 100 : 0;
 }

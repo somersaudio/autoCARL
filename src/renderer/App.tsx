@@ -8,6 +8,7 @@ import BookingsList from './BookingsList';
 import TimesheetTab from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab from './FriendsTab';
+import { payDateOf } from '../shared/paychecks';
 import ExpensesTab from './ExpensesTab';
 import InstallBanner from './InstallBanner';
 import MatrixRain from './MatrixRain';
@@ -173,17 +174,19 @@ export default function App() {
   // earlier week had those days priced at the flat day rate and any overtime
   // on them stayed invisible. (A home-screen app has its own storage, quite
   // separate from Safari's, so it can be missing weeks the browser already
-  // holds.) Load the weeks that actually cover upcoming gigs; only ones that
-  // have already begun, since a week still ahead has no hours in it yet.
+  // holds.) Load the weeks that cover every gig still owed on a check that
+  // hasn't paid, finished ones included, since those hours price that check.
+  // Only weeks that have already begun: a week still ahead has no hours yet.
   useEffect(() => {
     if (status?.stage !== 'ready' || sswSkipped || bookings.length === 0) return;
     let cancelled = false;
     void (async () => {
       const today = new Date(); today.setHours(0, 0, 0, 0);
+      const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
       const wanted = new Set<string>();
       for (const b of bookings) {
         const end = new Date(`${b.endDate}T00:00:00`);
-        if (end < today) continue;                       // finished gig
+        if (payDateOf(b.endDate) < todayIso) continue;   // its last check has paid
         const last = end < today ? end : today;          // nothing logged past today
         const cursor = new Date(`${b.startDate}T00:00:00`);
         while (cursor <= last) {

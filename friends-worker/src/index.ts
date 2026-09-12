@@ -279,17 +279,24 @@ export default {
       }
 
       if (route === 'GET /v1/friends') {
-        // PRIVACY MODEL: a friend only ever sees the gigs you SHARE — the
-        // intersection by job number — never your whole schedule. Publishing
-        // a full schedule to the server is what makes the intersection
+        // PRIVACY MODEL: a friend only ever sees the gigs you SHARE, never
+        // your whole schedule. A gig is shared when it has the same job
+        // number as one of yours, or is in the same city on overlapping
+        // dates: one show is often split across several CT job numbers
+        // (offices, departments), and everyone on it lists the same city.
+        // Publishing a full schedule to the server is what makes that
         // computable; revealing it wholesale is exactly what we don't do.
         const mine = await env.DB.prepare(
           'SELECT gigs_json FROM schedules WHERE user_id = ?1',
         ).bind(me.id).first<{ gigs_json: string | null }>();
-        const myJobs = new Set(
-          (mine?.gigs_json ? JSON.parse(mine.gigs_json) as Gig[] : [])
-            .map((g) => g.jobNumber).filter(Boolean),
-        );
+        const myGigs = mine?.gigs_json ? JSON.parse(mine.gigs_json) as Gig[] : [];
+        const myJobs = new Set(myGigs.map((g) => g.jobNumber).filter(Boolean));
+        const place = (g: Gig) =>
+          `${(g.city || '').trim().toLowerCase()}|${(g.state || '').trim().toLowerCase().slice(0, 2)}`;
+        const sharedWithMe = (g: Gig): boolean =>
+          (!!g.jobNumber && myJobs.has(g.jobNumber))
+          || (!!(g.city || '').trim() && myGigs.some((m) =>
+            place(m) === place(g) && g.start <= m.end && m.start <= g.end));
 
         const rows = await env.DB.prepare(
           `SELECT u.email, u.name, u.avatar, f.status, f.requester_id = ?1 AS outgoing,
@@ -310,7 +317,7 @@ export default {
               email: r.email, name: r.name,
               avatar: r.avatar || null,
               // Only shared shows cross the wire.
-              gigs: theirs.filter((g) => myJobs.has(g.jobNumber)),
+              gigs: theirs.filter(sharedWithMe),
               updatedAt: r.updated_at,
             });
           } else if (r.outgoing) {

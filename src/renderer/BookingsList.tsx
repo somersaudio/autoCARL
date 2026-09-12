@@ -3,7 +3,7 @@ import type {
   Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, HotelBooking,
   SswWeek, UserSettings,
 } from '../shared/types';
-import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
+import { buildPaychecks, payDateOf, money, type Paycheck } from '../shared/paychecks';
 import { placeLabel } from '../shared/airports';
 import {
   matchLeg, findRebookNeeded,
@@ -428,12 +428,23 @@ export default function BookingsList({
     }
   }
 
-  const confirmedOnly = upcoming.filter((b) => !isRequest(b));
+  // A gig stays in the estimate until the check for its last day has paid.
+  // Klaviyo wrapped 9/11, but its 9/7-9/11 days land on the 9/25 check;
+  // estimating from upcoming gigs only took those days, and their overtime,
+  // off a check that hadn't paid yet the moment the gig ended. Checks whose
+  // payday has already come drop off instead. A request that ended without
+  // being accepted was never work, so it doesn't linger.
+  const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const onUnpaidChecks = bookings
+    .filter((b) => payDateOf(b.endDate) >= todayIso)
+    .filter((b) => !isRequest(b) || b.endDate >= todayIso)
+    .sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const confirmedOnly = onUnpaidChecks.filter((b) => !isRequest(b));
   const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks);
-  const planAll = confirmedOnly.length === upcoming.length
+  const planAll = confirmedOnly.length === onUnpaidChecks.length
     ? plan
-    : buildPaychecks(upcoming, contacts, settings, sswWeeks);
-  const estimatorRows: EstimatorRow[] = planAll.checks.map((all) => {
+    : buildPaychecks(onUnpaidChecks, contacts, settings, sswWeeks);
+  const estimatorRows: EstimatorRow[] = planAll.checks.filter((c) => c.payDate >= todayIso).map((all) => {
     const base = plan.checks.find((c) => c.periodStart === all.periodStart);
     const extra = Math.round((all.net + all.perDiem) - (base ? base.net + base.perDiem : 0));
     if (!base) return { ...all, requestOnly: true, requestExtra: extra };

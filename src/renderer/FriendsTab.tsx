@@ -9,11 +9,12 @@ import runnerLogo from './assets/aim-runner.png';
 //
 // AIM-to-AUTOcarl mapping:
 //   Sign On screen      -> enrollment
-//   Buddies group       -> friends on your show (overlap = same jobNumber)
-//   Buddies group       -> friends on a show WITH you (the only case where
-//                          gig details are ever revealed — the server sends
-//                          nothing but the intersection)
-//   (One list only — no Co-Workers/Offline split. Show-sharers sort first.)
+//   Buddies group       -> friends on a show WITH you: the same job number,
+//                          or the same city on overlapping dates (one show
+//                          is often split across several CT job numbers).
+//                          The only case where gig details are ever
+//                          revealed; the server sends nothing else.
+//   (One list only, no Co-Workers/Offline split. Show-sharers sort first.)
 //   Away message        -> the shared show + its city + dates
 //   List Setup tab      -> add friend / pending invites / account
 
@@ -294,14 +295,14 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
   // ---------- Buddy List ----------
   const accepted = list?.accepted ?? [];
-  // The server only ever sends gigs you SHARE (intersection by job number),
-  // so empty gigs means "no mutual shows" — updatedAt tells that apart from
+  // The server only ever sends gigs you SHARE (same job number, or same city
+  // on overlapping dates), so empty gigs means "no mutual shows" — updatedAt tells that apart from
   // "never shared a schedule at all".
   // ONE list. Friends sharing a show with you float to the top (soonest
   // shared show first); everyone else follows alphabetically.
   const soonestShared = (f: FriendEntry): string => {
     const dates = f.gigs
-      .filter((g) => gigOverlapKind(g, upcoming) === 'gig')
+      .filter((g) => gigOverlapKind(g, upcoming) !== null)
       .map((g) => g.start)
       .sort();
     return dates[0] ?? '';
@@ -330,7 +331,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           onClick={() => setExpandedBuddy(expanded ? null : f.email)}
           title={expanded ? undefined : 'Click for schedule'}
         >
-          {kind === 'gig' && (
+          {kind && (
             <span className="plane-icon aim-buddy-plane" style={{ width: 16, backgroundColor: '#003a9e' }} />
           )}
           {f.avatar && <img className="aim-buddy-avatar" src={f.avatar} alt="" />}
@@ -351,7 +352,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             {f.gigs.length === 0 && (
               <div className="aim-away">
                 {f.updatedAt
-                  ? 'No shows together right now — gigs only show when you\u2019re both on them.'
+                  ? 'No shows together right now. A gig shows here when you\u2019re on the same job, or in the same city on the same dates.'
                   : 'No schedule shared yet.'}
               </div>
             )}
@@ -360,7 +361,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
               return (
                 <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}`}>
                   {fmtRange(g.start, g.end)} · {g.jobName} ({g.city}{g.state ? `, ${g.state}` : ''})
-                  {k === 'gig' ? ' — with you' : k === 'near' ? ' — near you' : ''}
+                  {k === 'gig' ? ' \u2014 with you' : k === 'near' ? ' \u2014 same city, same dates' : ''}
                 </div>
               );
             })}
@@ -656,7 +657,11 @@ function RunnerIcon({ size }: { size: number }) {
   );
 }
 
-// ---- overlap helpers (same rules as before the makeover) ----
+// ---- overlap helpers ----
+//   'gig'  = the same job number on overlapping dates
+//   'near' = a different job number, same city, overlapping dates: usually
+//            the same show under another CT office's job number
+// Both count as being on a show together.
 
 function gigOverlapKind(g: FriendGig, mine: Booking[]): 'gig' | 'near' | null {
   for (const b of mine) {
@@ -689,12 +694,17 @@ function flipName(n: string): string {
   return m ? `${m[2]} ${m[1]}`.trim() : n.trim();
 }
 
-// The buddy's "away message": the shared show, or nothing. Privacy model:
-// a gig is only ever mentioned when you're BOTH on it.
+// The buddy's "away message": the shared show, or nothing. A gig is only
+// ever mentioned when you share it (same job, or same city on the same dates).
 function awayMessage(f: FriendEntry, mine: Booking[]): string {
   for (const g of f.gigs) {
     if (gigOverlapKind(g, mine) === 'gig') {
       return `with you on ${g.jobName}${g.city ? ` in ${g.city}` : ''} · ${fmtRange(g.start, g.end)}`;
+    }
+  }
+  for (const g of f.gigs) {
+    if (gigOverlapKind(g, mine) === 'near') {
+      return `in ${g.city} with you · ${g.jobName} · ${fmtRange(g.start, g.end)}`;
     }
   }
   return '';
