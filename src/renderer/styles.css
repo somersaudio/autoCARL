@@ -1032,8 +1032,6 @@ a.featured-venue:hover .featured-venue-name {
    window keeps its small period type. */
 .aim-buddy-name { flex: 1; font-size: 14px; line-height: 1.25; }
 
-.aim-buddy-plane { flex-shrink: 0; }
-
 /* Buddies with nothing shared render greyed + italic, like signed-off users. */
 .aim-offline .aim-buddy-name { color: #9a9a9a; font-style: italic; }
 

@@ -322,7 +322,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const toggleGroup = (g: string) => setCollapsed((c) => ({ ...c, [g]: !c[g] }));
 
   const buddyRow = (f: FriendEntry, offlineStyle = false) => {
-    const kind = overlapKindForFriend(f, upcoming);
     const away = awayMessage(f, upcoming);
     const expanded = expandedBuddy === f.email;
     return (
@@ -332,9 +331,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           onClick={() => setExpandedBuddy(expanded ? null : f.email)}
           title={expanded ? undefined : 'Click for schedule'}
         >
-          {kind && (
-            <span className="plane-icon aim-buddy-plane" style={{ width: 16, backgroundColor: '#003a9e' }} />
-          )}
           <BuddyIcon src={f.avatar} name={f.name} seed={f.email} />
           <span className="aim-buddy-name">{f.name}</span>
           <button
@@ -708,16 +704,6 @@ function gigOverlapKind(g: FriendGig, mine: Booking[]): 'gig' | 'near' | null {
     if (sameCity && g.start <= b.endDate && b.startDate <= g.end) return 'near';
   }
   return null;
-}
-
-function overlapKindForFriend(f: FriendEntry, mine: Booking[]): 'gig' | 'near' | null {
-  let best: 'gig' | 'near' | null = null;
-  for (const g of f.gigs) {
-    const k = gigOverlapKind(g, mine);
-    if (k === 'gig') return 'gig';
-    if (k === 'near') best = 'near';
-  }
-  return best;
 }
 
 // SSW writes names "Somers, John"; buddy lists read better as "John Somers".
