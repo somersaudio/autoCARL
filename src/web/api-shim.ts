@@ -1372,6 +1372,8 @@ const api: Api = {
       }
       const { etag, unchanged: _unchanged, ...list } = r;
       friendsListCache = etag ? { token, etag, list } : null;
+      // Keep the local screen name in step with the service's, the authority.
+      if (list.me?.name && lsGet(K.friendsName) !== list.me.name) lsSet(K.friendsName, list.me.name);
       return list;
     },
     request: async (email) => { await postJson('/v1/friends/request', { token: friendsToken(), email }); },

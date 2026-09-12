@@ -26,6 +26,8 @@ export type FriendsList = {
   accepted: FriendEntry[];
   incoming: Array<{ email: string; name: string }>;
   outgoing: Array<{ email: string; name: string }>;
+  // Your own screen name as the friends service has it (the authority).
+  me?: { name: string };
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;
@@ -213,6 +215,13 @@ export async function friendsList(): Promise<FriendsList> {
   // service compares weakly, but store the canonical form regardless.
   const etag = (res.headers.get('etag') || '').replace(/^W\//, '');
   listCache = etag ? { token, etag, list } : null;
+  // The service's copy of your screen name is the authority (a rename on
+  // another device, a fix made on the server). Keep the local copy in step
+  // so the Buddy List opens with the right name next time.
+  if (list.me?.name) {
+    const cfg = await readConfig();
+    if (cfg.friendsName !== list.me.name) await updateConfig({ friendsName: list.me.name });
+  }
   return list;
 }
 

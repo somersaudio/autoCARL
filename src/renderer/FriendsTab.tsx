@@ -85,7 +85,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   // Screen Name tab: the draft being edited, and whether the last save landed.
   const [screenDraft, setScreenDraft] = useState('');
   const [screenSaved, setScreenSaved] = useState(false);
-  useEffect(() => { setScreenDraft(myName); }, [myName]);
+  // The box follows your saved name until you start typing; a background
+  // list refresh must never overwrite a name you're in the middle of.
+  const screenDirty = useRef(false);
+  useEffect(() => { if (!screenDirty.current) setScreenDraft(myName); }, [myName]);
 
   useEffect(() => {
     window.api.friends.status().then((st) => {
@@ -179,6 +182,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     setScreenSaved(false);
     void run(async () => {
       const saved = await window.api.friends.setName(sn.name);
+      // A list load sent before the save still carries the old name; its
+      // reply must not land on top of this one.
+      appliedGen.current = loadGen.current;
+      screenDirty.current = false;
       setMyName(saved);
       setScreenDraft(saved);
       setScreenSaved(true);
@@ -434,7 +441,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
       {pane === 'online' && (
         <div className="aim-list">
-          {myName.includes('@') && (
+          {list && myName.includes('@') && (
             <button className="aim-nudge" onClick={() => setPane('screenname')}>
               Your buddies see your email as your screen name.{' '}
               <b>Set your Screen Name ›</b>
@@ -585,7 +592,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
                 value={screenDraft}
                 maxLength={60}
                 placeholder="Your name, like Jane Smith"
-                onChange={(e) => { setScreenDraft(e.target.value); setScreenSaved(false); }}
+                onChange={(e) => { screenDirty.current = true; setScreenDraft(e.target.value); setScreenSaved(false); }}
                 onKeyDown={(e) => { if (e.key === 'Enter' && !unchanged && 'name' in check) saveScreenName(); }}
                 disabled={busy}
               />
