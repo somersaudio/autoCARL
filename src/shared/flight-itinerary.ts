@@ -220,3 +220,101 @@ export function matchLeg(
   }
   return best;
 }
+
+// ---- a ticket for the wrong day -------------------------------------------
+//
+// When a gig's dates move, the flight already bought doesn't move with it.
+// Google AITE slid a day later (travel out Thu 9/24 became Fri 9/25) while
+// its itinerary still flies SJC->AUS on 9/24. matchLeg requires the date, so
+// it found nothing and the travel row quietly lost its ticket. This finds
+// that ticket, the same trip on a nearby day, so the card can say the flight
+// needs to be changed.
+//
+// It is deliberately stricter than matchLeg, because a false "needs to be
+// changed" sends someone chasing a travel coordinator for nothing:
+//  - the leg must run in this travel day's direction: land at this gig's
+//    airport on the way in, leave it on the way out. On this booking's OWN
+//    itinerary a flight between a neighbouring airport and the right far
+//    end also counts (OAK->AUS for an SFO show), as matchLeg allows;
+//  - the far end must match whenever it's a real airport code;
+//  - another booking's itinerary counts only when BOTH ends match, within a
+//    few days; otherwise a nearby flight between the same cities is just
+//    someone else's trip;
+//  - a leg the caller says is spoken for (another booking's own travel day,
+//    or this card's other row) is never claimed.
+
+export type DateMismatch = LegMatch & {
+  /** days from the travel day to the ticket's day: -1 = the flight is a day early */
+  offsetDays: number;
+};
+
+const OWN_WINDOW_DAYS = 7;
+const BORROWED_WINDOW_DAYS = 3;
+const IATA_CODE = /^[A-Z]{3}$/;
+
+function isoDayNumber(iso: string): number {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if (!m) return NaN;
+  return Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86_400_000);
+}
+
+export function findRebookNeeded(
+  opts: {
+    date: string;
+    from: string;
+    to: string;
+    side: 'arrive' | 'depart';
+    bookingId: string;
+    isClaimed?: (leg: ItineraryLeg, src: ItinerarySource) => boolean;
+  },
+  sources: ItinerarySource[],
+): DateMismatch | null {
+  const here = opts.side === 'arrive' ? opts.to : opts.from;
+  const there = opts.side === 'arrive' ? opts.from : opts.to;
+  const day = isoDayNumber(opts.date);
+  if (!Number.isFinite(day)) return null;
+  const hereKnown = IATA_CODE.test(here);
+  const thereKnown = IATA_CODE.test(there);
+
+  let best: DateMismatch | null = null;
+  let bestRank = Infinity;
+  for (const src of sources) {
+    const own = src.bookingId === opts.bookingId;
+    for (const leg of src.legs) {
+      if (leg.date === opts.date) continue;          // same day is matchLeg's call
+      const legHere = opts.side === 'arrive' ? leg.to : leg.from;
+      const legThere = opts.side === 'arrive' ? leg.from : leg.to;
+      const hereHit = hereKnown && legHere === here;
+      const thereHit = thereKnown && legThere === there;
+      let ok: boolean;
+      if (own) {
+        // Right gig end, far end matching or unknown ("home" with no airport
+        // set) — or a neighbouring airport with the far end matching.
+        ok = (hereHit && (!thereKnown || thereHit)) || (!hereHit && thereHit);
+      } else {
+        ok = hereHit && thereHit;
+      }
+      if (!ok) continue;
+      const offset = isoDayNumber(leg.date) - day;
+      if (!Number.isFinite(offset) || offset === 0) continue;
+      if (Math.abs(offset) > (own ? OWN_WINDOW_DAYS : BORROWED_WINDOW_DAYS)) continue;
+      if (opts.isClaimed?.(leg, src)) continue;
+      // Closest day first; then this booking's own itinerary; then both ends.
+      const rank = Math.abs(offset) * 4 + (own ? 0 : 2) + (hereHit && thereHit ? 0 : 1);
+      if (rank < bestRank) {
+        bestRank = rank;
+        best = {
+          leg,
+          vendor: src.vendor,
+          confirmation: src.confirmation,
+          bookingId: src.bookingId,
+          jobName: src.jobName,
+          borrowed: !own,
+          loose: false,
+          offsetDays: offset,
+        };
+      }
+    }
+  }
+  return best;
+}

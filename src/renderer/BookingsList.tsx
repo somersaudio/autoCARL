@@ -5,7 +5,10 @@ import type {
 } from '../shared/types';
 import { buildPaychecks, money, type Paycheck } from '../shared/paychecks';
 import { placeLabel } from '../shared/airports';
-import { matchLeg, type ItinerarySource, type LegMatch } from '../shared/flight-itinerary';
+import {
+  matchLeg, findRebookNeeded,
+  type DateMismatch, type ItineraryLeg, type ItinerarySource, type LegMatch,
+} from '../shared/flight-itinerary';
 
 type Props = {
   bookings: Booking[];
@@ -49,6 +52,9 @@ type TravelLeg = {
   // since one trip routinely covers the flight out to a show and the flight
   // on to the next one.
   match: LegMatch | null;
+  // No ticket on this day, but one for the same trip on a nearby day: the
+  // gig's dates moved and the flight didn't. The card says it needs changing.
+  rebook: DateMismatch | null;
 };
 
 type TravelInfo = {
@@ -128,15 +134,56 @@ function travelFor(
   // A leg that starts and ends in the same place is not a flight — a local
   // gig you drive to, or two connecting gigs in one city. Drop it rather
   // than draw an X → X route and call it travel.
+  // Once this booking's own itinerary has actually been read, leg matching is
+  // authoritative and the blanket "this gig has a ticket" fallback must stop:
+  // a ONE-WAY booking covers a single travel day, and stamping "Booked" on
+  // the other one claims a flight that was never bought. (Google AITE flies
+  // home SJC->AUS only; the inbound hop from the San Francisco show was a
+  // car ride, and there isn't even a commercial SFO->SJC flight.)
+  const parsedOwnItinerary = itineraries.some(
+    (src) => src.bookingId === booking.bookingId && src.legs.length > 0,
+  );
+  const ticket = parsedOwnItinerary
+    ? undefined
+    : (contacts.flightBookings || [])
+      .find((f) => f.confirmation || /book|tick|confirm/i.test(f.status || ''));
+
+  // A leg that starts and ends in the same place is not a flight: a local
+  // gig you drive to, or two connecting gigs in one city. Drop it rather
+  // than draw an X to X route and call it travel.
+  const arriveMatch = from === here ? null : matchLeg(
+    { date: booking.startDate, from, to: here, bookingId: booking.bookingId }, itineraries);
+  const departMatch = to === here ? null : matchLeg(
+    { date: booking.endDate, from: here, to, bookingId: booking.bookingId }, itineraries);
+
+  // A travel day with no ticket may still have one on the WRONG day, when
+  // the gig's dates moved after the flight was bought. Two guards keep that
+  // note honest. A leg that another booking's own travel day lands on is
+  // that booking's flight, and a leg this card already shows as the other
+  // row's ticket isn't a candidate. And while this booking's itinerary
+  // hasn't been read, its CARL ticket row may well BE the rebooked flight,
+  // so no note is raised on the strength of someone else's itinerary.
+  const claimed = (leg: ItineraryLeg): boolean =>
+    leg === arriveMatch?.leg || leg === departMatch?.leg
+    || all.some((b) => b.bookingId !== booking.bookingId && (
+      (b.startDate === leg.date && placeLabel(b.city, b.state) === leg.to)
+      || (b.endDate === leg.date && placeLabel(b.city, b.state) === leg.from)));
+  const rebookFor = (
+    side: 'arrive' | 'depart', date: string, legFrom: string, legTo: string, match: LegMatch | null,
+  ): DateMismatch | null => (match || ticket ? null : findRebookNeeded(
+    { date, from: legFrom, to: legTo, side, bookingId: booking.bookingId, isClaimed: claimed },
+    itineraries,
+  ));
+
   const arrive: TravelLeg | null = from === here ? null : {
     date: booking.startDate, from, to: here, sameDay: booking.startDate === workStart,
-    match: matchLeg(
-      { date: booking.startDate, from, to: here, bookingId: booking.bookingId }, itineraries),
+    match: arriveMatch,
+    rebook: rebookFor('arrive', booking.startDate, from, here, arriveMatch),
   };
   const depart: TravelLeg | null = to === here ? null : {
     date: booking.endDate, from: here, to, sameDay: booking.endDate === workEnd,
-    match: matchLeg(
-      { date: booking.endDate, from: here, to, bookingId: booking.bookingId }, itineraries),
+    match: departMatch,
+    rebook: rebookFor('depart', booking.endDate, here, to, departMatch),
   };
 
   // No flights and no travel days: the ribbon would say nothing the header
@@ -145,19 +192,6 @@ function travelFor(
     return null;
   }
 
-  // Once this booking's own itinerary has actually been read, leg matching is
-  // authoritative and the blanket "this gig has a ticket" fallback must stop:
-  // a ONE-WAY booking covers a single travel day, and stamping "Booked" on
-  // the other one claims a flight that was never bought. (Google AITE flies
-  // home SJC->AUS only — the inbound hop from the San Francisco show is a
-  // car ride; there isn't even a commercial SFO->SJC flight.)
-  const parsedOwnItinerary = itineraries.some(
-    (src) => src.bookingId === booking.bookingId && src.legs.length > 0,
-  );
-  const ticket = parsedOwnItinerary
-    ? undefined
-    : (contacts.flightBookings || [])
-      .find((f) => f.confirmation || /book|tick|confirm/i.test(f.status || ''));
   return {
     workStart, workEnd, arrive, depart,
     flight: flightStatusFor(contacts),
@@ -227,6 +261,21 @@ function HotelCard({ hotels }: { hotels: HotelBooking[] }) {
   );
 }
 
+// The wrong-day ticket on a gig's travel card, if either travel day has one.
+// The arrival comes first because it's the flight you'd miss first.
+function rebookOf(travel: TravelInfo | null | undefined): DateMismatch | null {
+  return travel?.arrive?.rebook || travel?.depart?.rebook || null;
+}
+
+// "*Flight is 1 day before your Travel Out Date and needs to be changed"
+function rebookNote(r: DateMismatch, kind: 'arrive' | 'depart'): string {
+  const n = Math.abs(r.offsetDays);
+  const days = n === 1 ? '1 day' : `${n} days`;
+  const when = r.offsetDays < 0 ? 'before' : 'after';
+  const which = kind === 'arrive' ? 'Travel In Date' : 'Travel Out Date';
+  return `*Flight is ${days} ${when} your ${which} and needs to be changed`;
+}
+
 function TravelRibbon({ travel }: { travel: TravelInfo }) {
   // A travel day that is ALSO a work day is the one that actually costs you.
   // Say which end it lands on rather than just listing dates.
@@ -251,6 +300,9 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
       : travel.ownTicket
         ? { confirmation: travel.ownTicket.confirmation, borrowedFrom: null, stops: [], exact: false }
         : null;
+    // Only when nothing books this day: a ticket for the same trip on
+    // another day means the gig moved and the flight didn't.
+    const rebook = ticket ? null : l.rebook;
     return (
     <div className={`travel-row${l.sameDay ? ' is-sameday' : ''}`}>
       <span className="travel-plane" aria-hidden="true">{'\u2708'}</span>
@@ -277,6 +329,15 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
           {ticket.borrowedFrom ? ` \u00b7 on ${ticket.borrowedFrom}'s itinerary` : ''}
         </span>
       )}
+      {rebook && (
+        <span className="travel-row-flight is-rebook">
+          <span className="travel-flight-dot" aria-hidden="true" />
+          Booked for {fmtTravelDay(rebook.leg.date)}
+          {rebook.confirmation ? ` · ${rebook.confirmation}` : ''}
+          {rebook.borrowed && rebook.jobName ? ` · on ${rebook.jobName}'s itinerary` : ''}
+        </span>
+      )}
+      {rebook && <span className="travel-row-note">{rebookNote(rebook, kind)}</span>}
     </div>
     );
   };
@@ -284,7 +345,8 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
     <div className="travel-card">
       {travel.arrive && row(travel.arrive, 'arrive')}
       {travel.depart && row(travel.depart, 'depart')}
-      {!travel.arrive?.match && !travel.depart?.match && !travel.ownTicket && (
+      {!travel.arrive?.match && !travel.depart?.match && !travel.ownTicket
+        && !travel.arrive?.rebook && !travel.depart?.rebook && (
       <div className={`travel-flight is-${travel.flight.tone}`}>
         <span className="travel-flight-dot" aria-hidden="true" />
         <span className="travel-flight-label">{travel.flight.label}</span>
@@ -417,6 +479,10 @@ export default function BookingsList({
                   booking={b}
                   pdfs={flights[b.bookingId] || []}
                   contacts={contacts[b.bookingId] || NO_CONTACTS}
+                  rebook={rebookOf(travelFor(
+                    b, contacts[b.bookingId] || NO_CONTACTS,
+                    bookings, settings.homeAirport, itineraries,
+                  ))}
                   onExpand={() => setExpandedId(b.bookingId)}
                 />
               ))}
@@ -469,9 +535,13 @@ type BookingCardProps = {
   contacts?: BookingContacts;
   // Present on upcoming rows only: clicking the row swaps it to the full view.
   onExpand?: () => void;
+  // Upcoming rows only: a booked flight that no longer lands on this gig's
+  // travel day because the gig's dates moved. Flagged on the row itself so
+  // it's seen without opening the card.
+  rebook?: DateMismatch | null;
 };
 
-function BookingCard({ booking, pdfs, contacts, onExpand }: BookingCardProps) {
+function BookingCard({ booking, pdfs, contacts, rebook, onExpand }: BookingCardProps) {
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -502,6 +572,12 @@ function BookingCard({ booking, pdfs, contacts, onExpand }: BookingCardProps) {
       </div>
       {isRequest(booking) && (
         <span className="request-bang" title="Request — needs to be accepted or denied in C.A.R.L.">!</span>
+      )}
+      {rebook && (
+        <span
+          className="request-bang"
+          title={`Flight is booked for ${fmtTravelDay(rebook.leg.date)}, the wrong day. It needs to be changed.`}
+        >!</span>
       )}
       {notesUnseen(contacts) && (
         <NoteIcon size={24} title="New booking notes — open the card to read them" />
@@ -570,6 +646,15 @@ type FeaturedBookingCardProps = BookingCardProps & {
 };
 
 function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: FeaturedBookingCardProps) {
+  // The itinerary that holds a wrong-day flight gets flagged right on its
+  // View itinerary line. Matched by the leg itself, so a gig with an old and
+  // a reissued PDF flags only the one that's actually wrong. A flight that
+  // lives on another gig's itinerary is flagged on this card's travel row.
+  const rebook = rebookOf(travel);
+  const rebookPdf = rebook && !rebook.borrowed
+    ? pdfs.find((p) => (p.legs || []).includes(rebook.leg)) || null
+    : null;
+
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -638,6 +723,14 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
                 >
                   View itinerary{pdfs.length > 1 ? ` (${i + 1})` : ''}
                 </button>
+                {/* After the button: on a phone the airline line and button share one
+                    row, and the warning takes its own line beneath them. */}
+                {p === rebookPdf && (
+                  <div className="featured-flight-rebook">
+                    <span className="request-bang rebook-bang-sm" aria-hidden="true">!</span>
+                    <span>Wrong day · needs to be changed</span>
+                  </div>
+                )}
               </div>
             ))}
           </div>
