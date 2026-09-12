@@ -1021,14 +1021,16 @@ a.featured-venue:hover .featured-venue-name {
 .aim-buddy {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 1px 2px 1px 20px;
+  gap: 7px;
+  padding: 3px 2px 3px 20px;
   cursor: pointer;
 }
 
 .aim-buddy:hover { background: #e8f0ff; }
 
-.aim-buddy-name { flex: 1; }
+/* Names and buddy icons read at a glance on a phone; the rest of the
+   window keeps its small period type. */
+.aim-buddy-name { flex: 1; font-size: 14px; line-height: 1.25; }
 
 .aim-buddy-plane { flex-shrink: 0; }
 
@@ -2618,10 +2620,10 @@ a.featured-venue:hover .featured-venue-name {
 
 /* Buddy icons (AIM avatars) */
 .aim-buddy-avatar {
-  width: 16px;
-  height: 16px;
+  width: 28px;
+  height: 28px;
   object-fit: cover;
-  border-radius: 3px;
+  border-radius: 4px;
   flex-shrink: 0;
   image-rendering: auto;
 }
