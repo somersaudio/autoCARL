@@ -223,6 +223,9 @@ export type FriendsList = {
   accepted: FriendEntry[];
   incoming: Array<{ email: string; name: string }>;
   outgoing: Array<{ email: string; name: string }>;
+  // Your own screen name as the friends service has it. It's the authority:
+  // the local copy can lag a rename on another device or a server-side fix.
+  me?: { name: string };
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;
@@ -400,6 +403,9 @@ export type Api = {
     // friends' lists. Empty string clears it. Returns nothing; the caller
     // keeps its own preview.
     setAvatar: (avatar: string) => Promise<void>;
+    // Screen name buddies see. The friends service normalises it ("Last,
+    // First" flipped, emails refused) and returns exactly what it saved.
+    setName: (name: string) => Promise<string>;
     list: () => Promise<FriendsList>;
     request: (email: string) => Promise<void>;
     respond: (email: string, accept: boolean) => Promise<void>;

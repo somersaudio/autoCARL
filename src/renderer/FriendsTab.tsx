@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Booking, FriendEntry, FriendGig, FriendsList } from '../shared/types';
 import runnerLogo from './assets/aim-runner.png';
+import { normalizeScreenName, SCREEN_NAME_MAX } from '../shared/screen-name';
 
 // The Friends tab, dressed as a 1999 buddy list — beveled chrome, blue title
 // bar, groups with (n/total) counts, and away messages. The joke is loving:
@@ -33,7 +34,7 @@ let enrollAttemptedThisSession = false;
 // list is a bodyless reply (ETag), so this is one small round trip.
 const FRIENDS_POLL_MS = 20_000;
 
-type Pane = 'online' | 'setup' | 'customize';
+type Pane = 'online' | 'setup' | 'customize' | 'screenname';
 
 export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [enrolled, setEnrolled] = useState<boolean | null>(null);
@@ -69,6 +70,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         if (gen <= appliedGen.current) return;
         appliedGen.current = gen;
         setList(l);
+        if (l.me?.name) setMyName(l.me.name);
         setError('');   // a list that just loaded is not "failed to load"
       })
       .catch((e) => { if (!quiet) setError(friendlyMsg(e)); });
@@ -80,6 +82,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   // Own buddy icon (local preview; the server copy is what friends see).
   const [myAvatar, setMyAvatar] = useState('');
   const avatarInputRef = useRef<HTMLInputElement>(null);
+  // Screen Name tab: the draft being edited, and whether the last save landed.
+  const [screenDraft, setScreenDraft] = useState('');
+  const [screenSaved, setScreenSaved] = useState(false);
+  useEffect(() => { setScreenDraft(myName); }, [myName]);
 
   useEffect(() => {
     window.api.friends.status().then((st) => {
@@ -167,6 +173,18 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     });
   };
 
+  const saveScreenName = () => {
+    const sn = normalizeScreenName(screenDraft);
+    if ('error' in sn) { setError(sn.error); return; }
+    setScreenSaved(false);
+    void run(async () => {
+      const saved = await window.api.friends.setName(sn.name);
+      setMyName(saved);
+      setScreenDraft(saved);
+      setScreenSaved(true);
+    });
+  };
+
   const removeAvatar = () => {
     void run(async () => {
       await window.api.friends.setAvatar('');
@@ -227,6 +245,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         const ident = await window.api.ssw.identity().catch(() => null);
         autoName = flipName(ident?.name || '');
       }
+      // Timesheets store "Last, First"; an unusable name (an email, say)
+      // falls through to the manual screen rather than becoming the name.
+      const auto = normalizeScreenName(autoName);
+      autoName = 'name' in auto ? auto.name : '';
       if (autoName) setName((cur) => cur || autoName);   // prefill the fallback screen
       if (!autoName) {
         // Nothing to sign on with (brand-new user, or SSW unreachable) —
@@ -259,6 +281,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              placeholder="Your name, like Jane Smith"
+              maxLength={60}
               disabled={busy}
             />
           </div>
@@ -281,8 +305,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
               onClick={() => {
                 // A manual attempt also counts as this session's one shot —
                 // a late-arriving suggested name must not auto-fire on top.
+                const sn = normalizeScreenName(name);
+                if ('error' in sn) { setError(sn.error); return; }
                 enrollAttemptedThisSession = true;
-                void run(() => doEnroll(name));
+                void run(() => doEnroll(sn.name));
               }}
             >
               {busy ? 'Signing On…' : 'Sign On'}
@@ -401,10 +427,19 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         <button className={`aim-tab${pane === 'customize' ? ' is-active' : ''}`} onClick={() => setPane('customize')}>
           Customize
         </button>
+        <button className={`aim-tab${pane === 'screenname' ? ' is-active' : ''}`} onClick={() => setPane('screenname')}>
+          Screen Name
+        </button>
       </div>
 
       {pane === 'online' && (
         <div className="aim-list">
+          {myName.includes('@') && (
+            <button className="aim-nudge" onClick={() => setPane('screenname')}>
+              Your buddies see your email as your screen name.{' '}
+              <b>Set your Screen Name ›</b>
+            </button>
+          )}
           {incoming.length > 0 && (
             <div className="aim-group">
               <div className="aim-group-header as-static">
@@ -532,6 +567,51 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           </div>
         </div>
       )}
+
+      {pane === 'screenname' && (() => {
+        const check = normalizeScreenName(screenDraft);
+        const unchanged = 'name' in check && check.name === myName;
+        return (
+          <div className="aim-list">
+            <div className="aim-setup-section">Screen Name</div>
+            <div className="aim-fineprint" style={{ margin: '2px 2px 6px' }}>
+              The name your buddies see next to your icon. Use the name your
+              coworkers know you by.
+            </div>
+            <div className="aim-add-row">
+              <input
+                className="aim-input"
+                type="text"
+                value={screenDraft}
+                maxLength={60}
+                placeholder="Your name, like Jane Smith"
+                onChange={(e) => { setScreenDraft(e.target.value); setScreenSaved(false); }}
+                onKeyDown={(e) => { if (e.key === 'Enter' && !unchanged && 'name' in check) saveScreenName(); }}
+                disabled={busy}
+              />
+              <button className="aim-btn" disabled={busy || unchanged || 'error' in check} onClick={saveScreenName}>
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+            {'error' in check && screenDraft.trim() !== '' && <div className="aim-error">{check.error}</div>}
+            {'name' in check && check.name !== screenDraft.replace(/\s+/g, ' ').trim() && (
+              <div className="aim-fineprint" style={{ margin: '4px 2px' }}>
+                Buddies will see: <b>{check.name}</b>
+              </div>
+            )}
+            {screenSaved && unchanged && (
+              <div className="aim-fineprint aim-saved" style={{ margin: '4px 2px' }}>
+                Saved! Buddies now see <b>{myName}</b>.
+              </div>
+            )}
+            <div className="aim-fineprint" style={{ margin: '6px 2px', color: '#777' }}>
+              Up to {SCREEN_NAME_MAX} characters. A timesheet-style name like
+              {' '}&ldquo;Smith, Jane&rdquo; is flipped to &ldquo;Jane Smith&rdquo;.
+            </div>
+            {error && <div className="aim-error">{error}</div>}
+          </div>
+        );
+      })()}
 
       {pane === 'customize' && (
         <div className="aim-list">

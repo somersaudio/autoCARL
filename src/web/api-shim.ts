@@ -1352,6 +1352,14 @@ const api: Api = {
       else lsRemove(K.friendsAvatar);
     },
 
+    // Screen name: the service normalises it and refuses an email; keep its
+    // answer as the local copy.
+    setName: async (name) => {
+      const r = await postJson<{ name: string }>('/v1/friends/name', { token: friendsToken(), name });
+      lsSet(K.friendsName, r.name);
+      return r.name;
+    },
+
     list: async () => {
       const token = friendsToken();
       const cached = friendsListCache && friendsListCache.token === token ? friendsListCache : null;

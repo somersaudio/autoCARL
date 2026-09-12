@@ -83,6 +83,25 @@ function cleanStr(v: unknown, max = MAX_STR): string {
   return typeof v === 'string' ? v.trim().slice(0, max) : '';
 }
 
+// A screen name is what buddies see beside your icon. This service is the
+// authority on it (src/shared/screen-name.ts mirrors the same rule for the
+// apps): whitespace tidied, "Last, First" flipped the way timesheets store
+// names, and an email refused, because an email is what people type into a
+// box labelled Screen Name that sits next to a login.
+const SCREEN_NAME_MAX = 40;
+function screenName(raw: unknown): { name: string } | { error: string } {
+  const tidy = (typeof raw === 'string' ? raw : '')
+    .replace(/[\u0000-\u001f\u007f]/g, '').replace(/\s+/g, ' ').trim();
+  if (!tidy) return { error: 'Enter the name your coworkers know you by.' };
+  if (tidy.includes('@')) return { error: 'That looks like an email. Use your name, the way coworkers know you.' };
+  const lastFirst = tidy.match(/^([^,]+),\s*([^,]+)$/);
+  const name = lastFirst ? `${lastFirst[2].trim()} ${lastFirst[1].trim()}` : tidy;
+  if (!/[A-Za-z]/.test(name) && !/[^\x00-\x7F]/.test(name)) return { error: 'A screen name needs at least one letter.' };
+  if (name.length < 2) return { error: 'That screen name is too short.' };
+  if (name.length > SCREEN_NAME_MAX) return { error: `Keep your screen name under ${SCREEN_NAME_MAX} characters.` };
+  return { name };
+}
+
 const ISO_DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 function cleanGigs(v: unknown): Gig[] | null {
@@ -135,9 +154,10 @@ export default {
         const body = await readBody(req);
         if (!body) return err(400, 'Bad JSON body.');
         const email = cleanStr(body.email).toLowerCase();
-        const name = cleanStr(body.name, 60);
         if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return err(400, 'A valid email is required.');
-        if (!name) return err(400, 'A display name is required.');
+        const sn = screenName(body.name);
+        if ('error' in sn) return err(400, sn.error);
+        const name = sn.name;
         if (await findUserByEmail(env, email)) {
           return err(409, 'This email is already registered. If you lost access, ask John to reset it.');
         }
@@ -147,7 +167,8 @@ export default {
           'INSERT INTO users (id, email, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)',
         ).bind(id, email, name, await sha256b64(secret), new Date().toISOString()).run();
         console.log(JSON.stringify({ event: 'register', email }));
-        return json({ userId: id, token: `${id}.${secret}` }, 201);
+        // The saved name comes back so clients show exactly what buddies see.
+        return json({ userId: id, token: `${id}.${secret}`, name }, 201);
       }
 
       // ---- internal endpoint: an ADDITIONAL token for an existing account.
@@ -215,6 +236,15 @@ export default {
         await env.DB.prepare('UPDATE users SET avatar = ? WHERE id = ?')
           .bind(avatar || null, me.id).run();
         return json({ ok: true });
+      }
+
+      if (route === 'PUT /v1/name') {
+        const body = await readBody(req);
+        const sn = screenName(body?.name);
+        if ('error' in sn) return err(400, sn.error);
+        await env.DB.prepare('UPDATE users SET name = ? WHERE id = ?').bind(sn.name, me.id).run();
+        console.log(JSON.stringify({ event: 'rename', email: me.email }));
+        return json({ ok: true, name: sn.name });
       }
 
       if (route === 'PUT /v1/schedule') {
@@ -368,7 +398,10 @@ export default {
         // hash of the payload; a matching If-None-Match gets a bodyless 304,
         // so a quiet list costs a D1 query and a few bytes, not every buddy
         // icon over again.
-        const body = JSON.stringify({ accepted, incoming, outgoing });
+        // `me` carries your own screen name as this service has it. Apps keep
+        // a local copy that can lag a rename from another device or a fix
+        // made here, so the Buddy List shows this one.
+        const body = JSON.stringify({ accepted, incoming, outgoing, me: { name: me.name } });
         const etag = `"${(await sha256b64(body)).slice(0, 22)}"`;
         // Weak comparison, as If-None-Match requires: an intermediary that
         // compresses the body (Cloudflare's edge, on the desktop's direct

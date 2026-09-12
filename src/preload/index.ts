@@ -67,6 +67,7 @@ const api: Api = {
     enroll: (name) => ipcRenderer.invoke('friends:enroll', name) as Promise<FriendsStatus>,
     signOut: () => ipcRenderer.invoke('friends:signOut') as Promise<void>,
     setAvatar: (avatar) => ipcRenderer.invoke('friends:setAvatar', avatar) as Promise<void>,
+    setName: (name) => ipcRenderer.invoke('friends:setName', name) as Promise<string>,
     list: () => ipcRenderer.invoke('friends:list') as Promise<FriendsList>,
     request: (email) => ipcRenderer.invoke('friends:request', email) as Promise<void>,
     respond: (email, accept) => ipcRenderer.invoke('friends:respond', email, accept) as Promise<void>,

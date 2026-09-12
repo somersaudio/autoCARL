@@ -74,6 +74,14 @@ export async function friendsSetAvatar(avatar: string): Promise<void> {
   await updateConfig({ friendsAvatar: avatar });
 }
 
+// Screen name: what buddies see beside your icon. The service normalises it
+// and refuses an email; its answer becomes the local copy.
+export async function friendsSetName(name: string): Promise<string> {
+  const r = await call<{ name: string }>('/v1/name', { method: 'PUT', body: { name } }, await authed());
+  await updateConfig({ friendsName: r.name });
+  return r.name;
+}
+
 // Sign out = leave: take the schedule down so friends stop seeing your
 // shows, drop the token, and remember it was deliberate so auto sign-on
 // stays off. The server account survives — signing back in with the same

@@ -22,7 +22,7 @@ import {
 import { sweepFlights } from './flight-fetcher';
 import {
   friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
-  friendsRemove, friendsSetAvatar, friendsSignOut, publishScheduleQuietly,
+  friendsRemove, friendsSetAvatar, friendsSetName, friendsSignOut, publishScheduleQuietly,
 } from './friends';
 import { createWeek, fetchIdentity, fetchWeek, pushWeek, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
@@ -559,6 +559,7 @@ function registerIpc(): void {
   ipcMain.handle('friends:enroll', (_e, name: string) => friendsEnroll(String(name ?? '')));
   ipcMain.handle('friends:signOut', () => friendsSignOut());
   ipcMain.handle('friends:setAvatar', (_e, avatar: string) => friendsSetAvatar(String(avatar ?? '')));
+  ipcMain.handle('friends:setName', (_e, name: string) => friendsSetName(String(name ?? '')));
   ipcMain.handle('friends:list', () => friendsList());
   ipcMain.handle('friends:request', (_e, email: string) => friendsRequest(String(email ?? '')));
   ipcMain.handle('friends:respond', (_e, email: string, accept: boolean) =>
