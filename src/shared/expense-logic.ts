@@ -47,6 +47,26 @@ export function matchBooking(date: string, bookings: Booking[]): string {
   return best?.bookingId || '';
 }
 
+// The gig an expense report is most likely for, as of `today` (ISO date):
+//  - the gig whose travel-inclusive dates include today; on a shared travel
+//    day, the one wrapping up (the Bookings tab's first card on that day);
+//  - between gigs, the one that most recently ended, since reports get
+//    filed after a gig wraps;
+//  - with nothing behind you, the next one coming up.
+// Confirmed gigs win over pending requests; requests only count when
+// they're all there is.
+export function currentGigFor(bookings: Booking[], today: string): Booking | null {
+  const isRequest = (b: Booking) => /\brequest/i.test(b.status || '');
+  const confirmed = bookings.filter((b) => !isRequest(b));
+  const pool = (confirmed.length > 0 ? confirmed : bookings)
+    .slice().sort((a, b) => a.startDate.localeCompare(b.startDate));
+  const now = pool.find((b) => b.startDate <= today && today <= b.endDate);
+  if (now) return now;
+  const ended = pool.filter((b) => b.endDate < today).sort((a, b) => b.endDate.localeCompare(a.endDate));
+  if (ended.length > 0) return ended[0];
+  return pool.find((b) => b.startDate > today) || null;
+}
+
 export function emptyRow(jobNumber: string, description: string): ExpenseRow {
   return {
     jobNumber, description,

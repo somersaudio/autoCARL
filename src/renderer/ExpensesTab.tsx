@@ -6,7 +6,7 @@ import { friendlyError } from '../shared/errors';
 import {
   COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
 } from '../shared/expense-form-layout';
-import { CAT_ORDER, PAYROLL_EMAIL } from '../shared/expense-logic';
+import { currentGigFor, CAT_ORDER, PAYROLL_EMAIL } from '../shared/expense-logic';
 import sheetPng from './assets/expense-sheet@2x.png';
 
 // The Expense Reports tab: drop receipts in, the app reads them (on-device
@@ -136,19 +136,14 @@ export default function ExpensesTab({ bookings }: Props) {
       .catch((e) => setError(friendlyError(e, !navigator.onLine)));
   }, []);
 
-  // Default the gig dropdown to the most recent gig holding receipts (falling
-  // back to the most recent gig). Runs until something is selected, then
-  // leaves the user's choice alone.
+  // Default the gig picker to the gig you're on today, by date (see
+  // currentGigFor). Runs until something is selected, then leaves the
+  // user's choice alone; opening the tab again starts from today's gig.
   useEffect(() => {
     if (selectedGig || !cache || !bookings.length) return;
-    // Default to the newest gig that has anything going — receipts or a
-    // saved report — else simply the newest gig.
-    const busy = new Set([
-      ...cache.receipts.map((r) => r.bookingId),
-      ...cache.reports.map((r) => draftGigId(r)),
-    ].filter(Boolean));
-    const sorted = bookings.slice().sort((a, b) => b.startDate.localeCompare(a.startDate));
-    const pick = sorted.find((b) => busy.has(b.bookingId)) || sorted[0];
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const pick = currentGigFor(bookings, today);
     if (pick) setSelectedGig(pick.bookingId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedGig, cache, bookings]);
