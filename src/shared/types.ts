@@ -233,7 +233,9 @@ export type FriendsList = {
   outgoing: Array<{ email: string; name: string }>;
   // Your own screen name as the friends service has it. It's the authority:
   // the local copy can lag a rename on another device or a server-side fix.
-  me?: { name: string };
+  // iconSoft: the icon buddies see (the service's copy) is one saved before
+  // icons kept their resolution, so the app offers to replace it.
+  me?: { name: string; iconSoft?: boolean };
 };
 export type FriendsStatus = {
   enrolled: boolean; email: string; name: string;

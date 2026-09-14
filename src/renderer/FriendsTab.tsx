@@ -33,6 +33,8 @@ let enrollAttemptedThisSession = false;
 // How often the open Buddy List re-checks the server. Cheap: an unchanged
 // list is a bodyless reply (ETag), so this is one small round trip.
 const FRIENDS_POLL_MS = 20_000;
+// Set on this device when the "saved at the old, smaller size" note is hidden.
+const ICON_SOFT_HIDDEN_KEY = 'autocarl.buddyIconSoftNoteHidden';
 
 type Pane = 'online' | 'setup' | 'customize' | 'screenname';
 
@@ -78,6 +80,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         appliedGen.current = gen;
         setList(l);
         if (l.me?.name) setMyName(l.me.name);
+        setIconSoft(!!l.me?.iconSoft);
         setError('');   // a list that just loaded is not "failed to load"
       })
       .catch((e) => { if (!quiet) setError(friendlyMsg(e)); });
@@ -88,6 +91,15 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [copiedEmail, setCopiedEmail] = useState(false);
   // Own buddy icon (local preview; the server copy is what friends see).
   const [myAvatar, setMyAvatar] = useState('');
+  // Whether the icon buddies see is one saved before icons kept their
+  // resolution: soft in Buddy Info, and only choosing the original picture
+  // again fixes it. The service checks its own copy, so every device agrees.
+  // The note can be hidden, since a picture that really is 96px, or one whose
+  // original is gone, can't be improved.
+  const [iconSoft, setIconSoft] = useState(false);
+  const [iconSoftHidden, setIconSoftHidden] = useState(() => {
+    try { return localStorage.getItem(ICON_SOFT_HIDDEN_KEY) === '1'; } catch { return false; }
+  });
   const avatarInputRef = useRef<HTMLInputElement>(null);
   // Screen Name tab: the draft being edited, and whether the last save landed.
   const [screenDraft, setScreenDraft] = useState('');
@@ -147,8 +159,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   };
 
   // Buddy icon intake: animated GIFs are stored as-is (re-encoding would
-  // freeze them) under a hard size cap; still images are cover-cropped to
-  // 96×96 so even a 12MP photo becomes a few KB.
+  // freeze them) under a hard size cap; still images are cropped square and
+  // kept sharp enough for Buddy Info (see stillIconDataUri).
   const onAvatarFile = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = '';
@@ -156,7 +168,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     void run(async () => {
       let dataUri: string;
       if (f.type === 'image/gif') {
-        if (f.size > 512 * 1024) throw new Error('That GIF is too big — keep it under 512KB so buddy lists stay quick.');
+        if (f.size > 200 * 1024) throw new Error('That GIF is too big — keep it under 200KB so buddy lists stay quick.');
         dataUri = await new Promise<string>((resolve, reject) => {
           const fr = new FileReader();
           fr.onload = () => resolve(String(fr.result));
@@ -166,15 +178,11 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
       } else if (f.type.startsWith('image/')) {
         const bmp = await createImageBitmap(f).catch(() => null);
         if (!bmp) throw new Error("Couldn't read that image — try a JPG, PNG, or GIF.");
-        const SIZE = 96;
-        const canvas = document.createElement('canvas');
-        canvas.width = SIZE; canvas.height = SIZE;
-        const ctx = canvas.getContext('2d');
-        if (!ctx) throw new Error("Couldn't read that image.");
-        const scale = Math.max(SIZE / bmp.width, SIZE / bmp.height);
-        const w = bmp.width * scale, h = bmp.height * scale;
-        ctx.drawImage(bmp, (SIZE - w) / 2, (SIZE - h) / 2, w, h);
-        dataUri = canvas.toDataURL('image/png');
+        try {
+          dataUri = stillIconDataUri(bmp);
+        } finally {
+          bmp.close();
+        }
       } else {
         throw new Error('Pick an image or GIF.');
       }
@@ -622,6 +630,21 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             </a>{' '}
             — save one you like, then Choose Icon.
           </div>
+          {iconSoft && !iconSoftHidden && (
+            <div className="aim-fineprint" style={{ margin: '4px 2px', color: '#7a4b00' }}>
+              Your icon was saved at the old, smaller size, so it looks soft when a
+              buddy opens your Buddy Info. Choose the original picture again to make
+              it sharp.{' '}
+              <button
+                type="button"
+                style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', color: '#003a9e', textDecoration: 'underline', cursor: 'pointer' }}
+                onClick={() => {
+                  setIconSoftHidden(true);
+                  try { localStorage.setItem(ICON_SOFT_HIDDEN_KEY, '1'); } catch { /* hidden for this session only */ }
+                }}
+              >Hide</button>
+            </div>
+          )}
           <div className="aim-avatar-row">
             <BuddyIcon src={myAvatar} name={myName} seed={acctEmail || myName} preview />
             <div className="aim-actions" style={{ flexDirection: 'column', alignItems: 'flex-start', gap: 6 }}>
@@ -776,6 +799,64 @@ function RunnerIcon({ size }: { size: number }) {
       style={{ height: size, width: 'auto', display: 'block' }}
     />
   );
+}
+
+// ---- buddy icon from a still image ----
+// Buddy Info shows an icon 96px across, and a phone paints each of those
+// pixels with two or three of its own, so an icon stored at 96px was
+// stretched up to three times over and looked soft. A still image is cropped
+// square and kept at up to 288px, never enlarged past what was uploaded.
+// A photo is saved as JPEG on white, which keeps a 288px photo to a few dozen
+// KB. A picture with see-through parts stays PNG, since on white it would
+// show a white square on a highlighted buddy row, and so does anything 128px
+// or smaller, tiny either way. Every buddy list carries every buddy's icon,
+// so an unusually heavy result steps down in quality, then in size.
+const ICON_MAX_SIDE = 288;
+const ICON_SMALL_SIDE = 128;
+const ICON_BUDGET = 150_000;   // characters of data URI
+
+function stillIconDataUri(bmp: ImageBitmap): string {
+  const draw = (side: number, white: boolean): HTMLCanvasElement => {
+    const canvas = document.createElement('canvas');
+    canvas.width = side; canvas.height = side;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new Error("Couldn't read that image.");
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    if (white) { ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, side, side); }
+    const scale = Math.max(side / bmp.width, side / bmp.height);
+    const w = bmp.width * scale, h = bmp.height * scale;
+    ctx.drawImage(bmp, (side - w) / 2, (side - h) / 2, w, h);
+    return canvas;
+  };
+  const side = Math.min(ICON_MAX_SIDE, bmp.width, bmp.height);
+  if (side <= ICON_SMALL_SIDE) return draw(side, false).toDataURL('image/png');
+  const sides = [side, 240, 192].filter((x, i, all) => x <= side && all.indexOf(x) === i);
+  const plain = draw(side, false);
+  if (hasSeeThrough(plain)) {
+    for (const s of sides) {
+      const png = (s === side ? plain : draw(s, false)).toDataURL('image/png');
+      if (png.length <= ICON_BUDGET) return png;
+    }
+    return draw(ICON_SMALL_SIDE, false).toDataURL('image/png');
+  }
+  let out = '';
+  for (const s of sides) {
+    const canvas = draw(s, true);
+    for (const quality of [0.9, 0.8, 0.7]) {
+      out = canvas.toDataURL('image/jpeg', quality);
+      if (out.length <= ICON_BUDGET) return out;
+    }
+  }
+  return out;
+}
+
+function hasSeeThrough(canvas: HTMLCanvasElement): boolean {
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return false;
+  const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 3; i < data.length; i += 4) if (data[i] < 255) return true;
+  return false;
 }
 
 // ---- default buddy icon ----

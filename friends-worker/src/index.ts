@@ -32,6 +32,27 @@ declare global {
 const MAX_GIGS = 50;
 const MAX_STR = 120;
 const MAX_BODY = 64 * 1024;
+// A buddy icon is the one big body. The apps keep a still picture under
+// 150,000 characters and a GIF under 200KB (about 270,000 characters as a
+// data URI); both run past the 64KB general limit.
+const MAX_AVATAR_BODY = 320 * 1024;
+const MAX_AVATAR_CHARS = 280_000;
+
+// Icons saved before the apps kept their resolution were all 96x96 PNGs. A
+// PNG's width and height sit at bytes 16-23, inside the first 32 base64
+// characters after the data URI prefix.
+function isLegacySmallIcon(head: string): boolean {
+  const prefix = 'data:image/png;base64,';
+  if (!head.startsWith(prefix)) return false;
+  try {
+    const bytes = Uint8Array.from(atob(head.slice(prefix.length, prefix.length + 32)), (c) => c.charCodeAt(0));
+    if (bytes.length < 24) return false;
+    const view = new DataView(bytes.buffer);
+    return view.getUint32(16) === 96 && view.getUint32(20) === 96;
+  } catch {
+    return false;
+  }
+}
 
 const json = (data: unknown, status = 200): Response =>
   new Response(JSON.stringify(data), {
@@ -127,9 +148,9 @@ function cleanGigs(v: unknown): Gig[] | null {
   return out;
 }
 
-async function readBody(req: Request): Promise<Record<string, unknown> | null> {
+async function readBody(req: Request, max = MAX_BODY): Promise<Record<string, unknown> | null> {
   const len = parseInt(req.headers.get('content-length') || '0', 10);
-  if (len > MAX_BODY) return null;
+  if (len > max) return null;
   try {
     const parsed: unknown = await req.json();
     return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
@@ -224,14 +245,22 @@ export default {
       }
 
       if (route === 'PUT /v1/avatar') {
-        const body = await readBody(req);
-        const avatar = typeof body?.avatar === 'string' ? body.avatar : '';
+        // A body that's unreadable or over the limit must not read as "no
+        // icon": that quietly deleted the icon whenever an upload ran past
+        // the general 64KB limit, which any modest GIF did.
+        const body = await readBody(req, MAX_AVATAR_BODY);
+        if (!body || typeof body.avatar !== 'string') {
+          return parseInt(req.headers.get('content-length') || '0', 10) > MAX_AVATAR_BODY
+            ? err(413, 'That image is too big — keep it under 200KB.')
+            : err(400, 'avatar must be a small image (GIF, PNG, JPEG, or WebP).');
+        }
+        const avatar = body.avatar;
         // A buddy icon, AIM-style: small data URI, animated GIFs welcome.
         if (avatar !== '' && !/^data:image\/(gif|png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(avatar)) {
           return err(400, 'avatar must be a small image (GIF, PNG, JPEG, or WebP).');
         }
-        if (avatar.length > 700_000) {
-          return err(413, 'That image is too big — keep it under 512KB.');
+        if (avatar.length > MAX_AVATAR_CHARS) {
+          return err(413, 'That image is too big — keep it under 200KB.');
         }
         await env.DB.prepare('UPDATE users SET avatar = ? WHERE id = ?')
           .bind(avatar || null, me.id).run();
@@ -366,43 +395,61 @@ export default {
           return out;
         };
 
+        // Icons are the heavy part of this reply, so these rows carry only a
+        // fingerprint of each: its length and last 48 characters, where two
+        // different images differ. The icons themselves are read further down,
+        // and only when the list has actually changed.
         const rows = await env.DB.prepare(
-          `SELECT u.email, u.name, u.avatar, f.status, f.requester_id = ?1 AS outgoing,
-                  s.gigs_json, s.updated_at
+          `SELECT u.id, u.email, u.name, length(u.avatar) AS avatar_len, substr(u.avatar, -48) AS avatar_tail,
+                  f.status, f.requester_id = ?1 AS outgoing, s.gigs_json, s.updated_at
            FROM friendships f
            JOIN users u ON u.id = CASE WHEN f.requester_id = ?1 THEN f.addressee_id ELSE f.requester_id END
            LEFT JOIN schedules s ON s.user_id = u.id
            WHERE f.requester_id = ?1 OR f.addressee_id = ?1`,
         ).bind(me.id).all<{
-          email: string; name: string; avatar: string | null; status: string; outgoing: number;
-          gigs_json: string | null; updated_at: string | null;
+          id: string; email: string; name: string; avatar_len: number | null; avatar_tail: string | null;
+          status: string; outgoing: number; gigs_json: string | null; updated_at: string | null;
         }>();
-        const accepted = [], incoming = [], outgoing = [];
+        const accepted: Array<{
+          email: string; name: string; avatar: string | null; gigs: Gig[]; updatedAt: string | null;
+        }> = [];
+        const iconOwners: string[] = [];              // accepted buddies' ids, in list order
+        const iconPrints: Array<string | null> = [];  // their icon fingerprints, same order
+        const incoming = [], outgoing = [];
         for (const r of rows.results) {
           if (r.status === 'accepted') {
             const theirs = r.gigs_json ? JSON.parse(r.gigs_json) as Gig[] : [];
             accepted.push({
               email: r.email, name: r.name,
-              avatar: r.avatar || null,
+              avatar: null,
               // Only shared shows cross the wire.
               gigs: sharedGigs(theirs),
               updatedAt: r.updated_at,
             });
+            iconOwners.push(r.id);
+            iconPrints.push(r.avatar_len ? `${r.avatar_len}:${r.avatar_tail}` : null);
           } else if (r.outgoing) {
             outgoing.push({ email: r.email, name: r.name });
           } else {
             incoming.push({ email: r.email, name: r.name });
           }
         }
-        // Clients poll this while the buddy list is on screen. The tag is a
-        // hash of the payload; a matching If-None-Match gets a bodyless 304,
-        // so a quiet list costs a D1 query and a few bytes, not every buddy
-        // icon over again.
         // `me` carries your own screen name as this service has it. Apps keep
         // a local copy that can lag a rename from another device or a fix
-        // made here, so the Buddy List shows this one.
-        const body = JSON.stringify({ accepted, incoming, outgoing, me: { name: me.name } });
-        const etag = `"${(await sha256b64(body)).slice(0, 22)}"`;
+        // made here, so the Buddy List shows this one. iconSoft says whether
+        // the icon buddies see is one saved before icons kept their
+        // resolution, judged from this copy so every device agrees.
+        const myIcon = await env.DB.prepare('SELECT substr(avatar, 1, 64) AS head FROM users WHERE id = ?1')
+          .bind(me.id).first<{ head: string | null }>();
+        const meOut = { name: me.name, iconSoft: isLegacySmallIcon(myIcon?.head || '') };
+        // Clients poll this while the buddy list is on screen. The tag is a
+        // hash of the payload with each icon replaced by its fingerprint; a
+        // matching If-None-Match gets a bodyless 304 before any icon is read,
+        // so a quiet list costs a few small D1 queries and a few bytes.
+        const etag = `"${(await sha256b64(JSON.stringify({
+          accepted: accepted.map((a, i) => ({ ...a, avatar: iconPrints[i] })),
+          incoming, outgoing, me: meOut,
+        }))).slice(0, 22)}"`;
         // Weak comparison, as If-None-Match requires: an intermediary that
         // compresses the body (Cloudflare's edge, on the desktop's direct
         // path) may hand the client W/"tag", and a list of tags is legal.
@@ -411,6 +458,18 @@ export default {
         if (offered.includes(etag)) {
           return new Response(null, { status: 304, headers: { etag } });
         }
+        // The list changed: now read the icons it carries. An icon changed
+        // between the two reads only means the next poll sees a new tag.
+        if (iconPrints.some(Boolean)) {
+          const icons = await env.DB.prepare(
+            `SELECT u.id, u.avatar FROM friendships f
+             JOIN users u ON u.id = CASE WHEN f.requester_id = ?1 THEN f.addressee_id ELSE f.requester_id END
+             WHERE (f.requester_id = ?1 OR f.addressee_id = ?1) AND f.status = 'accepted' AND u.avatar IS NOT NULL`,
+          ).bind(me.id).all<{ id: string; avatar: string }>();
+          const byId = new Map(icons.results.map((r) => [r.id, r.avatar]));
+          accepted.forEach((a, i) => { a.avatar = byId.get(iconOwners[i]) || null; });
+        }
+        const body = JSON.stringify({ accepted, incoming, outgoing, me: meOut });
         return new Response(body, { status: 200, headers: { 'content-type': 'application/json', etag } });
       }
 
