@@ -170,6 +170,16 @@ function overtimePay(day: SswDay, dayRate: number): number {
 // The saved timesheet entry for a date, if its week is cached and the day has
 // SSW-computed hours. Unsaved grid edits don't qualify — the reg/OT/DT split
 // comes from SSW's spreadsheet on save, and we won't guess it locally.
+// The Daily Rate SSW holds for the week containing `iso`, or 0 when the week
+// isn't cached or carries no rate. A week's rate can differ from base pay (it
+// is editable on the Timesheet tab, and a save keeps it), and it's what SSW
+// pays that week's hours at.
+function weekRateFor(iso: string, weeks: Record<string, SswWeek>): number {
+  const monday = addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
+  const rate = parseFloat(String(weeks[monday]?.dailyRate ?? '').replace(/[$,\s]/g, ''));
+  return Number.isFinite(rate) && rate > 0 ? rate : 0;
+}
+
 function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | null {
   const monday = addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
   const week = weeks[monday];
@@ -195,8 +205,9 @@ function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | 
  * old per-gig estimate: no base pay configured, no numbers shown).
  *
  * `weeks` is the cached SSW timesheet map: any day with saved hours is priced
- * from those hours (OT/DT included) instead of the standard 10-hour-day
- * assumption, and its per diem comes from the sheet rather than the GSA rate.
+ * from those hours (OT/DT included), at that week's own Daily Rate when SSW
+ * holds one, instead of the standard 10-hour-day assumption, and its per diem
+ * comes from the sheet rather than the GSA rate.
  */
 export function buildPaychecks(
   upcoming: Booking[],
@@ -234,8 +245,11 @@ export function buildPaychecks(
       gig.days += 1;
       const sheet = timesheetDayFor(day, weeks);
       if (sheet) {
-        gig.gross += hoursPay(sheet, rate);
-        gig.otPay += overtimePay(sheet, rate);
+        // Saved hours are paid at the rate on that week's timesheet; the gig
+        // override or base pay only stands in when the week carries none.
+        const sheetRate = weekRateFor(day, weeks) || rate;
+        gig.gross += hoursPay(sheet, sheetRate);
+        gig.otPay += overtimePay(sheet, sheetRate);
         gig.actualHours += sheet.regHours + sheet.otHours + sheet.dtHours;
         // A blank per-diem box on the timesheet means "not filled in", not
         // "none owed" — taking it literally quietly removes the day's per

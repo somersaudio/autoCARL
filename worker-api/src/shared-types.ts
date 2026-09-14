@@ -53,7 +53,12 @@ export type SswWeek = {
   projectManager: string;
   userId: string;
   employeeId: string;
-  dailyRate: string;        // iDailyRate verbatim (e.g. "525.00") — read-only in UI, preserved on save
+  // iDailyRate as SSW holds it (e.g. "650.00"). Editable at the bottom of the
+  // Timesheet tab; see saveDailyRate for which rate a save writes.
+  dailyRate: string;
+  // Set only when the user changed dailyRate on that device and hasn't saved
+  // yet. Never stored: a save or reload drops it.
+  dailyRateEdited?: boolean;
   // Routing flags also preserved verbatim:
   groupId: number;          // PrimaryTable.intGroupId — feeds SaveInformation.SetGroupId
   californiaCheck: boolean;

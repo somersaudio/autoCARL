@@ -389,8 +389,9 @@ function CreateWeekCard({ weekMonday, bookings, onCreated }: {
       <h3>No timesheet for this week yet</h3>
       <p className="subtle" style={{ marginTop: 0 }}>
         SSW doesn't have a record for the week of <b>{friendlyDate}</b>. Create one now —
-        we'll copy your identity info (name, email, position, rate, group) from your
-        most recent timesheet, and the app will autofill the days from your CARL bookings.
+        we'll copy your identity info (name, email, position, group) from your most recent
+        timesheet, start the Daily Rate at your base pay (or that timesheet's rate if base pay
+        isn't set), and the app will autofill the days from your CARL bookings.
       </p>
       {err && <div className="banner error" style={{ marginTop: 8 }}>{err}</div>}
       {weekHasBookings ? (

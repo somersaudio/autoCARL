@@ -438,13 +438,11 @@ function mkInput(ref: string, value: string): SswInput {
   return { Ref: ref, Value: [[{ Type: '', Value: value, Format: '', Text: '' }]] };
 }
 
-// The day rate to write onto the timesheet. The General tab's own daily-rate
-// field is gone — Earnings' base pay is the one rate now — so that is the
-// source, with the legacy field still honoured if an old config carries one.
-//
-// This matters beyond cosmetics: a new week copies its rate from the newest
-// existing record, so a week that lands on 0 hands 0 to every week after it.
-// Writing the configured rate breaks that chain.
+// The configured day rate: Earnings' base pay, with the legacy General field
+// still honoured if an old config carries one. A new week starts at it, and a
+// save uses it only for a week SSW holds at 0 or blank (see saveDailyRate):
+// a new week copies its rate from the newest record, so a 0 would otherwise
+// pass to every week after it.
 function configuredDayRate(cfg: { defaultDailyRate: number; basePayDayRate: number }): number {
   if (cfg.defaultDailyRate > 0) return cfg.defaultDailyRate;
   return cfg.basePayDayRate > 0 ? cfg.basePayDayRate : 0;
