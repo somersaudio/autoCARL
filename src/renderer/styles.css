@@ -2677,6 +2677,39 @@ a.featured-venue:hover .featured-venue-name {
 .aim-buddy-avatar.aim-icon-default { font-size: 16px; }
 .aim-avatar-preview.aim-icon-default { font-size: 40px; }
 
+/* Buddy Info pop-out: a big icon, the name, and what you share. */
+.aim-buddy-info { width: min(320px, calc(100vw - 32px)); }
+.aim-titlebar-text { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.aim-titlebar-close {
+  flex-shrink: 0;
+  width: 18px;
+  height: 16px;
+  padding: 0;
+  background: #d4d0c8;
+  border: 2px outset #f0ede6;
+  color: #000;
+  font: bold 12px/1 Tahoma, Geneva, Verdana, sans-serif;
+  cursor: pointer;
+}
+.aim-titlebar-close:active { border-style: inset; }
+.aim-buddy-info-head { display: flex; align-items: center; gap: 12px; padding: 14px 14px 10px; }
+.aim-buddy-info-who { min-width: 0; }
+.aim-avatar-profile {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #9a9a9a;
+  background: #fff;
+  flex-shrink: 0;
+}
+.aim-avatar-profile.aim-icon-default { font-size: 52px; }
+.aim-buddy-info-name { font-size: 16px; font-weight: bold; color: #000; overflow-wrap: anywhere; }
+.aim-buddy-info-away { margin-top: 4px; color: #555; font-size: 12px; font-style: italic; }
+.aim-buddy-info-gigs { margin: 0 14px 4px; max-height: 40vh; overflow-y: auto; }
+.aim-buddy-info-gigs .aim-profile-gig { font-size: 12px; padding: 2px 0; }
+.aim-buddy-info-gigs .aim-away { padding-left: 0; }
+
 /* Red logout — deliberately alarming, two-click armed. */
 .logout-btn {
   background: var(--danger);

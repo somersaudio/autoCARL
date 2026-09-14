@@ -46,7 +46,14 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  const [expandedBuddy, setExpandedBuddy] = useState<string | null>(null);
+  // The buddy whose Buddy Info window is open (by email), or null.
+  const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  useEffect(() => {
+    if (!profileEmail) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setProfileEmail(null); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [profileEmail]);
   // Pending removal awaiting confirmation. Removing is mutual and immediate
   // with no undo, so it gets a period-appropriate confirm dialog.
   const [confirmRemove, setConfirmRemove] = useState<
@@ -349,6 +356,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     return a.name.localeCompare(b.name);
   });
   const total = accepted.length;
+  const profileBuddy = profileEmail ? accepted.find((x) => x.email === profileEmail) ?? null : null;
   const incoming = list?.incoming ?? [];
   const outgoing = list?.outgoing ?? [];
 
@@ -356,13 +364,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
   const buddyRow = (f: FriendEntry, offlineStyle = false) => {
     const away = awayMessage(f, upcoming);
-    const expanded = expandedBuddy === f.email;
     return (
       <div key={f.email}>
         <div
           className={`aim-buddy${offlineStyle ? ' aim-offline' : ''}`}
-          onClick={() => setExpandedBuddy(expanded ? null : f.email)}
-          title={expanded ? undefined : 'Click for schedule'}
+          onClick={() => setProfileEmail(f.email)}
+          title="Click for Buddy Info"
         >
           <BuddyIcon src={f.avatar} name={f.name} seed={f.email} />
           <span className="aim-buddy-name">{f.name}</span>
@@ -376,28 +383,7 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             }}
           >×</button>
         </div>
-        {away && !expanded && <div className="aim-away">{away}</div>}
-        {expanded && (
-          <div className="aim-profile">
-            {f.gigs.length === 0 && (
-              <div className="aim-away">
-                {f.updatedAt
-                  ? 'No shows together right now. A gig shows here when you\u2019re on the same job, or in the same city on the same dates.'
-                  : 'No schedule shared yet.'}
-              </div>
-            )}
-            {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g, i) => {
-              const k = gigOverlapKind(g, upcoming);
-              const where = `${g.city}${g.state ? `, ${g.state}` : ''}`;
-              return (
-                <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}-${i}`}>
-                  {fmtRange(g.start, g.end)} · {g.jobName ? `${g.jobName} (${where})` : `in ${where}`}
-                  {k === 'gig' ? ' \u2014 with you' : k === 'near' ? ' \u2014 same city, same dates' : ''}
-                </div>
-              );
-            })}
-          </div>
-        )}
+        {away && <div className="aim-away">{away}</div>}
       </div>
     );
   };
@@ -658,6 +644,57 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         </div>
       )}
 
+      {profileBuddy && (() => {
+        const f = profileBuddy;
+        const away = awayMessage(f, upcoming);
+        const close = () => setProfileEmail(null);
+        return (
+          <div className="aim-modal-backdrop" onClick={close}>
+            <div
+              className="aim-window aim-dialog aim-buddy-info"
+              role="dialog"
+              aria-label={`Buddy Info: ${f.name}`}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="aim-titlebar">
+                <span className="aim-titlebar-icon"><RunnerIcon size={12} /></span>
+                <span className="aim-titlebar-text">Buddy Info: {f.name}</span>
+                <button className="aim-titlebar-close" aria-label="Close" onClick={close}>×</button>
+              </div>
+              <div className="aim-buddy-info-head">
+                <BuddyIcon src={f.avatar} name={f.name} seed={f.email} profile />
+                <div className="aim-buddy-info-who">
+                  <div className="aim-buddy-info-name">{f.name}</div>
+                  {away && <div className="aim-buddy-info-away">{away}</div>}
+                </div>
+              </div>
+              <div className="aim-profile aim-buddy-info-gigs">
+                {f.gigs.length === 0 && (
+                  <div className="aim-away">
+                    {f.updatedAt
+                      ? 'No shows together right now. A gig shows here when you’re on the same job, or in the same city on the same dates.'
+                      : 'No schedule shared yet.'}
+                  </div>
+                )}
+                {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g, i) => {
+                  const k = gigOverlapKind(g, upcoming);
+                  const where = `${g.city}${g.state ? `, ${g.state}` : ''}`;
+                  return (
+                    <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}-${i}`}>
+                      {fmtRange(g.start, g.end)} · {g.jobName ? `${g.jobName} (${where})` : `in ${where}`}
+                      {k === 'gig' ? ' — with you' : k === 'near' ? ' — same city, same dates' : ''}
+                    </div>
+                  );
+                })}
+              </div>
+              <div className="aim-dialog-actions">
+                <button className="aim-btn" onClick={close}>Close</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
       {confirmRemove && (
         <div className="aim-modal-backdrop" onClick={() => setConfirmRemove(null)}>
           <div className="aim-window aim-dialog" onClick={(e) => e.stopPropagation()}>
@@ -754,11 +791,12 @@ function iconColour(seed: string): string {
   return ICON_COLOURS[h % ICON_COLOURS.length];
 }
 
-function BuddyIcon({ src, name, seed, preview = false }: {
-  src?: string | null; name: string; seed: string; preview?: boolean;
+function BuddyIcon({ src, name, seed, preview = false, profile = false }: {
+  src?: string | null; name: string; seed: string; preview?: boolean; profile?: boolean;
 }) {
-  const cls = preview ? 'aim-avatar-preview' : 'aim-buddy-avatar';
-  if (src) return <img className={cls} src={src} alt={preview ? 'Your buddy icon' : ''} />;
+  const cls = profile ? 'aim-avatar-profile' : preview ? 'aim-avatar-preview' : 'aim-buddy-avatar';
+  const alt = preview ? 'Your buddy icon' : profile ? `${name}'s buddy icon` : '';
+  if (src) return <img className={cls} src={src} alt={alt} />;
   const letter = (name.match(/[A-Za-z0-9]/)?.[0] || seed.match(/[A-Za-z0-9]/)?.[0] || '?').toUpperCase();
   return (
     <span
