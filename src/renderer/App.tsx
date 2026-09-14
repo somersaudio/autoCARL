@@ -8,7 +8,7 @@ import BookingsList from './BookingsList';
 import TimesheetTab from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab from './FriendsTab';
-import { payDateOf } from '../shared/paychecks';
+import { estimatorKeepFrom, lastPayDateOf, timesheetDueDate } from '../shared/paychecks';
 import ExpensesTab from './ExpensesTab';
 import InstallBanner from './InstallBanner';
 import MatrixRain from './MatrixRain';
@@ -33,6 +33,12 @@ function mondayOfDate(d: Date): string {
   return `${out.getFullYear()}-${String(out.getMonth() + 1).padStart(2, '0')}-${String(out.getDate()).padStart(2, '0')}`;
 }
 
+// Today's local date as a key, for noticing that the day has changed.
+function localDayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 export default function App() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [tab, setTab] = useState<Tab>('bookings');
@@ -41,7 +47,7 @@ export default function App() {
     defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true,
     defaultDailyRate: 0, timesheetEmail: '', timesheetPhone: '', theme: 'constellation',
     basePayDayRate: 0, subtractTaxes: false, perDiemInTotal: true, otInTotal: false, homeAirport: '', retirementPct: 0,
-    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0, gigDayRates: {},
+    filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0, gigDayRates: {}, slippedWeeks: [],
   });
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [updateProgress, setUpdateProgress] = useState<UpdateProgress | null>(null);
@@ -165,6 +171,22 @@ export default function App() {
     setSettings(await window.api.settings.update({ gigDayRates: next }));
   };
 
+  // Mark a timesheet week as not paid on the check it's on, so the estimator
+  // moves its hours one check later, or step it back one check. slippedWeeks
+  // lists a week once per check it moved (see paychecks.ts). Read the stored
+  // list first, so two quick taps each count.
+  const setWeekSlipped = async (monday: string, slippedNow: boolean) => {
+    const stored = await window.api.settings.get();
+    const weeks = [...(stored.slippedWeeks || [])];
+    if (slippedNow) {
+      weeks.push(monday);
+    } else {
+      const at = weeks.indexOf(monday);
+      if (at >= 0) weeks.splice(at, 1);
+    }
+    setSettings(await window.api.settings.update({ slippedWeeks: weeks }));
+  };
+
   // Tapping Email or Phone at the bottom of the Timesheet tab sets the same
   // override as the Settings fields. Resolves with the stored settings so the
   // tab can confirm the change took.
@@ -186,6 +208,35 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.stage, sswSkipped, sswWeek]);
 
+  // The week loader below re-reads weeks cached as not turned in, but the
+  // estimator's flag switches on by date. Run it again when the day changes,
+  // and when the app comes back into view (at most every 30 minutes), so a
+  // week turned in on the SSW site stops being flagged without hammering SSW.
+  const [weekRefreshKey, setWeekRefreshKey] = useState(() => localDayKey());
+  useEffect(() => {
+    let day = localDayKey();
+    let lastRun = Date.now();
+    const maybeRun = (returning: boolean) => {
+      const today = localDayKey();
+      const now = Date.now();
+      if (today === day && !(returning && now - lastRun >= 30 * 60_000)) return;
+      day = today;
+      lastRun = now;
+      setWeekRefreshKey(`${today}#${now}`);
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') maybeRun(true); };
+    const onFocus = () => maybeRun(true);
+    const timer = window.setInterval(() => maybeRun(false), 10 * 60_000);
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onFocus);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onFocus);
+    };
+  }, []);
+  const slippedKey = (settings.slippedWeeks || []).join(',');
+
   // The estimator prices a day from saved timesheet hours when it has them,
   // but the app only ever LOADED the current week — so a gig that began in an
   // earlier week had those days priced at the flat day rate and any overtime
@@ -200,10 +251,15 @@ export default function App() {
     void (async () => {
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+      // The estimator's own rule for which gigs are still owed (moved weeks and
+      // the days a paid check stays up included), so every week it shows is
+      // one this loader keeps fresh.
+      const keepFrom = estimatorKeepFrom(todayIso);
+      const slippedWeeks = settings.slippedWeeks || [];
       const wanted = new Set<string>();
       for (const b of bookings) {
         const end = new Date(`${b.endDate}T00:00:00`);
-        if (payDateOf(b.endDate) < todayIso) continue;   // its last check has paid
+        if (lastPayDateOf(b, slippedWeeks) < keepFrom) continue;   // its last check has paid
         const last = end < today ? end : today;          // nothing logged past today
         const cursor = new Date(`${b.startDate}T00:00:00`);
         while (cursor <= last) {
@@ -213,8 +269,12 @@ export default function App() {
         wanted.add(mondayOfDate(last));
       }
       const cached = await window.api.ssw.getCachedWeeks().catch(() => ({} as Record<string, SswWeek>));
+      // A week cached as not turned in is read again once its Monday deadline
+      // has passed: it may have been submitted on the SSW site since, and the
+      // estimator flags a week that still isn't (see PaychecksCard).
+      const stale = (m: string) => cached[m]?.statusIndex === 0 && timesheetDueDate(m) < todayIso;
       // Cap the burst: each miss is a round trip to SSW.
-      const missing = Array.from(wanted).filter((m) => !cached[m]).sort().slice(0, 6);
+      const missing = Array.from(wanted).filter((m) => !cached[m] || stale(m)).sort().slice(0, 6);
       for (const monday of missing) {
         if (cancelled) return;
         await window.api.ssw.fetchWeek(monday).catch(() => null);
@@ -225,7 +285,7 @@ export default function App() {
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.stage, sswSkipped, bookings.length]);
+  }, [status?.stage, sswSkipped, bookings.length, slippedKey, weekRefreshKey]);
 
   // -------- ssw week --------
   // Paint cached data immediately (sub-ms read from disk) then kick off a
@@ -335,6 +395,7 @@ export default function App() {
           settings={settings}
           sswWeeks={sswWeeks}
           onSetDayRate={setGigDayRate}
+          onSetWeekSlipped={setWeekSlipped}
           onRefresh={refreshBookings}
           onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />

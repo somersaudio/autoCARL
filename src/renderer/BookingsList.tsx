@@ -4,7 +4,7 @@ import type {
   Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, HotelBooking,
   SswWeek, UserSettings,
 } from '../shared/types';
-import { buildPaychecks, payDateOf, money, type Paycheck } from '../shared/paychecks';
+import { buildPaychecks, estimatorKeepFrom, lastPayDateOf, money, timesheetDueDate, type Paycheck } from '../shared/paychecks';
 import { placeLabel } from '../shared/airports';
 import {
   matchLeg, findRebookNeeded,
@@ -21,6 +21,8 @@ type Props = {
   settings: UserSettings;
   sswWeeks: Record<string, SswWeek>;
   onSetDayRate: (bookingId: string, rate: number | null) => void;
+  // Mark a timesheet week as not paid on its check (or undo it).
+  onSetWeekSlipped: (monday: string, slipped: boolean) => void;
   onRefresh: () => void | Promise<void>;
   onResetSetup: () => void;
 };
@@ -384,7 +386,7 @@ function TravelRibbon({ travel }: { travel: TravelInfo }) {
 }
 
 export default function BookingsList({
-  bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, onSetDayRate, onRefresh, onResetSetup,
+  bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, onSetDayRate, onSetWeekSlipped, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
   // Which upcoming gig shows as the full-view card. null = the default (first
@@ -432,12 +434,16 @@ export default function BookingsList({
   // A gig stays in the estimate until the check for its last day has paid.
   // Klaviyo wrapped 9/11, but its 9/7-9/11 days land on the 9/25 check;
   // estimating from upcoming gigs only took those days, and their overtime,
-  // off a check that hadn't paid yet the moment the gig ended. Checks whose
-  // payday has already come drop off instead. A request that ended without
-  // being accepted was never work, so it doesn't linger.
+  // off a check that hadn't paid yet the moment the gig ended. A check stays
+  // a few days past its payday (PAID_CHECK_GRACE_DAYS), so a deposit that came
+  // up short can still be matched and a week marked not paid, and a week moved
+  // to the next check keeps its gig owed until that one pays. A request that
+  // ended without being accepted was never work, so it doesn't linger.
   const todayIso = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  const keepFrom = estimatorKeepFrom(todayIso);
+  const slippedWeeks = settings.slippedWeeks || [];
   const onUnpaidChecks = bookings
-    .filter((b) => payDateOf(b.endDate) >= todayIso)
+    .filter((b) => lastPayDateOf(b, slippedWeeks) >= keepFrom)
     .filter((b) => !isRequest(b) || b.endDate >= todayIso)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const confirmedOnly = onUnpaidChecks.filter((b) => !isRequest(b));
@@ -445,12 +451,14 @@ export default function BookingsList({
   const planAll = confirmedOnly.length === onUnpaidChecks.length
     ? plan
     : buildPaychecks(onUnpaidChecks, contacts, settings, sswWeeks);
-  const estimatorRows: EstimatorRow[] = planAll.checks.filter((c) => c.payDate >= todayIso).map((all) => {
+  const estimatorRows: EstimatorRow[] = planAll.checks.filter((c) => c.payDate >= keepFrom).flatMap((all): EstimatorRow[] => {
     const base = plan.checks.find((c) => c.periodStart === all.periodStart);
-    const extra = Math.round((all.net + all.perDiem) - (base ? base.net + base.perDiem : 0));
-    if (!base) return { ...all, requestOnly: true, requestExtra: extra };
-    if (extra <= 0) return base;
-    return { ...base, gigs: all.gigs, requestExtra: extra };
+    // A check that has already paid can't gain a request's money.
+    const paid = all.payDate < todayIso;
+    if (!base) return paid ? [] : [{ ...all, requestOnly: true, requestExtra: Math.round(all.net + all.perDiem) }];
+    const extra = Math.round((all.net + all.perDiem) - (base.net + base.perDiem));
+    if (paid || extra <= 0) return [base];
+    return [{ ...base, gigs: all.gigs, requestExtra: extra }];
   });
 
   return (
@@ -533,7 +541,7 @@ export default function BookingsList({
       })()}
 
       {estimatorRows.length > 0 && (
-        <PaychecksCard checks={estimatorRows} settings={settings} bookings={bookings} onSetDayRate={onSetDayRate} />
+        <PaychecksCard checks={estimatorRows} settings={settings} bookings={bookings} sswWeeks={sswWeeks} todayIso={todayIso} keepFrom={keepFrom} onSetDayRate={onSetDayRate} onSetWeekSlipped={onSetWeekSlipped} />
       )}
 
       {past.length > 0 && (
@@ -1020,6 +1028,13 @@ function fmtPayDate(iso: string): string {
   return `${MONTHS[m - 1]} ${d}`;
 }
 
+// "2026-09-25" moved n days, as an ISO date.
+function shiftIsoDays(iso: string, n: number): string {
+  const d = parseISOLocal(iso);
+  d.setDate(d.getDate() + n);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 // Upcoming bi-weekly checks: which gigs land on each, and what should hit
 // the bank. Withholding is per check — heavy checks carry a higher rate,
 // exactly as payroll computes them. This card is also where day rates are
@@ -1030,11 +1045,16 @@ function fmtPayDate(iso: string): string {
 // made up entirely of requests (no confirmed money to headline).
 type EstimatorRow = Paycheck & { requestExtra?: number; requestOnly?: boolean };
 
-function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
+function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFrom, onSetDayRate, onSetWeekSlipped }: {
   checks: EstimatorRow[];
   settings: UserSettings;
   bookings: Booking[];
+  sswWeeks: Record<string, SswWeek>;
+  todayIso: string;
+  keepFrom: string;         // the earliest payday still on the estimator
+
   onSetDayRate: (bookingId: string, rate: number | null) => void;
+  onSetWeekSlipped: (monday: string, slipped: boolean) => void;
 }) {
   // The editor is a modal, not an inline input: the old inline box's
   // blur-commit swallowed the tap that tried to open a second gig's editor
@@ -1042,6 +1062,13 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
   // the "bounce"). A modal has no blur minefield and works on phones.
   const [edit, setEdit] = useState<{ bookingId: string; jobName: string; jobNumber: string } | null>(null);
   const [draft, setDraft] = useState('');
+  // The check whose "Not all paid?" chooser is open.
+  const [slipCheck, setSlipCheck] = useState<EstimatorRow | null>(null);
+  // A week SSW still holds as not turned in after its Monday deadline may miss
+  // its check. It's only flagged: whether payroll pays it anyway varies, so the
+  // totals stay put until the week is marked not paid.
+  const notTurnedIn = (monday: string) =>
+    sswWeeks[monday]?.statusIndex === 0 && timesheetDueDate(monday) < todayIso;
 
   // Jobs with an override on ANY of their bookings — the underline marks
   // every appearance of the job, on every paycheck.
@@ -1081,6 +1108,7 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
             <div className="paycheck-line1">
               <span className="paycheck-date">{fmtPayDate(c.payDate)}</span>
               <span className="subtle">{fmtPayDate(c.periodStart)} – {fmtPayDate(c.periodEnd)}</span>
+              {c.payDate < todayIso && <span className="paycheck-paid">Paid</span>}
             </div>
             <div className="paycheck-gigs subtle">
               {c.gigs.map((g, i) => (
@@ -1099,6 +1127,35 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
                 </span>
               ))}
             </div>
+            {!c.requestOnly && c.weeks.filter((w) => notTurnedIn(w.monday)).map((w) => (
+              <div className="paycheck-late" key={`late-${w.monday}`}>
+                {c.payDate < todayIso
+                  ? `Week of ${fmtPayDate(w.monday)}: timesheet wasn't turned in by Mon ${fmtPayDate(timesheetDueDate(w.monday))}. If this deposit came up short, use Not all paid?`
+                  : `Week of ${fmtPayDate(w.monday)}: timesheet isn't turned in yet (due Mon ${fmtPayDate(timesheetDueDate(w.monday))}), so it may miss this check`}
+              </div>
+            ))}
+            {/* A week moved here because it wasn't paid on its own check. */}
+            {c.weeks.filter((w) => w.movedFrom).map((w) => (
+              <div className="paycheck-slip" key={`moved-${w.monday}`}>
+                Week of {fmtPayDate(w.monday)} moved here from the {fmtPayDate(w.movedFrom as string)} check
+                {' · '}
+                <button
+                  className="link"
+                  onClick={() => {
+                    // Stepping back onto a check that has left the estimator
+                    // takes the week's pay off it entirely, so ask first.
+                    const from = w.movedFrom as string;
+                    if (from < keepFrom && !window.confirm(`Count the week of ${fmtPayDate(w.monday)} as paid on the ${fmtPayDate(from)} check? It will drop off the estimate.`)) return;
+                    onSetWeekSlipped(w.monday, false);
+                  }}
+                >Undo</button>
+              </div>
+            ))}
+            {!c.requestOnly && c.weeks.length > 0 && (
+              <button className="link paycheck-notpaid" onClick={() => setSlipCheck(c)}>
+                Not all paid?
+              </button>
+            )}
           </div>
           {/* The headline figure is the whole deposit — wages net of
               withholding PLUS per diem, matching the bank statement. With
@@ -1153,6 +1210,42 @@ function PaychecksCard({ checks, settings, bookings, onSetDayRate }: {
         </div>
         );
       })}
+
+      {slipCheck && (() => {
+        const nextPay = shiftIsoDays(slipCheck.payDate, 14);
+        return (
+          <div className="modal-backdrop" onClick={() => setSlipCheck(null)}>
+            <div className="modal-card" style={{ width: 'min(420px, calc(100vw - 32px))' }} onClick={(e) => e.stopPropagation()}>
+              <div className="row-between">
+                <h2 style={{ margin: 0, fontSize: 16 }}>Which week wasn't paid on the {fmtPayDate(slipCheck.payDate)} check?</h2>
+                <button className="link" onClick={() => setSlipCheck(null)}>✕</button>
+              </div>
+              <p className="subtle" style={{ fontSize: 12, margin: '8px 0 6px' }}>
+                A timesheet turned in after its Monday can miss its check. Moving a week puts its
+                hours, overtime and per diem on the {fmtPayDate(nextPay)} check instead.
+              </p>
+              {slipCheck.weeks.map((w) => {
+                const share = (slipCheck.gross > 0 ? slipCheck.net * (w.gross / slipCheck.gross) : 0) + w.perDiem;
+                return (
+                  <div className="slip-week" key={w.monday}>
+                    <div>
+                      <div className="slip-week-dates">Week of {fmtPayDate(w.monday)} – {fmtPayDate(shiftIsoDays(w.monday, 6))}</div>
+                      <div className="subtle slip-week-detail">
+                        {w.days} day{w.days === 1 ? '' : 's'} · about {money(share)}
+                        {w.movedFrom && <> · moved from {fmtPayDate(w.movedFrom)}</>}
+                        {notTurnedIn(w.monday) && <span className="slip-week-late"> · not turned in yet</span>}
+                      </div>
+                    </div>
+                    <button className="secondary" onClick={() => { onSetWeekSlipped(w.monday, true); setSlipCheck(null); }}>
+                      Move to {fmtPayDate(nextPay)}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {edit && (
         <div className="modal-backdrop" onClick={() => setEdit(null)}>

@@ -33,6 +33,14 @@ export const PAY_LAG_DAYS = 5;
 const PERIOD_DAYS = 14;
 const CHECKS_PER_YEAR = 26;
 
+// A timesheet turned in after its Monday can miss its check, and payroll pays
+// that week on the next one, two weeks later. Whether it does varies, so the
+// estimator never guesses: the user marks a week "not paid on this check"
+// (UserSettings.slippedWeeks, by the week's Monday) and its days are priced
+// onto the following check. A check that has just paid stays on screen this
+// many days, long enough to compare it with the deposit and mark a week.
+export const PAID_CHECK_GRACE_DAYS = 4;
+
 export type GigOnCheck = {
   bookingId: string;
   jobName: string;
@@ -49,6 +57,18 @@ export type GigOnCheck = {
   // Days whose pay came from saved timesheet hours rather than the standard
   // 10-hour-day assumption.
   actualDays: number;
+};
+
+// One timesheet week's share of a check. Weeks run Monday to Sunday and pay
+// periods are two of them, so a week is always wholly on one check.
+export type WeekOnCheck = {
+  monday: string;              // ISO Monday of the timesheet week
+  days: number;                // gig days from this week on this check
+  gross: number;
+  perDiem: number;
+  // The payday of the check it moved from (the one before), when the week has
+  // been moved onto this check.
+  movedFrom: string | null;
 };
 
 export type Paycheck = {
@@ -69,6 +89,7 @@ export type Paycheck = {
   actualHours: number;   // hours read off saved timesheets for this check
   withholdingRate: number; // taxes / gross — varies per check, by design
   actualDays: number;    // days priced from saved timesheet hours
+  weeks: WeekOnCheck[];  // the timesheet weeks on this check, oldest first
 };
 
 // A gig's totals across every check it appears on, for the booking cards.
@@ -124,6 +145,66 @@ function periodStartOf(index: number): string {
 // payday for its LAST day has come.
 export function payDateOf(iso: string): string {
   return addDays(periodStartOf(periodIndex(iso)), PERIOD_DAYS - 1 + PAY_LAG_DAYS);
+}
+
+export function mondayOf(iso: string): string {
+  return addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
+}
+
+// A timesheet week is due the Monday after its Sunday.
+export function timesheetDueDate(monday: string): string {
+  return addDays(monday, 7);
+}
+
+// How many checks a timesheet week has moved: slippedWeeks lists a week's
+// Monday once for each check it missed.
+export function slipCount(slippedWeeks: readonly string[], monday: string): number {
+  let n = 0;
+  for (const m of slippedWeeks) if (m === monday) n++;
+  return n;
+}
+
+// The payday a worked day is expected on, once any moves of its week count.
+export function expectedPayDateOf(iso: string, slippedWeeks: readonly string[] = []): string {
+  return addDays(payDateOf(iso), slipCount(slippedWeeks, mondayOf(iso)) * PERIOD_DAYS);
+}
+
+// The earliest payday the estimator still shows. A check stays on screen
+// PAID_CHECK_GRACE_DAYS past its payday, and a gig is owed while any of its
+// days pays on or after this date. The estimator and the week loader share it.
+export function estimatorKeepFrom(todayIso: string): string {
+  return addDays(todayIso, -PAID_CHECK_GRACE_DAYS);
+}
+
+// A booking is owed until its latest expected payday. That's usually its last
+// day's, but a moved week earlier in the booking can pay later than that.
+export function lastPayDateOf(b: { startDate: string; endDate: string }, slippedWeeks: readonly string[] = []): string {
+  let last = payDateOf(b.endDate);
+  if (slippedWeeks.length === 0) return last;
+  const total = daysBetween(b.startDate, b.endDate) + 1;
+  for (let i = 0; i < total && i < 400; i++) {
+    const d = expectedPayDateOf(addDays(b.startDate, i), slippedWeeks);
+    if (d > last) last = d;
+  }
+  return last;
+}
+
+// What slippedWeeks may hold: real Mondays as ISO dates, each listed once per
+// check it moved (at most MAX_SLIPS_PER_WEEK), the newest 60 entries (a week
+// moved longer ago than that has long since paid).
+export const MAX_SLIPS_PER_WEEK = 4;
+export function cleanSlippedWeeks(v: unknown): string[] | null {
+  if (!Array.isArray(v)) return null;
+  const counts = new Map<string, number>();
+  for (const x of v) {
+    if (typeof x !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(x)) continue;
+    const d = parseISOLocal(x);
+    if (Number.isNaN(d.getTime()) || d.getDay() !== 1 || toISO(d) !== x) continue;
+    counts.set(x, Math.min(MAX_SLIPS_PER_WEEK, (counts.get(x) || 0) + 1));
+  }
+  const out: string[] = [];
+  for (const [monday, n] of counts) for (let i = 0; i < n; i++) out.push(monday);
+  return out.sort().slice(-60);
 }
 
 function pct(value: number): number {
@@ -220,8 +301,12 @@ export function buildPaychecks(
   const retirementRate = pct(settings.retirementPct);
 
   // ---- bucket every gig day into its period ----
+  // A week marked as not paid on its check lands on the next one, and one more
+  // check later for each further check it missed.
+  const slippedWeeks = settings.slippedWeeks || [];
   type Bucket = Map<string, GigOnCheck>;           // bookingId -> partial gig
   const periods = new Map<number, Bucket>();
+  const periodWeeks = new Map<number, Map<string, WeekOnCheck>>();
   for (const b of upcoming) {
     const rate = settings.gigDayRates?.[b.bookingId] || baseRate;
     if (rate <= 0) continue;
@@ -231,7 +316,9 @@ export function buildPaychecks(
     if (total <= 0) continue;
     for (let i = 0; i < total; i++) {
       const day = addDays(b.startDate, i);
-      const idx = periodIndex(day);
+      const monday = mondayOf(day);
+      const home = periodIndex(day);
+      const idx = home + slipCount(slippedWeeks, monday);
       let bucket = periods.get(idx);
       if (!bucket) { bucket = new Map(); periods.set(idx, bucket); }
       let gig = bucket.get(b.bookingId);
@@ -243,6 +330,20 @@ export function buildPaychecks(
         bucket.set(b.bookingId, gig);
       }
       gig.days += 1;
+      let weekBucket = periodWeeks.get(idx);
+      if (!weekBucket) { weekBucket = new Map(); periodWeeks.set(idx, weekBucket); }
+      let week = weekBucket.get(monday);
+      if (!week) {
+        week = {
+          monday, days: 0, gross: 0, perDiem: 0,
+          // The check before this one, so Undo steps back one check at a time.
+          movedFrom: idx !== home ? addDays(periodStartOf(idx - 1), PERIOD_DAYS - 1 + PAY_LAG_DAYS) : null,
+        };
+        weekBucket.set(monday, week);
+      }
+      week.days += 1;
+      const grossBefore = gig.gross;
+      const perDiemBefore = gig.perDiem;
       const sheet = timesheetDayFor(day, weeks);
       if (sheet) {
         // Saved hours are paid at the rate on that week's timesheet; the gig
@@ -261,6 +362,8 @@ export function buildPaychecks(
         gig.gross += rate;
         gig.perDiem += perDiemRate;
       }
+      week.gross += gig.gross - grossBefore;
+      week.perDiem += gig.perDiem - perDiemBefore;
     }
   }
 
@@ -294,6 +397,7 @@ export function buildPaychecks(
       net, perDiem, otPay, actualHours,
       withholdingRate: gross > 0 ? taxes / gross : 0,
       actualDays: gigs.reduce((s2, g) => s2 + g.actualDays, 0),
+      weeks: Array.from(periodWeeks.get(idx)?.values() || []).sort((a, b) => a.monday.localeCompare(b.monday)),
     };
     checks.push(check);
 

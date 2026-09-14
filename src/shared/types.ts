@@ -63,6 +63,9 @@ export type UserSettings = {
   // other than your usual rate gets an entry here; everything else falls back
   // to basePayDayRate. Absent key = no override.
   gigDayRates: Record<string, number>;
+  // Mondays (ISO) of timesheet weeks marked "not paid on this check": the
+  // paycheck estimator prices them onto the next check (see paychecks.ts).
+  slippedWeeks: string[];
 };
 
 // Two-stage onboarding: CARL first (gives us the iCal URL + read path),

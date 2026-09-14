@@ -37,6 +37,7 @@ import type {
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
 import { cleanAirportCode } from '../shared/airports';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
+import { cleanSlippedWeeks } from '../shared/paychecks';
 import { friendlyError } from '../shared/errors';
 
 const isDev = !app.isPackaged;
@@ -438,6 +439,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     spouseAnnualWages: cfg.spouseAnnualWages,
     stateTaxRatePct: cfg.stateTaxRatePct,
     gigDayRates: cfg.gigDayRates,
+    slippedWeeks: cfg.slippedWeeks,
   };
 }
 
@@ -653,6 +655,8 @@ function registerIpc(): void {
       }
       allowed.gigDayRates = clean;
     }
+    const slippedWeeks = cleanSlippedWeeks(patch?.slippedWeeks);
+    if (slippedWeeks) allowed.slippedWeeks = slippedWeeks;
     return toUserSettings(await updateConfig(allowed));
   });
 
@@ -680,6 +684,8 @@ function registerIpc(): void {
           friendsToken: '', friendsName: '', friendsAvatar: '',
           identityName: '', identityUserId: '',
           timesheetEmail: '', timesheetPhone: '',
+          // Weeks marked not paid are the last person's pay, keyed only by date.
+          slippedWeeks: [],
         });
       }
       await saveCarlPassword(cleanEmail, password);

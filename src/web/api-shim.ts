@@ -23,6 +23,7 @@ import {
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
 import { cleanAirportCode } from '../shared/airports';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
+import { cleanSlippedWeeks } from '../shared/paychecks';
 import { parseItinerary } from '../shared/flight-itinerary';
 import { withSplit } from '../shared/hours';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
@@ -82,6 +83,15 @@ function dropFriendsIfEmailChanged(newEmail: string): void {
     lsRemove(K.identity);           // their name/ID, not yours
     lsRemove(K.sswWeeks);           // their timesheets, not yours
     forgetTimesheetContact();       // your phone and email, not theirs
+    forgetSlippedWeeks();           // your pay corrections, not theirs
+  }
+}
+
+// Weeks marked not paid are one person's pay corrections, keyed only by date.
+function forgetSlippedWeeks(): void {
+  const stored = readJson<Partial<UserSettings>>(K.settings, {});
+  if (stored.slippedWeeks && stored.slippedWeeks.length > 0) {
+    writeJson(K.settings, { ...stored, slippedWeeks: [] });
   }
 }
 
@@ -294,6 +304,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   spouseAnnualWages: 0,
   stateTaxRatePct: 0,
   gigDayRates: {},
+  slippedWeeks: [],
 };
 
 function getSettings(): UserSettings {
@@ -357,6 +368,8 @@ function applySettingsPatch(patch: Partial<UserSettings>): UserSettings {
     }
     allowed.gigDayRates = clean;
   }
+  const slippedWeeks = cleanSlippedWeeks(patch?.slippedWeeks);
+  if (slippedWeeks) allowed.slippedWeeks = slippedWeeks;
   const next = { ...getSettings(), ...allowed };
   writeJson(K.settings, next);
   return next;

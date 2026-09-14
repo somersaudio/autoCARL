@@ -84,6 +84,7 @@ type Config = {
   spouseAnnualWages: number;   // spouse's expected wages; married-filing-jointly only
   stateTaxRatePct: number;   // flat state income tax rate; 0 = none
   gigDayRates: Record<string, number>;  // per-booking day-rate overrides, by bookingId
+  slippedWeeks: string[];  // Mondays of timesheet weeks marked not paid on their check
   // Friends service (see main/friends.ts). The token is a bearer credential —
   // deliberately NOT exposed through UserSettings to the renderer.
   friendsToken: string;
@@ -125,6 +126,7 @@ const DEFAULT_CONFIG: Config = {
   spouseAnnualWages: 0,
   stateTaxRatePct: 0,
   gigDayRates: {},
+  slippedWeeks: [],
   friendsToken: '',
   friendsName: '',
   identityName: '',
