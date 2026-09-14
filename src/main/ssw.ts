@@ -504,15 +504,13 @@ function hourlyFromDaily(dailyRateStr: string): string {
   return `$ ${(daily / 11).toFixed(2)}`;
 }
 
-// The day rate a save writes onto the timesheet. The week's own rate is what
-// the user sees, and can edit, at the bottom of the Timesheet tab, and SSW is
-// the only store every device shares, so:
-//  1. a rate just edited on this week (dailyRateEdited) wins;
-//  2. otherwise the rate SSW already holds for this week stays, so an edit
-//     made on one device isn't reset by a later save from another;
-//  3. a week SSW holds at 0 or blank gets the configured base pay, because a
-//     new week copies its rate from the newest record and a 0 would pass to
-//     every week after it.
+// The day rate a save writes onto the timesheet:
+//  1. a rate the user just edited on this week (dailyRateEdited) wins;
+//  2. otherwise the configured rate, so a rate SSW merely copied into a new
+//     week (SSW's own Add, and desktop builds through v0.9.38, copy the newest
+//     record's rate) can never stick: a week set to $715 must not become the
+//     rate of every week created after it;
+//  3. with no configured rate, whatever SSW holds, and blank rather than 0.
 // Mirrored in worker-api/src/ssw.ts and src/main/ssw.ts; keep them identical.
 export function saveDailyRate(
   week: { dailyRate?: string; dailyRateEdited?: boolean },
@@ -521,9 +519,9 @@ export function saveDailyRate(
 ): string {
   const edited = parseFloat(String(week.dailyRate ?? '').replace(/[$,\s]/g, ''));
   if (week.dailyRateEdited && Number.isFinite(edited) && edited > 0) return edited.toFixed(2);
+  if (configured > 0) return configured.toFixed(2);
   const stored = parseFloat(String(storedRaw ?? '').replace(/[$,\s]/g, ''));
-  if (Number.isFinite(stored) && stored > 0) return stored.toFixed(2);
-  return configured > 0 ? configured.toFixed(2) : String(storedRaw || '');
+  return Number.isFinite(stored) && stored > 0 ? stored.toFixed(2) : String(storedRaw || '');
 }
 
 // `emailForSave` is the address that lands in SSW's own record: the user's
