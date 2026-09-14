@@ -1791,6 +1791,7 @@ a.featured-venue:hover .featured-venue-name {
 }
 
 .exp-drop-title { font-size: 16px; font-weight: 600; margin-bottom: 10px; }
+.exp-saved-hint { margin-top: 4px; font-size: 12px; opacity: 0.8; }
 
 .exp-hint { font-size: 12px; margin-bottom: 10px; }
 

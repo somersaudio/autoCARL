@@ -611,7 +611,10 @@ export default function ExpensesTab({ bookings }: Props) {
           {busy ? 'Reading receipts…' : IS_WEB ? 'Add receipts' : 'Drop receipts here'}
         </div>
         {IS_WEB ? (
-          <div className="exp-hint">Take a photo, or choose a photo or PDF</div>
+          <>
+            <div className="exp-hint">Take a photo, or choose a photo or PDF</div>
+            <div className="exp-hint exp-saved-hint">(Your Receipts stay saved here)</div>
+          </>
         ) : (
           <button className="secondary" onClick={browse} disabled={busy}>Browse…</button>
         )}
