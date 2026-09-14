@@ -275,6 +275,43 @@ async function getRecordExtended(t: Transport, s: SswSession, recordId: string):
   return inner;
 }
 
+// ----- phone and email fallback ------------------------------------------
+//
+// A new week copies phone and email from the newest record, so once one week
+// lands blank (the week of 8/17 did) every week after it inherits the blanks,
+// and every save writes them back. When a week's own phone or email is blank,
+// take each from the user's records, newest first. The walk takes an injected
+// loader so it can be tested without SSW.
+// Mirrored in worker-api/src/ssw.ts and src/main/ssw.ts; keep them identical.
+export const CONTACT_LOOKBACK = 12;
+export async function findContact(
+  recordIds: string[],
+  loadContact: (recordId: string) => Promise<{ phone: string; email: string }>,
+  need: { phone: boolean; email: boolean },
+): Promise<{ phone: string; email: string }> {
+  const out = { phone: '', email: '' };
+  for (const id of recordIds.slice(0, CONTACT_LOOKBACK)) {
+    if ((!need.phone || out.phone) && (!need.email || out.email)) break;
+    const c = await loadContact(id);
+    if (need.phone && !out.phone && c.phone.trim()) out.phone = c.phone.trim();
+    if (need.email && !out.email && c.email.trim()) out.email = c.email.trim();
+  }
+  return out;
+}
+
+export async function recoverContact(
+  t: Transport, s: SswSession, need: { phone: boolean; email: boolean },
+): Promise<{ phone: string; email: string }> {
+  if (!need.phone && !need.email) return { phone: '', email: '' };
+  const ids = (await fetchGridRows(t, s))
+    .filter((row): row is unknown[] => Array.isArray(row) && row.length > 0)
+    .map((row) => String(row[row.length - 1]));
+  return findContact(ids, async (id) => {
+    const pt = (await getRecordExtended(t, s, id)).PrimaryTable;
+    return { phone: String(pt.iPhone || ''), email: String(pt.iEmail || '') };
+  }, need);
+}
+
 export async function fetchWeek(t: Transport, s: SswSession, weekStartDate: string): Promise<SswWeek | null> {
   const recordId = await findRecordIdForWeek(t, s, weekStartDate);
   if (!recordId) return null;
@@ -584,6 +621,15 @@ export async function createWeek(t: Transport, s: SswSession, weekStartDate: str
 
   // 3. POST Calculate with Save:true and no RecordId — SSW inserts a new row
   //    and returns the new RecordId in oRecordId.
+  // A template with a blank phone or email would pass the blanks on to this
+  // week; fill them from the newest record that has them.
+  const needPhone = !draft.phone.trim();
+  const needEmail = !(cfg.timesheetEmail || draft.email).trim();
+  if (needPhone || needEmail) {
+    const found = await recoverContact(t, s, { phone: needPhone, email: needEmail });
+    draft.phone = draft.phone.trim() || found.phone;
+    draft.email = draft.email.trim() || found.email;
+  }
   const Inputs = buildInputs(draft, dailyRate, {}, cfg.timesheetEmail || draft.email);
   const body = {
     request: {
@@ -645,7 +691,15 @@ export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: 
     // stored iEmail, anything else replaces it. The day rate follows
     // saveDailyRate: an edit on this week, else the week's configured rate (its
     // show's own rate or base pay), else what SSW holds.
-    const emailForSave = cfg.timesheetEmail || week.email;
+    // Phone and email: this week's own, else what SSW now holds for it, else
+    // the newest record that has them (see recoverContact).
+    let phone = (week.phone || String(pt.iPhone || '')).trim();
+    let emailForSave = (cfg.timesheetEmail || week.email || String(pt.iEmail || '')).trim();
+    if (!phone || !emailForSave) {
+      const found = await recoverContact(t, s, { phone: !phone, email: !emailForSave });
+      phone = phone || found.phone;
+      emailForSave = emailForSave || found.email;
+    }
     const dailyRate = saveDailyRate(week, pt.iDailyRate, cfg.defaultDailyRate);
     const originalRates: Record<string, string> = {};
     for (const row of current.SecondaryTables.tblDay || []) {
@@ -654,7 +708,7 @@ export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: 
       if (r) originalRates[dayName] = fmtRate(num(r));
     }
 
-    const Inputs = buildInputs(week, dailyRate, originalRates, emailForSave);
+    const Inputs = buildInputs({ ...week, phone }, dailyRate, originalRates, emailForSave);
     const body = {
       request: {
         ApplicationKey: APP_KEY,

@@ -374,6 +374,77 @@ export async function fetchIdentity(): Promise<{ name: string; userId: string } 
   });
 }
 
+// ----- phone and email fallback ------------------------------------------
+//
+// A new week copies phone and email from the newest record, so once one week
+// lands blank (the week of 8/17 did) every week after it inherits the blanks,
+// and every save writes them back. When a week's own phone or email is blank,
+// take each from the user's records, newest first. The walk takes an injected
+// loader so it can be tested without SSW.
+// Mirrored in worker-api/src/ssw.ts and src/main/ssw.ts; keep them identical.
+export const CONTACT_LOOKBACK = 12;
+export async function findContact(
+  recordIds: string[],
+  loadContact: (recordId: string) => Promise<{ phone: string; email: string }>,
+  need: { phone: boolean; email: boolean },
+): Promise<{ phone: string; email: string }> {
+  const out = { phone: '', email: '' };
+  for (const id of recordIds.slice(0, CONTACT_LOOKBACK)) {
+    if ((!need.phone || out.phone) && (!need.email || out.email)) break;
+    const c = await loadContact(id);
+    if (need.phone && !out.phone && c.phone.trim()) out.phone = c.phone.trim();
+    if (need.email && !out.email && c.email.trim()) out.email = c.email.trim();
+  }
+  return out;
+}
+
+// The user's timesheet records, newest week first (50 most recent), as SSW's
+// grid returns them. Call inside withSession.
+async function fetchGridRows(): Promise<unknown[][]> {
+  const token = await ensureToken();
+  const mkCol = (data: number, name: string) => ({
+    data, name, searchable: true, orderable: true,
+    search: { value: '', regex: false },
+  });
+  const body = {
+    gridRequest: {
+      draw: 1,
+      columns: [
+        mkCol(0, 'iName'), mkCol(1, 'iDate'), mkCol(2, 'EntryDate'),
+        mkCol(3, 'LastUpdateDate'), mkCol(4, 'CurrentStatusIndex'),
+        mkCol(5, 'Actions'), mkCol(6, 'iJob'), mkCol(7, 'iLaborCoordinator'),
+      ],
+      order: [{ column: 1, dir: 'desc' as const }],
+      start: 0, length: 50,
+      search: { value: '', regex: false },
+      applicationId: APP_ID,
+    },
+    token,
+  };
+  const res = await sswFetch(`${SSW}/UI/Pages/Data.aspx/GetDataGrid`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json; charset=UTF-8' },
+    body: JSON.stringify(body),
+  });
+  if (res.status !== 200) throw new Error(`GetDataGrid HTTP ${res.status} — SSW session may have expired`);
+  const outer = JSON.parse(await res.text()) as { d: string };
+  if (typeof outer.d === 'undefined') throw new Error('GetDataGrid: missing .d');
+  const inner = typeof outer.d === 'string' ? JSON.parse(outer.d) : outer.d;
+  return inner.Data || [];
+}
+
+// Call inside withSession.
+async function recoverContact(need: { phone: boolean; email: boolean }): Promise<{ phone: string; email: string }> {
+  if (!need.phone && !need.email) return { phone: '', email: '' };
+  const ids = (await fetchGridRows())
+    .filter((row) => Array.isArray(row) && row.length > 0)
+    .map((row) => String(row[row.length - 1]));
+  return findContact(ids, async (id) => {
+    const pt = (await getRecordExtended(id)).PrimaryTable;
+    return { phone: String(pt.iPhone || ''), email: String(pt.iEmail || '') };
+  }, need);
+}
+
 export async function fetchWeek(weekStartDate: string): Promise<SswWeek | null> {
   return withSession(async () => {
     const recordId = await findRecordIdForWeek(weekStartDate);
@@ -705,6 +776,15 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
 
     // 3. POST Calculate with Save:true and no RecordId — SSW inserts a new row
     //    and returns the new RecordId in oRecordId.
+    // A template with a blank phone or email would pass the blanks on to this
+    // week; fill them from the newest record that has them.
+    const needPhone = !draft.phone.trim();
+    const needEmail = !(cfg.timesheetEmail || draft.email).trim();
+    if (needPhone || needEmail) {
+      const found = await recoverContact({ phone: needPhone, email: needEmail });
+      draft.phone = draft.phone.trim() || found.phone;
+      draft.email = draft.email.trim() || found.email;
+    }
     const Inputs = buildInputs(draft, dailyRate, {}, cfg.timesheetEmail || draft.email);
     const body = {
       request: {
@@ -765,7 +845,15 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       // stored iEmail, anything else replaces it. The day rate follows
       // saveDailyRate: an edit on this week, else the week's configured rate (its
       // show's own rate or base pay), else what SSW holds.
-      const emailForSave = cfg.timesheetEmail || week.email;
+      // Phone and email: this week's own, else what SSW now holds for it, else
+      // the newest record that has them (see recoverContact).
+      let phone = (week.phone || String(pt.iPhone || '')).trim();
+      let emailForSave = (cfg.timesheetEmail || week.email || String(pt.iEmail || '')).trim();
+      if (!phone || !emailForSave) {
+        const found = await recoverContact({ phone: !phone, email: !emailForSave });
+        phone = phone || found.phone;
+        emailForSave = emailForSave || found.email;
+      }
       // The configured rate for this week: its show's own rate (gigDayRates),
       // else base pay (see expectedWeekRate).
       const { bookings } = await readCachedBookings();
@@ -778,7 +866,7 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
         if (r) originalRates[dayName] = fmtRate(num(r));
       }
 
-      const Inputs = buildInputs(week, dailyRate, originalRates, emailForSave);
+      const Inputs = buildInputs({ ...week, phone }, dailyRate, originalRates, emailForSave);
       const body = {
         request: {
           ApplicationKey: APP_KEY,
