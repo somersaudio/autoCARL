@@ -506,6 +506,28 @@ function hourlyFromDaily(dailyRateStr: string): string {
   return `$ ${(daily / 11).toFixed(2)}`;
 }
 
+// The day rate a save writes onto the timesheet. The week's own rate is what
+// the user sees, and can edit, at the bottom of the Timesheet tab, and SSW is
+// the only store every device shares, so:
+//  1. a rate just edited on this week (dailyRateEdited) wins;
+//  2. otherwise the rate SSW already holds for this week stays, so an edit
+//     made on one device isn't reset by a later save from another;
+//  3. a week SSW holds at 0 or blank gets the configured base pay, because a
+//     new week copies its rate from the newest record and a 0 would pass to
+//     every week after it.
+// Mirrored in worker-api/src/ssw.ts and src/main/ssw.ts; keep them identical.
+export function saveDailyRate(
+  week: { dailyRate?: string; dailyRateEdited?: boolean },
+  storedRaw: unknown,
+  configured: number,
+): string {
+  const edited = parseFloat(String(week.dailyRate ?? '').replace(/[$,\s]/g, ''));
+  if (week.dailyRateEdited && Number.isFinite(edited) && edited > 0) return edited.toFixed(2);
+  const stored = parseFloat(String(storedRaw ?? '').replace(/[$,\s]/g, ''));
+  if (Number.isFinite(stored) && stored > 0) return stored.toFixed(2);
+  return configured > 0 ? configured.toFixed(2) : String(storedRaw || '');
+}
+
 // `emailForSave` is the address that lands in SSW's own record: the user's
 // Settings override when they set one, else whatever SSW already had.
 function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: Record<string, string>, emailForSave: string): SswInput[] {
@@ -743,15 +765,12 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       const current = await getRecordExtended(week.recordId);
       const pt = current.PrimaryTable;
       const cfg = await readConfig();
-      // Settings.defaultDailyRate (when >0) overrides whatever SSW has stored.
-      // This is the user's escape hatch when SSW's stored rate is wrong or
-      // missing — they can correct it in our Settings and every save fixes it.
-      // Settings.timesheetEmail does the same for the address on the sheet:
-      // blank keeps SSW's stored iEmail, anything else replaces it.
+      // Settings.timesheetEmail sets the address on the sheet: blank keeps SSW's
+      // stored iEmail, anything else replaces it. The day rate follows
+      // saveDailyRate: an edit on this week, else the rate SSW holds for it, else
+      // the configured base pay.
       const emailForSave = cfg.timesheetEmail || week.email;
-      const dailyRate = configuredDayRate(cfg) > 0
-        ? configuredDayRate(cfg).toFixed(2)
-        : String(pt.iDailyRate || '');
+      const dailyRate = saveDailyRate(week, pt.iDailyRate, configuredDayRate(cfg));
       const originalRates: Record<string, string> = {};
       for (const row of current.SecondaryTables.tblDay || []) {
         const dayName = String(row.Items.Day || '');

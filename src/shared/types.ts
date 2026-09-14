@@ -22,14 +22,15 @@ export type UserSettings = {
   defaultStartTime: string;  // e.g. '8:00 am' — autofilled into empty worked days
   defaultEndTime: string;    // e.g. '6:00 pm'
   autofillPerDiem: boolean;  // when false, the app leaves per-diem empty for the user to fill manually
-  defaultDailyRate: number;  // 0 = use whatever SSW has stored; >0 overwrites SSW's iDailyRate on every save
+  defaultDailyRate: number;  // legacy; Settings saves clear it to 0. When >0 it stands in for basePayDayRate as the timesheet rate (see saveDailyRate)
   // Email that goes onto the timesheet. '' = keep SSW's stored address;
   // anything else overwrites it on every save. Not the login address.
   timesheetEmail: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
-  // ----- earnings estimates (display only — never pushed to SSW) -----
-  // Deliberately separate from defaultDailyRate above: that one rewrites your
-  // SSW record on save, this one only feeds the projection on the bookings card.
+  // ----- earnings -----
+  // Your day rate. It feeds the paycheck projection, and it's also the rate a
+  // new SSW timesheet week starts at (and fills a week SSW holds at 0). A
+  // week's own rate, once set, is kept on save; see saveDailyRate.
   basePayDayRate: number;    // your day rate in USD; 0 = unset, estimate is hidden
   subtractTaxes: boolean;    // when true, show take-home after tax alongside gross
   // Your home-base airport (IATA, e.g. 'AUS'). Travel legs that aren't
@@ -110,7 +111,12 @@ export type SswWeek = {
   projectManager: string;
   userId: string;
   employeeId: string;
-  dailyRate: string;        // iDailyRate verbatim (e.g. "525.00") — read-only in UI, preserved on save
+  // iDailyRate as SSW holds it (e.g. "650.00"). Editable at the bottom of the
+  // Timesheet tab; see saveDailyRate for which rate a save writes.
+  dailyRate: string;
+  // Set only when the user changed dailyRate on this device and hasn't saved
+  // yet. Never stored: a save or reload drops it.
+  dailyRateEdited?: boolean;
   // Routing flags also preserved verbatim:
   groupId: number;          // PrimaryTable.intGroupId — feeds SaveInformation.SetGroupId
   californiaCheck: boolean;

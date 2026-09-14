@@ -334,8 +334,9 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         {/* ---- Earnings tab: base pay + everything tax ---- */}
         {tab === 'earnings' && (<>
         <p className="subtle" style={{ marginTop: 18, fontSize: 12 }}>
-          Your base pay, used to project what an upcoming gig is worth. Estimates only —
-          this is never sent to SSW and doesn't affect what you submit.
+          Your base pay, used to project what an upcoming gig is worth. It's also
+          the day rate a new timesheet week starts at. To change one week's rate,
+          tap the Daily Rate at the bottom of the Timesheet tab.
         </p>
         <div className="field" style={{ margin: '10px 0 0' }}>
           <label>Base pay — day rate ($)</label>

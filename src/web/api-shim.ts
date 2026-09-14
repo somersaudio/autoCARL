@@ -1252,7 +1252,8 @@ const api: Api = {
         // path, so the worker would otherwise write 0 / 0 / 0 for every day.
         const filled: SswWeek = { ...week, days: week.days.map(withSplit) };
         const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg: sswCfg() });
-        if (r && r.ok) cacheWeek(filled);
+        // The edit marker belongs to the unsaved change, not the cached week.
+        if (r && r.ok) cacheWeek({ ...filled, dailyRateEdited: undefined });
         return r;
       } catch (e) {
         // Desktop pushWeek resolves with the error union rather than throwing.

@@ -325,7 +325,12 @@ export default function TimesheetTab({
             </div>
           )}
 
-          <IdentityPanel week={week} timesheetEmail={timesheetEmail} />
+          <IdentityPanel
+            week={week}
+            timesheetEmail={timesheetEmail}
+            locked={isLocked}
+            onRateChange={(rate) => { if (week) onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true }); }}
+          />
         </div>
       )}
 
@@ -511,39 +516,111 @@ function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, auto
   );
 }
 
-// Read-only display of the per-user identity fields that AUTOcarl pulls from
-// SSW and submits verbatim on every save. Surfaces these so the user can see
-// exactly what's being attached to their timesheet (and notice if anything is
-// stale on the server side).
-function IdentityPanel({ week, timesheetEmail }: { week: SswWeek; timesheetEmail: string }) {
-  const rateNum = parseFloat(week.dailyRate);
-  const rateDisplay = Number.isFinite(rateNum) && rateNum > 0
-    ? `$${rateNum.toFixed(2)} / day`
-    : '';
-  const rows: Array<[string, string]> = [
-    ['Name', week.name],
-    // The override wins on save, so show it here rather than SSW's stale copy.
-    ['Email', timesheetEmail || week.email],
-    ['Phone', week.phone],
-    ['Position', week.position],
-    ['Daily Rate', rateDisplay],
-    ['Project Manager', week.projectManager],
-    ['Labor Coordinator', week.laborCoordinator],
-    ['User ID', week.userId],
-  ].filter(([, v]) => v && String(v).trim() !== '') as Array<[string, string]>;
-  if (rows.length === 0) return null;
+// Per-user identity fields AUTOcarl pulls from SSW and submits on every save,
+// so the user can see exactly what's attached to their timesheet. The Daily
+// Rate is the one editable field: it's the rate this week saves with (each
+// day's hourly is that rate / 11, the way SSW's Copy button fans it out), and
+// an edit here sticks to this week on every device (see saveDailyRate).
+function IdentityPanel({ week, timesheetEmail, locked, onRateChange }: {
+  week: SswWeek; timesheetEmail: string; locked: boolean; onRateChange: (rate: string) => void;
+}) {
+  const rows = (pairs: Array<[string, string]>) => pairs
+    .filter(([, v]) => v && String(v).trim() !== '')
+    .map(([k, v]) => (
+      <div className="identity-row" key={k}>
+        <span className="identity-key">{k}</span>
+        <span className="identity-val">{v}</span>
+      </div>
+    ));
+  const rate = parseFloat(week.dailyRate);
+  const hourly = Number.isFinite(rate) && rate > 0 ? rate / 11 : 0;
   return (
     <div className="identity-panel subtle">
       <div className="identity-panel-title">Submitted with this timesheet</div>
       <div className="identity-panel-grid">
-        {rows.map(([k, v]) => (
-          <div className="identity-row" key={k}>
-            <span className="identity-key">{k}</span>
-            <span className="identity-val">{v}</span>
-          </div>
-        ))}
+        {rows([
+          ['Name', week.name],
+          // The override wins on save, so show it here rather than SSW's stale copy.
+          ['Email', timesheetEmail || week.email],
+          ['Phone', week.phone],
+          ['Position', week.position],
+        ])}
+        <div className="identity-row">
+          <span className="identity-key">Daily Rate</span>
+          <span className="identity-val"><RateField week={week} locked={locked} onChange={onRateChange} /></span>
+        </div>
+        {rows([
+          ['Project Manager', week.projectManager],
+          ['Labor Coordinator', week.laborCoordinator],
+          ['User ID', week.userId],
+        ])}
       </div>
+      {week.dailyRateEdited && hourly > 0 && (
+        <div className="rate-hint">
+          Tap Save to put ${rate.toFixed(2)} / day on this week. Each day&apos;s hourly rate becomes ${hourly.toFixed(2)}.
+        </div>
+      )}
     </div>
+  );
+}
+
+// Tap-to-edit day rate. Commits on Enter or leaving the field; Escape
+// cancels. Submitted (locked) weeks show the rate but can't change it.
+function RateField({ week, locked, onChange }: {
+  week: SswWeek; locked: boolean; onChange: (rate: string) => void;
+}) {
+  const current = parseFloat(week.dailyRate);
+  const has = Number.isFinite(current) && current > 0;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [bad, setBad] = useState(false);
+  const start = () => {
+    if (locked) return;
+    setDraft(has ? current.toFixed(2) : '');
+    setBad(false);
+    setEditing(true);
+  };
+  const commit = () => {
+    const n = parseFloat(draft.replace(/[$,\s]/g, ''));
+    if (!Number.isFinite(n) || n <= 0 || n > 5000) { setBad(true); return; }
+    setEditing(false);
+    const next = n.toFixed(2);
+    if (!has || next !== current.toFixed(2)) onChange(next);
+  };
+  if (editing) {
+    return (
+      <span className="rate-edit">
+        <span>$</span>
+        <input
+          className="rate-input"
+          type="text"
+          inputMode="decimal"
+          autoFocus
+          value={draft}
+          aria-label="Daily rate"
+          onChange={(e) => { setDraft(e.target.value); setBad(false); }}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') { setBad(false); setEditing(false); }
+          }}
+        />
+        <span>/ day</span>
+        {bad && <span className="rate-bad">Enter a day rate between $1 and $5,000.</span>}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`rate-value${locked ? ' is-locked' : ''}`}
+      onClick={start}
+      disabled={locked}
+      title={locked ? 'This week is submitted' : 'Change this week’s daily rate'}
+    >
+      {has ? `$${current.toFixed(2)} / day` : 'Not set'}
+      {!locked && <span className="rate-pencil" aria-hidden="true">✎</span>}
+    </button>
   );
 }
 
