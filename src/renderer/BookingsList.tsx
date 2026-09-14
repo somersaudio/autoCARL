@@ -730,6 +730,21 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
               <span className="subtle">· P/D ${contacts.gsaPerDiem || contacts.perDiem}</span>
             )}
           </div>
+          {/* The venue sits with the rest of the where-and-when, right under
+              the city and per diem. It links to Apple Maps, and that tap must
+              not also collapse the card, which the headline does on click. */}
+          {(contacts.venue || contacts.venueAddress) && (
+            <a
+              className="featured-venue subtle"
+              href={mapsUrl(booking, contacts)}
+              title="Open in Apple Maps"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {contacts.venue && <span className="featured-venue-name">{contacts.venue}</span>}
+              {contacts.venue && contacts.venueAddress && <span> · </span>}
+              {contacts.venueAddress && <span>{contacts.venueAddress}</span>}
+            </a>
+          )}
         </div>
         {(pdfs.length > 0 || flightRequestOpen(contacts) || unseen) && (
           <div className="featured-flights">
@@ -781,17 +796,6 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
           <span>This gig is a request — accept or deny it in C.A.R.L.</span>
           <span className="request-go">Open ›</span>
         </button>
-      )}
-      {(contacts.venue || contacts.venueAddress) && (
-        <a
-          className="featured-venue subtle"
-          href={mapsUrl(booking, contacts)}
-          title="Open in Apple Maps"
-        >
-          {contacts.venue && <span className="featured-venue-name">{contacts.venue}</span>}
-          {contacts.venue && contacts.venueAddress && <span> · </span>}
-          {contacts.venueAddress && <span>{contacts.venueAddress}</span>}
-        </a>
       )}
       {contacts.bookingNotes && (
         <div className="featured-notes">
