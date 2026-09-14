@@ -171,9 +171,9 @@ function overtimePay(day: SswDay, dayRate: number): number {
 // SSW-computed hours. Unsaved grid edits don't qualify — the reg/OT/DT split
 // comes from SSW's spreadsheet on save, and we won't guess it locally.
 // The Daily Rate SSW holds for the week containing `iso`, or 0 when the week
-// isn't cached or carries no rate. A week's rate can differ from base pay (it
-// is editable on the Timesheet tab, and a save keeps it), and it's what SSW
-// pays that week's hours at.
+// isn't cached or carries no rate. A week's rate can differ from base pay (a
+// rate edited on the Timesheet tab for that save, or one set in SSW), and it's
+// what SSW pays that week's hours at.
 function weekRateFor(iso: string, weeks: Record<string, SswWeek>): number {
   const monday = addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
   const rate = parseFloat(String(weeks[monday]?.dailyRate ?? '').replace(/[$,\s]/g, ''));

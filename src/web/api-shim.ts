@@ -24,7 +24,6 @@ import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
 import { cleanAirportCode } from '../shared/airports';
 import { parseItinerary } from '../shared/flight-itinerary';
 import { withSplit } from '../shared/hours';
-import { expectedWeekRate, localTodayIso } from '../shared/week-rate';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
@@ -758,8 +757,8 @@ function requireSsw(): { email: string; password: string } {
 function sswCfg(): { defaultDailyRate: number; timesheetEmail: string } {
   const s = getSettings();
   // Base pay, with the legacy field winning if an old profile still carries it.
-  // New weeks start at it; pushWeek swaps in the week's show rate when that
-  // show has one (see expectedWeekRate).
+  // New weeks start at it, and every save writes it unless the week's rate was
+  // edited in that save (see saveDailyRate in worker-api/src/ssw.ts).
   const dayRate = s.defaultDailyRate > 0
     ? s.defaultDailyRate
     : (s.basePayDayRate > 0 ? s.basePayDayRate : 0);
@@ -1250,14 +1249,7 @@ const api: Api = {
         // phone: the local week never computes them and SSW won't on this
         // path, so the worker would otherwise write 0 / 0 / 0 for every day.
         const filled: SswWeek = { ...week, days: week.days.map(withSplit) };
-        // The week saves at its show's own rate when that show has one (set on
-        // the Timesheet tab or its estimator chip), else base pay. The worker
-        // writes this unless the user edited the week's rate in this save.
-        const cfg = sswCfg();
-        const { bookings } = readJson<BookingsCacheShape>(K.bookings, { bookings: [], fetchedAt: null });
-        const expected = expectedWeekRate(filled, bookings, getSettings(), localTodayIso());
-        if (expected.rate > 0) cfg.defaultDailyRate = expected.rate;
-        const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg });
+        const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg: sswCfg() });
         // The edit marker belongs to the unsaved change, not the cached week.
         if (r && r.ok) cacheWeek({ ...filled, dailyRateEdited: undefined });
         return r;

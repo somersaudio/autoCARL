@@ -426,11 +426,10 @@ function hourlyFromDaily(dailyRateStr: string): string {
 
 // The day rate a save writes onto the timesheet:
 //  1. a rate the user just edited on this week (dailyRateEdited) wins;
-//  2. otherwise the configured rate for the week: its show's own rate, else
-//     base pay (see src/shared/week-rate.ts). So a rate SSW merely copied into
-//     a new week (SSW's own Add, and desktop builds through v0.9.38, copy the
-//     newest record's rate) can never stick: a week set to $715 must not
-//     become the rate of every week created after it;
+//  2. otherwise the configured rate (base pay), so a rate SSW merely copied
+//     into a new week (SSW's own Add, and desktop builds through v0.9.38,
+//     copy the newest record's rate) can never stick: a week set to $715 must
+//     not become the rate of every week created after it;
 //  3. with no configured rate, whatever SSW holds, and blank rather than 0.
 // Mirrored in worker-api/src/ssw.ts and src/main/ssw.ts; keep them identical.
 export function saveDailyRate(
@@ -689,8 +688,7 @@ export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: 
     const pt = current.PrimaryTable;
     // Settings.timesheetEmail sets the address on the sheet: blank keeps SSW's
     // stored iEmail, anything else replaces it. The day rate follows
-    // saveDailyRate: an edit on this week, else the week's configured rate (its
-    // show's own rate or base pay), else what SSW holds.
+    // saveDailyRate: an edit on this week, else base pay, else what SSW holds.
     // Phone and email: this week's own, else what SSW now holds for it, else
     // the newest record that has them (see recoverContact).
     let phone = (week.phone || String(pt.iPhone || '')).trim();

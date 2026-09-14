@@ -1,8 +1,7 @@
 import { net, session } from 'electron';
-import { readCachedBookings, readConfig, writeSswWeek } from './store';
+import { readConfig, writeSswWeek } from './store';
 import { getSswPassword } from './credentials';
 import { withSplit } from '../shared/hours';
-import { expectedWeekRate, localTodayIso } from '../shared/week-rate';
 import type { SswDay, SswPushResult, SswWeek } from '../shared/types';
 
 const SSW = 'https://ctts.ctus.com/SpreadsheetWeb';
@@ -511,8 +510,8 @@ function mkInput(ref: string, value: string): SswInput {
 }
 
 // Base pay (or the legacy General field if an old config carries one). New
-// weeks start at it, and a save falls back to it when the week's show has no
-// rate of its own (see expectedWeekRate and saveDailyRate).
+// weeks start at it, and every save writes it unless the week's rate was
+// edited in that save (see saveDailyRate).
 function configuredDayRate(cfg: { defaultDailyRate: number; basePayDayRate: number }): number {
   if (cfg.defaultDailyRate > 0) return cfg.defaultDailyRate;
   return cfg.basePayDayRate > 0 ? cfg.basePayDayRate : 0;
@@ -576,11 +575,10 @@ function hourlyFromDaily(dailyRateStr: string): string {
 
 // The day rate a save writes onto the timesheet:
 //  1. a rate the user just edited on this week (dailyRateEdited) wins;
-//  2. otherwise the configured rate for the week: its show's own rate, else
-//     base pay (see src/shared/week-rate.ts). So a rate SSW merely copied into
-//     a new week (SSW's own Add, and desktop builds through v0.9.38, copy the
-//     newest record's rate) can never stick: a week set to $715 must not
-//     become the rate of every week created after it;
+//  2. otherwise the configured rate (base pay), so a rate SSW merely copied
+//     into a new week (SSW's own Add, and desktop builds through v0.9.38,
+//     copy the newest record's rate) can never stick: a week set to $715 must
+//     not become the rate of every week created after it;
 //  3. with no configured rate, whatever SSW holds, and blank rather than 0.
 // Mirrored in worker-api/src/ssw.ts and src/main/ssw.ts; keep them identical.
 export function saveDailyRate(
@@ -843,8 +841,7 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       const cfg = await readConfig();
       // Settings.timesheetEmail sets the address on the sheet: blank keeps SSW's
       // stored iEmail, anything else replaces it. The day rate follows
-      // saveDailyRate: an edit on this week, else the week's configured rate (its
-      // show's own rate or base pay), else what SSW holds.
+      // saveDailyRate: an edit on this week, else base pay, else what SSW holds.
       // Phone and email: this week's own, else what SSW now holds for it, else
       // the newest record that has them (see recoverContact).
       let phone = (week.phone || String(pt.iPhone || '')).trim();
@@ -854,11 +851,7 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
         phone = phone || found.phone;
         emailForSave = emailForSave || found.email;
       }
-      // The configured rate for this week: its show's own rate (gigDayRates),
-      // else base pay (see expectedWeekRate).
-      const { bookings } = await readCachedBookings();
-      const expected = expectedWeekRate(week, bookings, cfg, localTodayIso());
-      const dailyRate = saveDailyRate(week, pt.iDailyRate, expected.rate > 0 ? expected.rate : configuredDayRate(cfg));
+      const dailyRate = saveDailyRate(week, pt.iDailyRate, configuredDayRate(cfg));
       const originalRates: Record<string, string> = {};
       for (const row of current.SecondaryTables.tblDay || []) {
         const dayName = String(row.Items.Day || '');

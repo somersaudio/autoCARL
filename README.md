@@ -24,8 +24,8 @@ writes your timesheet to SSW, so neither has to be filled in by hand.
    autofill.
 4. **Earnings:** projects what an upcoming gig is worth — take-home and per
    diem — from your day rate and tax profile. That day rate is also what your
-   timesheets save with; a gig can have its own rate, set from its Daily Rate
-   on the Timesheet tab or its chip in the paycheck estimator.
+   timesheets save with; to save one week at a different rate, tap its Daily
+   Rate on the Timesheet tab before saving.
 
 ## Run
 

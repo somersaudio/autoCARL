@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Booking, BookingContactsCache, SswDay, SswWeek, UserSettings } from '../shared/types';
 import { friendlyError } from '../shared/errors';
 import { ctSplit } from '../shared/hours';
-import { expectedWeekRate, localTodayIso } from '../shared/week-rate';
 import WeekPicker from './WeekPicker';
 
 type Props = {
@@ -21,10 +20,8 @@ type Props = {
   // Settings override for the address submitted on the sheet; '' = whatever
   // SSW has stored. Shown in the identity panel so what you see is what saves.
   timesheetEmail: string;
-  // The week saves at its show's own rate (gigDayRates), else base pay.
-  settings: Pick<UserSettings, 'basePayDayRate' | 'defaultDailyRate' | 'gigDayRates'>;
-  // Set or clear a show's own day rate (shared with the paycheck estimator).
-  onSetGigRate: (bookingId: string, rate: number | null) => void | Promise<void>;
+  // Base pay: the rate every save writes unless the rate is edited in that save.
+  settings: Pick<UserSettings, 'basePayDayRate' | 'defaultDailyRate'>;
   onOpenSettings: () => void;
 };
 
@@ -202,7 +199,7 @@ function weekTotals(days: SswDay[]) {
 
 export default function TimesheetTab({
   bookings, contacts, weekMonday, onWeekChange, week, loading, error, onLocalEdit, onReload,
-  defaultStartTime, defaultEndTime, autofillPerDiem, timesheetEmail, settings, onSetGigRate, onOpenSettings,
+  defaultStartTime, defaultEndTime, autofillPerDiem, timesheetEmail, settings, onOpenSettings,
 }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -247,12 +244,9 @@ export default function TimesheetTab({
 
   const totals = useMemo(() => week ? weekTotals(week.days) : null, [week]);
   const isLocked = (week?.statusIndex ?? 0) > 0;
-  // The rate a save will write for this week (see src/shared/week-rate.ts).
-  const expectedRate = useMemo(
-    () => (week ? expectedWeekRate(week, bookings, settings, localTodayIso()) : { rate: 0, bookingId: null }),
-    [week, bookings, settings],
-  );
-  const rateGig = expectedRate.bookingId ? bookings.find((b) => b.bookingId === expectedRate.bookingId) ?? null : null;
+  // The rate a save writes unless it's edited in that save: base pay, with the
+  // legacy General field winning if an old profile carries one (saveDailyRate).
+  const configuredRate = settings.defaultDailyRate > 0 ? settings.defaultDailyRate : settings.basePayDayRate;
 
   // The 3 most recently-ended past bookings, so the user can charge time to a
   // show that wrapped a few days ago (cleanup, post-show paperwork, etc.).
@@ -344,21 +338,8 @@ export default function TimesheetTab({
             week={week}
             timesheetEmail={timesheetEmail}
             locked={isLocked}
-            expectedRate={expectedRate.rate}
-            gigName={rateGig?.jobName ?? ''}
-            gigHasOwnRate={!!(expectedRate.bookingId && settings.gigDayRates?.[expectedRate.bookingId])}
-            onRateChange={(rate) => {
-              if (!week) return;
-              onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true });
-              // A rate set here belongs to the week's show, so later saves and
-              // the paycheck estimate keep it. Setting it back to base pay
-              // clears the show's own rate.
-              if (expectedRate.bookingId) {
-                const n = parseFloat(rate);
-                const base = settings.defaultDailyRate > 0 ? settings.defaultDailyRate : settings.basePayDayRate;
-                void onSetGigRate(expectedRate.bookingId, Math.abs(n - base) < 0.005 ? null : n);
-              }
-            }}
+            configuredRate={configuredRate}
+            onRateChange={(rate) => { if (week) onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true }); }}
           />
         </div>
       )}
@@ -549,12 +530,11 @@ function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, auto
 // Per-user identity fields AUTOcarl pulls from SSW and submits on every save,
 // so the user can see exactly what's attached to their timesheet. The Daily
 // Rate is the one editable field. It shows the rate a save will write: an
-// edit in progress, else the week's show rate or base pay (a submitted week
-// shows what was submitted). Each day's hourly is that rate / 11, the way
-// SSW's Copy button fans it out.
-function IdentityPanel({ week, timesheetEmail, locked, expectedRate, gigName, gigHasOwnRate, onRateChange }: {
-  week: SswWeek; timesheetEmail: string; locked: boolean;
-  expectedRate: number; gigName: string; gigHasOwnRate: boolean;
+// edit in progress, else base pay (a submitted week shows what was
+// submitted). An edit applies to that save only. Each day's hourly is the
+// rate / 11, the way SSW's Copy button fans it out.
+function IdentityPanel({ week, timesheetEmail, locked, configuredRate, onRateChange }: {
+  week: SswWeek; timesheetEmail: string; locked: boolean; configuredRate: number;
   onRateChange: (rate: string) => void;
 }) {
   const rows = (pairs: Array<[string, string]>) => pairs
@@ -569,12 +549,11 @@ function IdentityPanel({ week, timesheetEmail, locked, expectedRate, gigName, gi
   const storedOk = Number.isFinite(stored) && stored > 0;
   const saveRate = locked ? (storedOk ? stored : 0)
     : week.dailyRateEdited && storedOk ? stored
-      : expectedRate > 0 ? expectedRate
+      : configuredRate > 0 ? configuredRate
         : storedOk ? stored : 0;
   const hourly = saveRate > 0 ? saveRate / 11 : 0;
-  const differs = !locked && !week.dailyRateEdited && storedOk && expectedRate > 0
-    && Math.abs(stored - expectedRate) >= 0.005;
-  const whose = gigHasOwnRate && gigName ? `your ${gigName} rate` : 'your base pay';
+  const differs = !locked && !week.dailyRateEdited && storedOk && configuredRate > 0
+    && Math.abs(stored - configuredRate) >= 0.005;
   return (
     <div className="identity-panel subtle">
       <div className="identity-panel-title">Submitted with this timesheet</div>
@@ -599,16 +578,14 @@ function IdentityPanel({ week, timesheetEmail, locked, expectedRate, gigName, gi
       {week.dailyRateEdited && hourly > 0 && (
         <div className="rate-hint">
           Tap Save to put ${saveRate.toFixed(2)} / day on this week (${hourly.toFixed(2)} an hour).
-          {gigName
-            ? (gigHasOwnRate
-              ? ` It's now your ${gigName} rate, so later saves and your paycheck estimate use it too.`
-              : ` That's your base pay, which ${gigName} now uses on later saves and in your paycheck estimate.`)
-            : ' This week has no gig on it, so the rate applies to this save only.'}
+          It applies to this save only: saving the week again later puts your base pay back
+          unless you change it again.
         </div>
       )}
       {differs && (
         <div className="rate-note">
-          SSW has ${stored.toFixed(2)} on this week. Saving puts ${expectedRate.toFixed(2)}, {whose}. Tap the rate to change it.
+          SSW has ${stored.toFixed(2)} on this week. Saving puts ${configuredRate.toFixed(2)}, your base pay.
+          Tap the rate to save this week at a different rate.
         </div>
       )}
     </div>
@@ -650,6 +627,9 @@ function RateField({ rate, locked, onChange }: {
           type="text"
           inputMode="decimal"
           autoFocus
+          // Select the old rate so typing a new one replaces it instead of
+          // appending ("650.00720").
+          onFocus={(e) => e.currentTarget.select()}
           value={draft}
           aria-label="Daily rate"
           onChange={(e) => { setDraft(e.target.value); setBad(false); }}

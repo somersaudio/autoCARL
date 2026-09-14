@@ -29,8 +29,7 @@ export type UserSettings = {
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // ----- earnings -----
   // Your day rate. It feeds the paycheck projection and is the rate timesheets
-  // save with, unless the week's show has its own rate in gigDayRates (see
-  // src/shared/week-rate.ts).
+  // save with, unless a week's rate is edited in that save (see saveDailyRate).
   basePayDayRate: number;    // your day rate in USD; 0 = unset, estimate is hidden
   subtractTaxes: boolean;    // when true, show take-home after tax alongside gross
   // Your home-base airport (IATA, e.g. 'AUS'). Travel legs that aren't
