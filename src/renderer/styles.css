@@ -1330,6 +1330,15 @@ a.featured-venue:hover .featured-venue-name {
   align-items: baseline;
 }
 
+/* One airline line per ticket, stacked above the View itinerary button. Kept
+   ahead of the phone rules below so they can override it. */
+.featured-flight-headers {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
 .featured-flight-vendor {
   color: var(--text);
   font-weight: 500;
@@ -2119,7 +2128,8 @@ a.featured-venue:hover .featured-venue-name {
     min-width: 0;
   }
 
-  .featured-flight .featured-flight-header + button { flex-shrink: 0; }
+  .featured-flight-headers { align-items: flex-start; flex: 1 1 auto; min-width: 0; }
+  .featured-flight .featured-flight-headers + button { flex-shrink: 0; }
 
   .featured-when-tag { white-space: nowrap; }
 
@@ -2750,3 +2760,46 @@ a.featured-venue:hover .featured-venue-name {
   cursor: pointer;
 }
 .logout-btn:hover { background: #dc2626; }
+
+/* ---- View itinerary: the which-flight window for flights spread over two or
+   more itineraries ---- */
+/* The theme's glass panel colour lets the page show through: fine behind a
+   tall Settings sheet, but it garbles a short list of routes, so paint the
+   page colour underneath. Phones pin modals to the top to leave room for the
+   keyboard; this one has no text field, so it stays centred. */
+.modal-backdrop.flight-pick-backdrop { align-items: center; }
+.flight-pick {
+  width: min(360px, calc(100vw - 32px));
+  padding: 16px 16px 14px;
+  background: linear-gradient(var(--panel), var(--panel)), var(--bg);
+}
+.flight-pick-title { margin: 0; font-size: 16px; }
+.flight-pick-list { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.flight-pick-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 3px;
+  width: 100%;
+  padding: 10px 12px;
+  text-align: left;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.flight-pick-option:hover,
+.flight-pick-option:focus-visible { border-color: var(--ct-gold); outline: none; }
+.flight-pick-route {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+}
+.flight-pick-detail { font-size: 12px; line-height: 1.35; }
+.flight-pick-option .featured-flight-rebook { white-space: normal; }

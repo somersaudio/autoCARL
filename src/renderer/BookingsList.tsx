@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { createPortal } from 'react-dom';
 import type {
   Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, HotelBooking,
   SswWeek, UserSettings,
@@ -492,6 +493,7 @@ export default function BookingsList({
                 key={seg.full.bookingId}
                 booking={seg.full}
                 pdfs={flights[seg.full.bookingId] || []}
+                flights={flights}
                 contacts={contacts[seg.full.bookingId] || NO_CONTACTS}
                 settings={settings}
                 travel={travelFor(
@@ -507,19 +509,24 @@ export default function BookingsList({
           return (
             <div className="card" key={seg.rows[0].bookingId}>
               {withHeader && <h3>Upcoming</h3>}
-              {seg.rows.map((b) => (
-                <BookingCard
-                  key={b.bookingId}
-                  booking={b}
-                  pdfs={flights[b.bookingId] || []}
-                  contacts={contacts[b.bookingId] || NO_CONTACTS}
-                  rebook={rebookOf(travelFor(
-                    b, contacts[b.bookingId] || NO_CONTACTS,
-                    bookings, settings.homeAirport, itineraries,
-                  ))}
-                  onExpand={() => setExpandedId(b.bookingId)}
-                />
-              ))}
+              {seg.rows.map((b) => {
+                const travel = travelFor(
+                  b, contacts[b.bookingId] || NO_CONTACTS,
+                  bookings, settings.homeAirport, itineraries,
+                );
+                return (
+                  <BookingCard
+                    key={b.bookingId}
+                    booking={b}
+                    pdfs={flights[b.bookingId] || []}
+                    flights={flights}
+                    contacts={contacts[b.bookingId] || NO_CONTACTS}
+                    travel={travel}
+                    rebook={rebookOf(travel)}
+                    onExpand={() => setExpandedId(b.bookingId)}
+                  />
+                );
+              })}
             </div>
           );
         });
@@ -561,6 +568,187 @@ export default function BookingsList({
   );
 }
 
+// ---- View itinerary ------------------------------------------------------
+// One flight a card's View itinerary can open: the journey, the itinerary PDF
+// that books it, and the other gig it's filed under when it isn't this one's.
+type FlightChoice = {
+  leg: ItineraryLeg | null;      // null: an itinerary that hasn't been read yet
+  pdf: FlightPdf;
+  borrowedFrom: string | null;
+  wrongDay: boolean;             // the ticket on the wrong day (see rebookOf)
+};
+
+// Every flight a gig's View itinerary can open, in date order: each journey on
+// the gig's own itineraries, plus a travel day booked on another gig's. One
+// trip often flies you out to one show and on to the next, and CARL files the
+// PDF under just one of them, so the Dreamforce card's flight in from Boston
+// lives on the Boston gig's itinerary.
+function flightChoicesFor(
+  pdfs: FlightPdf[], flights: FlightsCache, travel: TravelInfo | null | undefined,
+): FlightChoice[] {
+  // Either travel day can have a ticket on the wrong day, or both can.
+  const rebooks = [travel?.arrive?.rebook, travel?.depart?.rebook]
+    .filter((r): r is DateMismatch => !!r);
+  const sameLeg = (a: ItineraryLeg, b: ItineraryLeg) => a.date === b.date && a.from === b.from && a.to === b.to;
+  const out: FlightChoice[] = [];
+  const seen = new Set<string>();
+  const add = (pdf: FlightPdf, leg: ItineraryLeg | null, borrowedFrom: string | null) => {
+    // One flight, one entry. CARL files the same itinerary under every gig it
+    // covers, each copy with its own file name, so a flight is known by its
+    // confirmation and journey. The gig's own copies are added first and win,
+    // which keeps a gig with one itinerary opening it directly.
+    const key = leg ? `${pdf.confirmation || pdf.url}|${leg.date}|${leg.from}|${leg.to}` : pdf.url;
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push({ pdf, leg, borrowedFrom, wrongDay: !!leg && rebooks.some((r) => sameLeg(r.leg, leg)) });
+  };
+  for (const pdf of pdfs) {
+    if (pdf.legs && pdf.legs.length > 0) {
+      for (const leg of pdf.legs) add(pdf, leg, null);
+    } else {
+      add(pdf, null, null);
+    }
+  }
+  for (const m of [travel?.arrive?.match, travel?.depart?.match, ...rebooks]) {
+    if (!m || !m.borrowed) continue;
+    const pdf = (flights[m.bookingId] || []).find((p) => (p.legs || []).includes(m.leg));
+    if (pdf) add(pdf, m.leg, m.jobName || 'another gig');
+  }
+  return out.sort((a, b) => (a.leg?.date || '9999').localeCompare(b.leg?.date || '9999'));
+}
+
+// "Fri 9/11 · 1 stop in DEN · Alaska Airlines · KLVBOS · on Klaviyo's itinerary"
+function flightChoiceDetail(c: FlightChoice): string {
+  const via = c.leg?.via || [];
+  return [
+    c.leg ? fmtTravelDay(c.leg.date) : '',
+    via.length ? `${via.length} stop${via.length > 1 ? 's' : ''} in ${via.join(', ')}` : '',
+    c.pdf.vendor || '',
+    c.pdf.confirmation || '',
+    // An itinerary that hasn't been read has no route, and a round trip is
+    // often two files under one confirmation: the file name tells them apart.
+    c.leg ? '' : c.pdf.filename,
+    c.borrowedFrom ? `on ${c.borrowedFrom}'s itinerary` : '',
+  ].filter(Boolean).join(' \u00b7 ');
+}
+
+function openItinerary(pdf: FlightPdf): void {
+  window.api.flights.open(pdf.localPath || pdf.url).catch(() => {});
+}
+
+// The View itinerary button. When every flight is on one itinerary the PDF
+// opens straight away (it shows them all); flights spread over two or more
+// itineraries ask which one first.
+function ItineraryButton({ choices }: { choices: FlightChoice[] }) {
+  const [picking, setPicking] = useState(false);
+  const button = useRef<HTMLButtonElement | null>(null);
+  const pdfCount = new Set(choices.map((c) => c.pdf.url)).size;
+  if (choices.length === 0) return null;
+  // However the window closes, focus goes back to this button.
+  const close = () => { setPicking(false); button.current?.focus(); };
+  return (
+    <>
+      <button
+        ref={button}
+        className="secondary"
+        title={pdfCount > 1 ? 'Choose a flight' : choices[0].pdf.filename}
+        onClick={(e) => {
+          // A row card expands on click; opening an itinerary shouldn't.
+          e.stopPropagation();
+          if (pdfCount > 1) setPicking(true);
+          else openItinerary(choices[0].pdf);
+        }}
+      >
+        View itinerary
+      </button>
+      {picking && (
+        <FlightPicker
+          choices={choices}
+          onPick={(c) => { close(); openItinerary(c.pdf); }}
+          onClose={close}
+        />
+      )}
+    </>
+  );
+}
+
+// Asks which flight's itinerary to open. Rendered on <body> so no card's
+// layout can clip it; clicks still bubble through React to the card, so the
+// window stops them (a row card would otherwise expand behind it).
+function FlightPicker({ choices, onPick, onClose }: {
+  choices: FlightChoice[];
+  onPick: (choice: FlightChoice) => void;
+  onClose: () => void;
+}) {
+  const dialog = useRef<HTMLDivElement | null>(null);
+  // The second click of a double-click (or tap of a double-tap) on View
+  // itinerary lands on this window the moment it opens: on the backdrop it
+  // would close it again, and on a phone it could open whichever flight is
+  // under the finger. Clicks that quick are ignored.
+  const openedAt = useRef(performance.now());
+  const settled = () => performance.now() - openedAt.current > 350;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  // Tab and Shift+Tab stay inside the window while it's open.
+  const keepFocusInside = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Tab' || !dialog.current) return;
+    const stops = Array.from(dialog.current.querySelectorAll<HTMLElement>('button:not([disabled])'));
+    if (stops.length === 0) return;
+    const first = stops[0];
+    const last = stops[stops.length - 1];
+    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+    else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+  };
+  return createPortal(
+    <div
+      className="modal-backdrop flight-pick-backdrop"
+      onClick={(e) => { e.stopPropagation(); if (settled()) onClose(); }}
+    >
+      <div
+        ref={dialog}
+        className="modal-card flight-pick"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="flight-pick-title"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={keepFocusInside}
+      >
+        <div className="row-between">
+          <h2 id="flight-pick-title" className="flight-pick-title">Which flight?</h2>
+          <button className="link" onClick={onClose} aria-label="Close">{'\u2715'}</button>
+        </div>
+        <div className="flight-pick-list">
+          {choices.map((c, i) => (
+            <button
+              key={`${c.pdf.url}|${c.leg ? `${c.leg.date}|${c.leg.from}|${c.leg.to}` : i}`}
+              className="flight-pick-option"
+              autoFocus={i === 0}
+              onClick={() => { if (settled()) onPick(c); }}
+            >
+              <span className="flight-pick-route">
+                {c.leg
+                  ? <>{c.leg.from} <span className="flight-arrow" aria-label="to">{'\u2192'}</span> {c.leg.to}</>
+                  : 'Itinerary'}
+              </span>
+              <span className="flight-pick-detail subtle">{flightChoiceDetail(c)}</span>
+              {c.wrongDay && (
+                <span className="featured-flight-rebook">
+                  <span className="request-bang rebook-bang-sm" aria-hidden="true">!</span>
+                  <span>Wrong day {'\u00b7'} needs to be changed</span>
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 type BookingCardProps = {
   booking: Booking;
   pdfs: FlightPdf[];
@@ -573,9 +761,14 @@ type BookingCardProps = {
   // travel day because the gig's dates moved. Flagged on the row itself so
   // it's seen without opening the card.
   rebook?: DateMismatch | null;
+  // Every gig's itineraries and this gig's travel days, so View itinerary can
+  // also open a flight booked on another gig's itinerary (see flightChoicesFor).
+  flights?: FlightsCache;
+  travel?: TravelInfo | null;
 };
 
-function BookingCard({ booking, pdfs, contacts, rebook, onExpand }: BookingCardProps) {
+function BookingCard({ booking, pdfs, flights, contacts, rebook, travel, onExpand }: BookingCardProps) {
+  const choices = flightChoicesFor(pdfs, flights || {}, travel);
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
@@ -619,18 +812,9 @@ function BookingCard({ booking, pdfs, contacts, rebook, onExpand }: BookingCardP
       {flightRequestOpen(contacts) && (
         <PlaneIcon size={34} title={contacts!.laborTravel} />
       )}
-      {pdfs.length > 0 && (
+      {choices.length > 0 && (
         <div className="booking-actions">
-          {pdfs.map((p) => (
-            <button
-              key={p.url}
-              className="secondary"
-              title={p.filename}
-              onClick={(e) => { e.stopPropagation(); window.api.flights.open(p.localPath || p.url).catch(() => {}); }}
-            >
-              View itinerary{pdfs.length > 1 ? ` (${pdfs.indexOf(p) + 1})` : ''}
-            </button>
-          ))}
+          <ItineraryButton choices={choices} />
         </div>
       )}
     </div>
@@ -679,15 +863,17 @@ type FeaturedBookingCardProps = BookingCardProps & {
   onCollapse?: () => void;
 };
 
-function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: FeaturedBookingCardProps) {
-  // The itinerary that holds a wrong-day flight gets flagged right on its
-  // View itinerary line. Matched by the leg itself, so a gig with an old and
-  // a reissued PDF flags only the one that's actually wrong. A flight that
-  // lives on another gig's itinerary is flagged on this card's travel row.
-  const rebook = rebookOf(travel);
-  const rebookPdf = rebook && !rebook.borrowed
-    ? pdfs.find((p) => (p.legs || []).includes(rebook.leg)) || null
-    : null;
+function FeaturedBookingCard({ booking, pdfs, flights, contacts, travel, onCollapse }: FeaturedBookingCardProps) {
+  // What View itinerary can open (see flightChoicesFor). A wrong-day ticket on
+  // this gig's own itinerary is flagged under the button; one on another gig's
+  // itinerary is flagged on this card's travel row. The picker marks both.
+  const choices = flightChoicesFor(pdfs, flights || {}, travel);
+  const ownWrongDay = choices.some((c) => c.wrongDay && !c.borrowedFrom);
+  // One airline line per ticket: a round trip filed as two PDFs shares one.
+  const ticketLines = choices.map((c) => c.pdf)
+    .filter((p, i, all) => all.indexOf(p) === i)
+    .filter((p) => p.vendor || p.confirmation)
+    .filter((p, i, all) => all.findIndex((q) => q.vendor === p.vendor && q.confirmation === p.confirmation) === i);
 
   const [logo, setLogo] = useState<string | null>(null);
   useEffect(() => {
@@ -746,7 +932,7 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
             </a>
           )}
         </div>
-        {(pdfs.length > 0 || flightRequestOpen(contacts) || unseen) && (
+        {(choices.length > 0 || flightRequestOpen(contacts) || unseen) && (
           <div className="featured-flights">
             {(unseen || flightRequestOpen(contacts)) && (
               <span className="flight-request-wrap">
@@ -756,32 +942,31 @@ function FeaturedBookingCard({ booking, pdfs, contacts, travel, onCollapse }: Fe
                 )}
               </span>
             )}
-            {pdfs.map((p, i) => (
-              <div key={p.url} className="featured-flight">
-                {(p.vendor || p.confirmation) && (
-                  <div className="featured-flight-header subtle">
-                    {p.vendor && <span className="featured-flight-vendor">{p.vendor}</span>}
-                    {p.vendor && p.confirmation && <span>·</span>}
-                    {p.confirmation && <span>{p.confirmation}</span>}
+            {choices.length > 0 && (
+              <div className="featured-flight">
+                {/* Airline and confirmation for each itinerary the button opens. */}
+                {ticketLines.length > 0 && (
+                  <div className="featured-flight-headers">
+                    {ticketLines.map((p) => (
+                      <div key={p.url} className="featured-flight-header subtle">
+                        {p.vendor && <span className="featured-flight-vendor">{p.vendor}</span>}
+                        {p.vendor && p.confirmation && <span>·</span>}
+                        {p.confirmation && <span>{p.confirmation}</span>}
+                      </div>
+                    ))}
                   </div>
                 )}
-                <button
-                  className="secondary"
-                  title={p.filename}
-                  onClick={() => window.api.flights.open(p.localPath || p.url).catch(() => {})}
-                >
-                  View itinerary{pdfs.length > 1 ? ` (${i + 1})` : ''}
-                </button>
+                <ItineraryButton choices={choices} />
                 {/* After the button: on a phone the airline line and button share one
                     row, and the warning takes its own line beneath them. */}
-                {p === rebookPdf && (
+                {ownWrongDay && (
                   <div className="featured-flight-rebook">
                     <span className="request-bang rebook-bang-sm" aria-hidden="true">!</span>
                     <span>Wrong day · needs to be changed</span>
                   </div>
                 )}
               </div>
-            ))}
+            )}
           </div>
         )}
       </div>

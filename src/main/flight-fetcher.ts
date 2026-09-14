@@ -81,6 +81,29 @@ export async function sweepFlights(
   const cache = await readFlightsCache();
   const contacts = await readContactsCache();
 
+  // Itineraries cached before the app read their journeys have no legs, and a
+  // sweep only re-reads PDFs for gigs still ahead, so a finished gig's
+  // itinerary never gained them. That hid a flight it books for the next gig
+  // (the flight on to Dreamforce is on the Boston gig's PDF). Read any such
+  // file still on disk, once; a file that fails to read is tried next sweep.
+  let backfilled = false;
+  for (const pdfs of Object.values(cache)) {
+    for (const pdf of pdfs) {
+      if (Array.isArray(pdf.legs) || !pdf.localPath) continue;
+      const present = await fs.access(pdf.localPath).then(() => true).catch(() => false);
+      if (!present) continue;
+      try {
+        pdf.legs = await parseItineraryLegs(pdf.localPath);
+        backfilled = true;
+      } catch { /* unreadable today; try again next sweep */ }
+    }
+  }
+  if (backfilled) {
+    await writeFlightsCache(cache);
+    onUpdate(cache);
+    logSweep('sweep: read journeys from itineraries cached before they were stored');
+  }
+
   try {
     // The new XHR-based fetcher handles its own auth + cookies in an Electron
     // session partition — no Chromium binary needed. First call logs in; later
@@ -235,7 +258,9 @@ export async function sweepFlights(
             || existing[i]?.confirmation !== f.confirmation
             || existing[i]?.outboundTo !== f.outboundTo
             || existing[i]?.returnTo !== f.returnTo
-            || existing[i]?.legCount !== f.legCount);
+            || existing[i]?.legCount !== f.legCount
+            // Journeys too, or a parse that gained legs is never written.
+            || JSON.stringify(existing[i]?.legs ?? null) !== JSON.stringify(f.legs ?? null));
         if (fresh.length === 0) {
           if (booking.bookingId in cache) {
             delete cache[booking.bookingId];
