@@ -32,7 +32,9 @@ export type SswSession = { jar: CookieJar; token: string | null };
 // the router can relogin and retry.
 export class SessionExpiredError extends Error {}
 
-export type SswCfg = { defaultDailyRate: number; timesheetEmail: string };
+// timesheetEmail and timesheetPhone are the user's Settings overrides, '' for
+// none (see cleanTimesheetEmail below).
+export type SswCfg = { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string };
 
 function sswFetch(t: Transport, jar: CookieJar, url: string, opts: FetchOpts = {}): Promise<FetchResult> {
   // Same defaults the desktop set on every request. Electron's setHeader
@@ -310,6 +312,37 @@ export async function recoverContact(
     const pt = (await getRecordExtended(t, s, id)).PrimaryTable;
     return { phone: String(pt.iPhone || ''), email: String(pt.iEmail || '') };
   }, need);
+}
+
+// ----- phone and email overrides ------------------------------------------
+//
+// What a phone or email override may hold. Each returns the cleaned value, ''
+// for a blank entry (no override), or null when the entry can't be used.
+// Mirrored in src/shared/contact.ts; keep them identical.
+export const TIMESHEET_EMAIL_MAX = 120;
+
+export function cleanTimesheetEmail(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const e = raw.trim();
+  if (!e) return '';
+  // Control and invisible characters (a zero-width space pasted from an email
+  // signature, say) would land in SSW looking just like the real address.
+  if (e.length > TIMESHEET_EMAIL_MAX || /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(e)) return null;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
+}
+
+// SSW keeps phone numbers as bare digits with the country code, 11 of them for
+// a US number, so an entry is saved the same way: "(512) 555-0123" becomes
+// 15125550123, the same as what SSW already holds. It needs 10 to 15 digits,
+// with nothing around them but spaces and + ( ) - .
+export function cleanTimesheetPhone(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null;
+  const p = raw.trim();
+  if (!p) return '';
+  if (p.length > 40 || !/^\+?[\d\s().-]+$/.test(p)) return null;
+  const digits = p.replace(/\D/g, '');
+  if (/^[2-9]\d{9}$/.test(digits)) return `1${digits}`;
+  return digits.length >= 10 && digits.length <= 15 ? digits : null;
 }
 
 export async function fetchWeek(t: Transport, s: SswSession, weekStartDate: string): Promise<SswWeek | null> {
@@ -620,16 +653,20 @@ export async function createWeek(t: Transport, s: SswSession, weekStartDate: str
 
   // 3. POST Calculate with Save:true and no RecordId — SSW inserts a new row
   //    and returns the new RecordId in oRecordId.
-  // A template with a blank phone or email would pass the blanks on to this
-  // week; fill them from the newest record that has them.
+  // Phone and email: the Settings override, else the template's. A template
+  // with a blank one would pass the blank on to this week, so fill it from
+  // the newest record that has one.
+  const tsPhone = cleanTimesheetPhone(cfg.timesheetPhone) || '';
+  const tsEmail = cleanTimesheetEmail(cfg.timesheetEmail) || '';
+  if (tsPhone) draft.phone = tsPhone;
   const needPhone = !draft.phone.trim();
-  const needEmail = !(cfg.timesheetEmail || draft.email).trim();
+  const needEmail = !(tsEmail || draft.email).trim();
   if (needPhone || needEmail) {
     const found = await recoverContact(t, s, { phone: needPhone, email: needEmail });
     draft.phone = draft.phone.trim() || found.phone;
     draft.email = draft.email.trim() || found.email;
   }
-  const Inputs = buildInputs(draft, dailyRate, {}, cfg.timesheetEmail || draft.email);
+  const Inputs = buildInputs(draft, dailyRate, {}, tsEmail || draft.email);
   const body = {
     request: {
       ApplicationKey: APP_KEY,
@@ -686,13 +723,12 @@ export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: 
     // don't have to compute them ourselves.
     const current = await getRecordExtended(t, s, week.recordId);
     const pt = current.PrimaryTable;
-    // Settings.timesheetEmail sets the address on the sheet: blank keeps SSW's
-    // stored iEmail, anything else replaces it. The day rate follows
+    // Phone and email: the Settings override (timesheetPhone, timesheetEmail),
+    // else this week's own, else what SSW now holds for it, else the newest
+    // record that has them (see recoverContact). The day rate follows
     // saveDailyRate: an edit on this week, else base pay, else what SSW holds.
-    // Phone and email: this week's own, else what SSW now holds for it, else
-    // the newest record that has them (see recoverContact).
-    let phone = (week.phone || String(pt.iPhone || '')).trim();
-    let emailForSave = (cfg.timesheetEmail || week.email || String(pt.iEmail || '')).trim();
+    let phone = (cleanTimesheetPhone(cfg.timesheetPhone) || week.phone || String(pt.iPhone || '')).trim();
+    let emailForSave = (cleanTimesheetEmail(cfg.timesheetEmail) || week.email || String(pt.iEmail || '')).trim();
     if (!phone || !emailForSave) {
       const found = await recoverContact(t, s, { phone: !phone, email: !emailForSave });
       phone = phone || found.phone;

@@ -55,6 +55,8 @@ const api: Api = {
       ipcRenderer.invoke('ssw:createWeek', weekStartDate) as Promise<SswWeek | null>,
     pushWeek: (week) =>
       ipcRenderer.invoke('ssw:pushWeek', week) as Promise<SswPushResult>,
+    recentContact: () =>
+      ipcRenderer.invoke('ssw:recentContact') as Promise<{ phone: string; email: string }>,
   },
   logo: {
     forJob: (jobName) => ipcRenderer.invoke('logo:forJob', jobName) as Promise<string | null>,

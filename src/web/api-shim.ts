@@ -22,6 +22,7 @@ import {
 } from '../shared/expense-logic';
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
 import { cleanAirportCode } from '../shared/airports';
+import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import { parseItinerary } from '../shared/flight-itinerary';
 import { withSplit } from '../shared/hours';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
@@ -80,6 +81,16 @@ function dropFriendsIfEmailChanged(newEmail: string): void {
     lsRemove(K.friendsAvatar);
     lsRemove(K.identity);           // their name/ID, not yours
     lsRemove(K.sswWeeks);           // their timesheets, not yours
+    forgetTimesheetContact();       // your phone and email, not theirs
+  }
+}
+
+// The timesheet phone and email overrides belong to whoever is logged in: the
+// next person's saves would otherwise put them on their timesheets.
+function forgetTimesheetContact(): void {
+  const stored = readJson<Partial<UserSettings>>(K.settings, {});
+  if (stored.timesheetEmail || stored.timesheetPhone) {
+    writeJson(K.settings, { ...stored, timesheetEmail: '', timesheetPhone: '' });
   }
 }
 function readJson<T>(key: string, fallback: T): T {
@@ -268,6 +279,7 @@ const DEFAULT_SETTINGS: UserSettings = {
   autofillPerDiem: true,
   defaultDailyRate: 0,
   timesheetEmail: '',
+  timesheetPhone: '',
   theme: 'constellation',
   basePayDayRate: 0,
   subtractTaxes: false,
@@ -315,10 +327,10 @@ function applySettingsPatch(patch: Partial<UserSettings>): UserSettings {
   if (typeof patch?.defaultEndTime === 'string') allowed.defaultEndTime = patch.defaultEndTime.trim();
   if (typeof patch?.autofillPerDiem === 'boolean') allowed.autofillPerDiem = patch.autofillPerDiem;
   if (nonNegative(patch?.defaultDailyRate)) allowed.defaultDailyRate = patch.defaultDailyRate;
-  if (typeof patch?.timesheetEmail === 'string') {
-    const e = patch.timesheetEmail.trim();
-    if (!e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) allowed.timesheetEmail = e.slice(0, 120);
-  }
+  const tsEmail = cleanTimesheetEmail(patch?.timesheetEmail);
+  if (tsEmail !== null) allowed.timesheetEmail = tsEmail;
+  const tsPhone = cleanTimesheetPhone(patch?.timesheetPhone);
+  if (tsPhone !== null) allowed.timesheetPhone = tsPhone;
   if (typeof patch?.theme === 'string' && patch.theme.trim()) allowed.theme = patch.theme.trim();
   if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate;
   if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
@@ -754,7 +766,7 @@ function requireSsw(): { email: string; password: string } {
   return { email, password };
 }
 
-function sswCfg(): { defaultDailyRate: number; timesheetEmail: string } {
+function sswCfg(): { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string } {
   const s = getSettings();
   // Base pay, with the legacy field winning if an old profile still carries it.
   // New weeks start at it, and every save writes it unless the week's rate was
@@ -762,7 +774,12 @@ function sswCfg(): { defaultDailyRate: number; timesheetEmail: string } {
   const dayRate = s.defaultDailyRate > 0
     ? s.defaultDailyRate
     : (s.basePayDayRate > 0 ? s.basePayDayRate : 0);
-  return { defaultDailyRate: dayRate, timesheetEmail: s.timesheetEmail };
+  return {
+    defaultDailyRate: dayRate,
+    // The email and phone overrides; '' keeps what SSW has on each week.
+    timesheetEmail: cleanTimesheetEmail(s.timesheetEmail) || '',
+    timesheetPhone: cleanTimesheetPhone(s.timesheetPhone) || '',
+  };
 }
 
 function unwrapWeek(r: unknown): SswWeek | null {
@@ -1171,6 +1188,7 @@ const api: Api = {
       lsRemove(K.identity);
       lsRemove(K.friendsAvatar);
       lsRemove(K.sswWeeks);
+      forgetTimesheetContact();
     },
     setSswSkipped: async (skipped) => {
       if (skipped) lsSet(K.sswSkipped, '1');
@@ -1257,6 +1275,14 @@ const api: Api = {
         // Desktop pushWeek resolves with the error union rather than throwing.
         return { ok: false, error: errMsg(e) };
       }
+    },
+    recentContact: async () => {
+      const { email, password } = requireSsw();
+      const r = await postJson<{ phone?: unknown; email?: unknown } | null>('/v1/ssw/contact', { email, password });
+      return {
+        phone: typeof r?.phone === 'string' ? r.phone : '',
+        email: typeof r?.email === 'string' ? r.email : '',
+      };
     },
   },
 

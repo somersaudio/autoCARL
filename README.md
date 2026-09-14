@@ -21,7 +21,8 @@ writes your timesheet to SSW, so neither has to be filled in by hand.
 2. **Bookings:** cached-first list with background refresh, show logos, flight
    itineraries, venue and per-diem lookup.
 3. **Timesheet:** week editor that reads and writes SSW, with GSA per-diem
-   autofill.
+   autofill. The bottom of the tab shows the phone and email each save puts on
+   the timesheet; tap either one to change it for every save.
 4. **Earnings:** projects what an upcoming gig is worth — take-home and per
    diem — from your day rate and tax profile. That day rate is also what your
    timesheets save with; to save one week at a different rate, tap its Daily

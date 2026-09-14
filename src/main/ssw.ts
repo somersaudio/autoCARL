@@ -2,6 +2,7 @@ import { net, session } from 'electron';
 import { readConfig, writeSswWeek } from './store';
 import { getSswPassword } from './credentials';
 import { withSplit } from '../shared/hours';
+import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import type { SswDay, SswPushResult, SswWeek } from '../shared/types';
 
 const SSW = 'https://ctts.ctus.com/SpreadsheetWeb';
@@ -444,6 +445,12 @@ async function recoverContact(need: { phone: boolean; email: boolean }): Promise
   }, need);
 }
 
+// The phone and email a save copies onto a week SSW holds blank, for the
+// Timesheet tab to show before saving.
+export async function recentContact(): Promise<{ phone: string; email: string }> {
+  return withSession(() => recoverContact({ phone: true, email: true }));
+}
+
 export async function fetchWeek(weekStartDate: string): Promise<SswWeek | null> {
   return withSession(async () => {
     const recordId = await findRecordIdForWeek(weekStartDate);
@@ -774,16 +781,20 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
 
     // 3. POST Calculate with Save:true and no RecordId — SSW inserts a new row
     //    and returns the new RecordId in oRecordId.
-    // A template with a blank phone or email would pass the blanks on to this
-    // week; fill them from the newest record that has them.
+    // Phone and email: the Settings override, else the template's. A template
+    // with a blank one would pass the blank on to this week, so fill it from
+    // the newest record that has one.
+    const tsPhone = cleanTimesheetPhone(cfg.timesheetPhone) || '';
+    const tsEmail = cleanTimesheetEmail(cfg.timesheetEmail) || '';
+    if (tsPhone) draft.phone = tsPhone;
     const needPhone = !draft.phone.trim();
-    const needEmail = !(cfg.timesheetEmail || draft.email).trim();
+    const needEmail = !(tsEmail || draft.email).trim();
     if (needPhone || needEmail) {
       const found = await recoverContact({ phone: needPhone, email: needEmail });
       draft.phone = draft.phone.trim() || found.phone;
       draft.email = draft.email.trim() || found.email;
     }
-    const Inputs = buildInputs(draft, dailyRate, {}, cfg.timesheetEmail || draft.email);
+    const Inputs = buildInputs(draft, dailyRate, {}, tsEmail || draft.email);
     const body = {
       request: {
         ApplicationKey: APP_KEY,
@@ -839,13 +850,12 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       const current = await getRecordExtended(week.recordId);
       const pt = current.PrimaryTable;
       const cfg = await readConfig();
-      // Settings.timesheetEmail sets the address on the sheet: blank keeps SSW's
-      // stored iEmail, anything else replaces it. The day rate follows
+      // Phone and email: the Settings override (timesheetPhone, timesheetEmail),
+      // else this week's own, else what SSW now holds for it, else the newest
+      // record that has them (see recoverContact). The day rate follows
       // saveDailyRate: an edit on this week, else base pay, else what SSW holds.
-      // Phone and email: this week's own, else what SSW now holds for it, else
-      // the newest record that has them (see recoverContact).
-      let phone = (week.phone || String(pt.iPhone || '')).trim();
-      let emailForSave = (cfg.timesheetEmail || week.email || String(pt.iEmail || '')).trim();
+      let phone = (cleanTimesheetPhone(cfg.timesheetPhone) || week.phone || String(pt.iPhone || '')).trim();
+      let emailForSave = (cleanTimesheetEmail(cfg.timesheetEmail) || week.email || String(pt.iEmail || '')).trim();
       if (!phone || !emailForSave) {
         const found = await recoverContact({ phone: !phone, email: !emailForSave });
         phone = phone || found.phone;

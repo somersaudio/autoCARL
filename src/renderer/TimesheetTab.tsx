@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Booking, BookingContactsCache, SswDay, SswWeek, UserSettings } from '../shared/types';
 import { friendlyError } from '../shared/errors';
 import { ctSplit } from '../shared/hours';
+import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import WeekPicker from './WeekPicker';
 
 type Props = {
@@ -17,11 +18,13 @@ type Props = {
   defaultStartTime: string;
   defaultEndTime: string;
   autofillPerDiem: boolean;
-  // Settings override for the address submitted on the sheet; '' = whatever
-  // SSW has stored. Shown in the identity panel so what you see is what saves.
-  timesheetEmail: string;
-  // Base pay: the rate every save writes unless the rate is edited in that save.
-  settings: Pick<UserSettings, 'basePayDayRate' | 'defaultDailyRate'>;
+  // Base pay (the rate every save writes unless it's edited in that save) and
+  // the email and phone overrides ('' = whatever SSW has stored), shown in the
+  // identity panel so what you see is what saves.
+  settings: Pick<UserSettings, 'basePayDayRate' | 'defaultDailyRate' | 'timesheetEmail' | 'timesheetPhone'>;
+  // Sets or clears the email or phone override; resolves with the settings as
+  // stored, so the panel can confirm the change took.
+  onSetContact: (patch: Partial<Pick<UserSettings, 'timesheetEmail' | 'timesheetPhone'>>) => Promise<UserSettings>;
   onOpenSettings: () => void;
 };
 
@@ -197,9 +200,12 @@ function weekTotals(days: SswDay[]) {
   );
 }
 
+// The phone and email a save copies onto a week SSW holds blank.
+type RecentContact = { phone: string; email: string };
+
 export default function TimesheetTab({
   bookings, contacts, weekMonday, onWeekChange, week, loading, error, onLocalEdit, onReload,
-  defaultStartTime, defaultEndTime, autofillPerDiem, timesheetEmail, settings, onOpenSettings,
+  defaultStartTime, defaultEndTime, autofillPerDiem, settings, onSetContact, onOpenSettings,
 }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -232,6 +238,8 @@ export default function TimesheetTab({
     const result = await window.api.ssw.pushWeek(week);
     setSaving(false);
     if (result.ok) {
+      // The save may have put a phone or email on a newer timesheet.
+      forgetRecent();
       setSavedFlash(true);
       if (flashTimer.current) clearTimeout(flashTimer.current);
       flashTimer.current = setTimeout(() => setSavedFlash(false), 3000);
@@ -247,6 +255,29 @@ export default function TimesheetTab({
   // The rate a save writes unless it's edited in that save: base pay, with the
   // legacy General field winning if an old profile carries one (saveDailyRate).
   const configuredRate = settings.defaultDailyRate > 0 ? settings.defaultDailyRate : settings.basePayDayRate;
+
+  // A week SSW holds with no phone or email, and no override to cover it, gets
+  // them from the user's earlier timesheets on save. Look those up so the
+  // panel can show what will go in. The lookup walks SSW records, so it runs
+  // only when a week needs it and only once the live week has loaded: that
+  // copy may already have both, and on desktop two requests meeting an
+  // expired SSW session would each log in again. It lives with the tab, so
+  // logging out drops it, and a save or a new week (either can change what
+  // the newest timesheets hold) forgets it.
+  const needsRecent = !!week && !isLocked && (
+    (!settings.timesheetPhone && !(week.phone || '').trim())
+    || (!settings.timesheetEmail && !(week.email || '').trim()));
+  const [recent, setRecent] = useState<RecentContact | 'failed' | 'pending' | null>(null);
+  const recentAsk = useRef(0);
+  const forgetRecent = () => { recentAsk.current += 1; setRecent(null); };
+  useEffect(() => {
+    if (!needsRecent || loading || recent) return;
+    const ask = ++recentAsk.current;
+    setRecent('pending');
+    window.api.ssw.recentContact()
+      .then((r) => { if (ask === recentAsk.current) setRecent(r); })
+      .catch(() => { if (ask === recentAsk.current) setRecent('failed'); });
+  }, [needsRecent, loading, recent]);
 
   // The 3 most recently-ended past bookings, so the user can charge time to a
   // show that wrapped a few days ago (cleanup, post-show paperwork, etc.).
@@ -301,7 +332,7 @@ export default function TimesheetTab({
         <CreateWeekCard
           weekMonday={weekMonday}
           bookings={bookings}
-          onCreated={() => onReload()}
+          onCreated={() => { forgetRecent(); onReload(); }}
         />
       )}
 
@@ -335,11 +366,14 @@ export default function TimesheetTab({
           )}
 
           <IdentityPanel
+            key={week.weekStartDate}
             week={week}
-            timesheetEmail={timesheetEmail}
             locked={isLocked}
             configuredRate={configuredRate}
+            overrides={{ phone: settings.timesheetPhone, email: settings.timesheetEmail }}
+            recent={recent === 'pending' ? 'loading' : recent ?? (needsRecent ? 'loading' : null)}
             onRateChange={(rate) => { if (week) onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true }); }}
+            onSetContact={onSetContact}
           />
         </div>
       )}
@@ -399,8 +433,9 @@ function CreateWeekCard({ weekMonday, bookings, onCreated }: {
       <h3>No timesheet for this week yet</h3>
       <p className="subtle" style={{ marginTop: 0 }}>
         SSW doesn't have a record for the week of <b>{friendlyDate}</b>. Create one now —
-        we'll copy your identity info (name, email, position, group) from your most recent
-        timesheet, start the Daily Rate at your base pay (or that timesheet's rate if base pay
+        we'll copy your name, position and group from your most recent timesheet, put on the
+        email and phone from your settings (or else that timesheet's, or your newest one that
+        has them), start the Daily Rate at your base pay (or that timesheet's rate if base pay
         isn't set), and the app will autofill the days from your CARL bookings.
       </p>
       {err && <div className="banner error" style={{ marginTop: 8 }}>{err}</div>}
@@ -528,15 +563,45 @@ function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, auto
 }
 
 // Per-user identity fields AUTOcarl pulls from SSW and submits on every save,
-// so the user can see exactly what's attached to their timesheet. The Daily
-// Rate is the one editable field. It shows the rate a save will write: an
-// edit in progress, else base pay (a submitted week shows what was
-// submitted). An edit applies to that save only. Each day's hourly is the
-// rate / 11, the way SSW's Copy button fans it out.
-function IdentityPanel({ week, timesheetEmail, locked, configuredRate, onRateChange }: {
-  week: SswWeek; timesheetEmail: string; locked: boolean; configuredRate: number;
+// so the user can see exactly what's attached to their timesheet. Email, Phone
+// and Daily Rate can be tapped and changed, and each shows what a save will
+// write (a submitted week shows what was submitted):
+//  - Email and Phone: the Settings override, else the week's own, else the
+//    newest earlier timesheet's, which a save copies onto a blank week. A
+//    change here sets the override, so every later save uses it.
+//  - Daily Rate: an edit in progress, else base pay. An edit applies to that
+//    save only. Each day's hourly is the rate / 11, the way SSW's Copy button
+//    fans it out.
+type RecentState = RecentContact | 'failed' | 'loading' | null;
+type ContactKind = 'email' | 'phone';
+type ContactOnSave = { value: string; source: 'override' | 'week' | 'earlier' | 'none'; stored: string };
+
+const CONTACT_KINDS: ContactKind[] = ['email', 'phone'];
+const CONTACT_LABEL: Record<ContactKind, string> = { email: 'Email', phone: 'Phone' };
+const CONTACT_NOUN: Record<ContactKind, string> = { email: 'email', phone: 'phone number' };
+
+function contactOnSave(
+  kind: ContactKind, week: SswWeek, locked: boolean, override: string, recent: RecentState,
+): ContactOnSave {
+  const stored = String(week[kind] || '').trim();
+  if (locked) return { value: stored, source: stored ? 'week' : 'none', stored };
+  if (override) return { value: override, source: 'override', stored };
+  if (stored) return { value: stored, source: 'week', stored };
+  const earlier = recent && typeof recent === 'object' ? String(recent[kind] || '').trim() : '';
+  return { value: earlier, source: earlier ? 'earlier' : 'none', stored };
+}
+
+function IdentityPanel({ week, locked, configuredRate, overrides, recent, onRateChange, onSetContact }: {
+  week: SswWeek; locked: boolean; configuredRate: number;
+  overrides: Record<ContactKind, string>;
+  recent: RecentState;
   onRateChange: (rate: string) => void;
+  onSetContact: (patch: Partial<Pick<UserSettings, 'timesheetEmail' | 'timesheetPhone'>>) => Promise<UserSettings>;
 }) {
+  // What the last Email or Phone change here did, for the line under the panel.
+  // It shows only while that override still holds what was set here, so a
+  // change made in Settings retires it.
+  const [notice, setNotice] = useState<{ kind: ContactKind; value: string; what: 'set' | 'cleared' | 'kept' } | null>(null);
   const rows = (pairs: Array<[string, string]>) => pairs
     .filter(([, v]) => v && String(v).trim() !== '')
     .map(([k, v]) => (
@@ -545,6 +610,28 @@ function IdentityPanel({ week, timesheetEmail, locked, configuredRate, onRateCha
         <span className="identity-val">{v}</span>
       </div>
     ));
+  const contact: Record<ContactKind, ContactOnSave> = {
+    email: contactOnSave('email', week, locked, overrides.email, recent),
+    phone: contactOnSave('phone', week, locked, overrides.phone, recent),
+  };
+  const lookingUp = recent === 'loading';
+  const setContact = async (kind: ContactKind, value: string): Promise<boolean> => {
+    // Clearing a value that isn't an override has nothing to remove, and a save
+    // never blanks what SSW has: say so rather than quietly putting it back.
+    if (!value && !overrides[kind]) {
+      setNotice({ kind, value, what: 'kept' });
+      return true;
+    }
+    try {
+      const next = await onSetContact(kind === 'phone' ? { timesheetPhone: value } : { timesheetEmail: value });
+      if ((kind === 'phone' ? next.timesheetPhone : next.timesheetEmail) !== value) return false;
+      setNotice({ kind, value, what: value ? 'set' : 'cleared' });
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const shown = notice && overrides[notice.kind] === notice.value ? notice : null;
   const stored = parseFloat(week.dailyRate);
   const storedOk = Number.isFinite(stored) && stored > 0;
   const saveRate = locked ? (storedOk ? stored : 0)
@@ -554,17 +641,33 @@ function IdentityPanel({ week, timesheetEmail, locked, configuredRate, onRateCha
   const hourly = saveRate > 0 ? saveRate / 11 : 0;
   const differs = !locked && !week.dailyRateEdited && storedOk && configuredRate > 0
     && Math.abs(stored - configuredRate) >= 0.005;
+  // Where the email and phone come from, for a week that can still be saved.
+  const overridden = locked ? [] : CONTACT_KINDS.filter((k) => contact[k].source === 'override'
+    && contact[k].stored !== '' && contact[k].stored !== contact[k].value
+    && !(shown && shown.what === 'set' && shown.kind === k));
+  const fromEarlier = locked ? [] : CONTACT_KINDS.filter((k) => contact[k].source === 'earlier');
+  const missing = locked || lookingUp ? [] : CONTACT_KINDS.filter((k) => contact[k].source === 'none');
+  const nouns = (kinds: ContactKind[]) => kinds.map((k) => CONTACT_NOUN[k]).join(' or ');
   return (
     <div className="identity-panel subtle">
       <div className="identity-panel-title">Submitted with this timesheet</div>
       <div className="identity-panel-grid">
-        {rows([
-          ['Name', week.name],
-          // The override wins on save, so show it here rather than SSW's stale copy.
-          ['Email', timesheetEmail || week.email],
-          ['Phone', week.phone],
-          ['Position', week.position],
-        ])}
+        {rows([['Name', week.name]])}
+        {CONTACT_KINDS.map((k) => (
+          <div className="identity-row" key={k}>
+            <span className="identity-key">{CONTACT_LABEL[k]}</span>
+            <span className="identity-val">
+              <ContactField
+                kind={k}
+                value={contact[k].value}
+                lookingUp={lookingUp && contact[k].source === 'none'}
+                locked={locked}
+                onCommit={(value) => setContact(k, value)}
+              />
+            </span>
+          </div>
+        ))}
+        {rows([['Position', week.position]])}
         <div className="identity-row">
           <span className="identity-key">Daily Rate</span>
           <span className="identity-val"><RateField key={`${week.recordId}-${week.weekStartDate}`} rate={saveRate} locked={locked} onChange={onRateChange} /></span>
@@ -575,6 +678,15 @@ function IdentityPanel({ week, timesheetEmail, locked, configuredRate, onRateCha
           ['User ID', week.userId],
         ])}
       </div>
+      {shown && (
+        <div className="rate-hint">
+          {shown.what === 'set'
+            ? `Saved to your settings. Every timesheet you save from now on uses this ${CONTACT_NOUN[shown.kind]}.`
+            : shown.what === 'cleared'
+              ? `Took the ${CONTACT_NOUN[shown.kind]} out of your settings. Each save now uses the one SSW has on that week, or your newest timesheet that has one.`
+              : `A save can't take the ${CONTACT_NOUN[shown.kind]} off your timesheet, so it stays. Type a different one to replace it.`}
+        </div>
+      )}
       {week.dailyRateEdited && hourly > 0 && (
         <div className="rate-hint">
           Tap Save to put ${saveRate.toFixed(2)} / day on this week (${hourly.toFixed(2)} an hour).
@@ -586,6 +698,26 @@ function IdentityPanel({ week, timesheetEmail, locked, configuredRate, onRateCha
         <div className="rate-note">
           SSW has ${stored.toFixed(2)} on this week. Saving puts ${configuredRate.toFixed(2)}, your base pay.
           Tap the rate to save this week at a different rate.
+        </div>
+      )}
+      {overridden.map((k) => (
+        <div className="rate-note" key={`override-${k}`}>
+          {`SSW has ${contact[k].stored} on this week. Saving puts ${contact[k].value}, the ${CONTACT_NOUN[k]} in your settings.`}
+        </div>
+      ))}
+      {fromEarlier.length > 0 && (
+        <div className="rate-note">
+          {fromEarlier.length > 1
+            ? `SSW has no ${nouns(fromEarlier)} on this week. Saving copies the ones shown from your newest timesheets that have them.`
+            : `SSW has no ${nouns(fromEarlier)} on this week. Saving copies the one shown from your newest timesheet that has one.`}
+        </div>
+      )}
+      {missing.length > 0 && (
+        <div className="rate-note">
+          {recent === 'failed'
+            ? `SSW has no ${nouns(missing)} on this week, and your earlier timesheets couldn't be checked just now.`
+            : `SSW has no ${nouns(missing)} on this week or your recent timesheets.`}
+          {` Tap ${missing.map((k) => CONTACT_LABEL[k]).join(' or ')} to add ${missing.length > 1 ? 'them' : 'one'}.`}
         </div>
       )}
     </div>
@@ -653,6 +785,88 @@ function RateField({ rate, locked, onChange }: {
       title={locked ? 'This week is submitted' : 'Change this week’s daily rate'}
     >
       {has ? `$${current.toFixed(2)} / day` : 'Not set'}
+      {!locked && <span className="rate-pencil" aria-hidden="true">✎</span>}
+    </button>
+  );
+}
+
+// Tap-to-edit email or phone. A change sets the Settings override, so every
+// later save uses it; clearing the field removes the override. Commits on
+// Enter or leaving the field; Escape cancels. Submitted weeks can't change.
+function ContactField({ kind, value, lookingUp, locked, onCommit }: {
+  kind: ContactKind; value: string; lookingUp: boolean; locked: boolean;
+  onCommit: (value: string) => Promise<boolean>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const [bad, setBad] = useState('');
+  const [busy, setBusy] = useState(false);
+  // Set when Escape or a finished commit closes the field, so the blur that
+  // removing a focused input can fire doesn't commit the draft again.
+  const closing = useRef(false);
+  const start = () => {
+    if (locked) return;
+    closing.current = false;
+    setDraft(value);
+    setBad('');
+    setEditing(true);
+  };
+  const close = () => {
+    closing.current = true;
+    setEditing(false);
+  };
+  const commit = async () => {
+    if (busy || closing.current) return;
+    const cleaned = kind === 'phone' ? cleanTimesheetPhone(draft) : cleanTimesheetEmail(draft);
+    if (cleaned === null) {
+      setBad(kind === 'phone'
+        ? 'Enter a phone number with 10 to 15 digits.'
+        : 'Enter an email address like name@example.com.');
+      return;
+    }
+    if (cleaned === value) { close(); return; }
+    setBusy(true);
+    const ok = await onCommit(cleaned);
+    setBusy(false);
+    if (ok) close();
+    else setBad(`That ${CONTACT_NOUN[kind]} didn't save. Try again.`);
+  };
+  if (editing) {
+    return (
+      <span className="contact-edit">
+        <input
+          className="contact-input"
+          type={kind === 'phone' ? 'tel' : 'email'}
+          inputMode={kind === 'phone' ? 'tel' : 'email'}
+          autoComplete={kind === 'phone' ? 'tel' : 'email'}
+          autoFocus
+          // Select the current value so typing a new one replaces it.
+          onFocus={(e) => e.currentTarget.select()}
+          value={draft}
+          readOnly={busy}
+          aria-label={`${CONTACT_LABEL[kind]} on your timesheets`}
+          onChange={(e) => { setDraft(e.target.value); setBad(''); }}
+          onBlur={() => { void commit(); }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') void commit();
+            if (e.key === 'Escape') { setBad(''); close(); }
+          }}
+        />
+        {bad && <span className="contact-bad">{bad}</span>}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`rate-value contact-value${locked ? ' is-locked' : ''}`}
+      onClick={start}
+      disabled={locked}
+      title={locked ? 'This week is submitted' : `Change the ${CONTACT_NOUN[kind]} on your timesheets`}
+    >
+      <span className={`contact-text${value ? '' : ' contact-empty'}`}>
+        {value || (lookingUp ? 'Looking up…' : 'Not set')}
+      </span>
       {!locked && <span className="rate-pencil" aria-hidden="true">✎</span>}
     </button>
   );

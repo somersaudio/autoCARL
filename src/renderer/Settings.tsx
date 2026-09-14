@@ -5,6 +5,7 @@ import { THEMES } from './themes';
 import PasswordInput from './PasswordInput';
 import { privateLinksFor } from './private-links';
 import { cleanAirportCode } from '../shared/airports';
+import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 
 type Props = {
   open: boolean;
@@ -36,6 +37,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const [end, setEnd] = useState('');
   const [autofillPerDiem, setAutofillPerDiem] = useState(true);
   const [tsEmail, setTsEmail] = useState('');      // empty string = use SSW's value
+  const [tsPhone, setTsPhone] = useState('');      // empty string = use SSW's value
   const [homeAirport, setHomeAirport] = useState('');
   const [theme, setTheme] = useState('default');
   const [busy, setBusy] = useState(false);
@@ -68,6 +70,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       setEnd(s.defaultEndTime);
       setAutofillPerDiem(s.autofillPerDiem);
       setTsEmail(s.timesheetEmail);
+      setTsPhone(s.timesheetPhone);
       setHomeAirport(s.homeAirport);
       setTheme(s.theme);
       setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
@@ -99,6 +102,10 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
 
   if (!open) return null;
 
+  // null = the entry can't be saved (see src/shared/contact.ts).
+  const tsEmailClean = cleanTimesheetEmail(tsEmail);
+  const tsPhoneClean = cleanTimesheetPhone(tsPhone);
+
   const flash = (tab: 'general' | 'earnings') =>
     setSavedFlash((f) => ({ tab, n: (f?.n ?? 0) + 1 }));
 
@@ -112,7 +119,8 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       // the one people mean) — saving here also clears any old stored SSW
       // override so it can't keep rewriting timesheets invisibly.
       defaultDailyRate: 0,
-      timesheetEmail: tsEmail.trim(),
+      ...(tsEmailClean === null ? {} : { timesheetEmail: tsEmailClean }),
+      ...(tsPhoneClean === null ? {} : { timesheetPhone: tsPhoneClean }),
       homeAirport: cleanAirportCode(homeAirport),
     });
     setBusy(false);
@@ -262,10 +270,38 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
             disabled={busy}
           />
         </div>
+        {tsEmailClean === null && (
+          <p style={{ marginTop: 4, fontSize: 12, color: 'var(--danger)' }}>
+            Enter an email address like name@example.com, or leave it blank.
+          </p>
+        )}
         <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
           Goes in the Email field of every timesheet you save. Leave it blank to keep
           whatever SSW already has on your record — this is separate from the address
           you log in with.
+        </p>
+        <div className="field" style={{ margin: '10px 0 0' }}>
+          <label>Phone on the timesheet</label>
+          <input
+            type="tel"
+            inputMode="tel"
+            autoComplete="tel"
+            value={tsPhone}
+            onChange={(e) => setTsPhone(e.target.value)}
+            placeholder={'leave blank to keep SSW\u2019s number'}
+            disabled={busy}
+          />
+        </div>
+        {tsPhoneClean === null && (
+          <p style={{ marginTop: 4, fontSize: 12, color: 'var(--danger)' }}>
+            Enter a phone number with 10 to 15 digits, or leave it blank.
+          </p>
+        )}
+        <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
+          Goes in the Phone field of every timesheet you save, as digits with the
+          country code, the way SSW stores it. Leave it blank to keep whatever SSW
+          already has. You can also tap Email or Phone at
+          the bottom of the Timesheet tab to change either one.
         </p>
         {/* No placeholder on the input: a sample code reads as a pre-filled
             default, and this ships blank for everyone until they set one. */}
@@ -287,7 +323,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           {savedFlash?.tab === 'general' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}
-          <button className="primary" onClick={saveDefaults} disabled={busy || !start || !end}>
+          <button className="primary" onClick={saveDefaults} disabled={busy || !start || !end || tsEmailClean === null || tsPhoneClean === null}>
             {busy ? 'Saving…' : 'Save'}
           </button>
         </div>

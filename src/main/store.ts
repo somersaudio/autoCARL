@@ -62,6 +62,9 @@ type Config = {
   // sswEmail, which is the LOGIN — some crew log in with one address and
   // want a different one on the paperwork.
   timesheetEmail: string;
+  // Phone submitted on the timesheet, digits only. '' = keep whatever SSW has
+  // stored (iPhone); anything else overwrites it on every save.
+  timesheetPhone: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // Earnings inputs. basePayDayRate is also the rate timesheets save with,
   // unless a week's rate is edited in that save.
@@ -107,6 +110,7 @@ const DEFAULT_CONFIG: Config = {
   autofillPerDiem: true,
   defaultDailyRate: 0,
   timesheetEmail: '',
+  timesheetPhone: '',
   theme: 'constellation',
   basePayDayRate: 0,
   subtractTaxes: false,

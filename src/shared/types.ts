@@ -23,9 +23,12 @@ export type UserSettings = {
   defaultEndTime: string;    // e.g. '6:00 pm'
   autofillPerDiem: boolean;  // when false, the app leaves per-diem empty for the user to fill manually
   defaultDailyRate: number;  // legacy; Settings saves clear it to 0. When >0 it stands in for basePayDayRate as the timesheet rate (see saveDailyRate)
-  // Email that goes onto the timesheet. '' = keep SSW's stored address;
-  // anything else overwrites it on every save. Not the login address.
+  // Email and phone that go onto the timesheet. '' = keep what SSW has on each
+  // week; anything else overwrites it on every save. Set in Settings or by
+  // tapping them at the bottom of the Timesheet tab (see src/shared/contact.ts).
+  // timesheetEmail is not the login address; timesheetPhone is digits only.
   timesheetEmail: string;
+  timesheetPhone: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // ----- earnings -----
   // Your day rate. It feeds the paycheck projection and is the rate timesheets
@@ -387,6 +390,11 @@ export type Api = {
     createWeek: (weekStartDate: string) => Promise<SswWeek | null>;
     // Saves a modified week. Builds the 169-input Calculate payload from this.
     pushWeek: (week: SswWeek) => Promise<SswPushResult>;
+    // The phone and email on the user's newest timesheets that have them
+    // (either can be ''): what a save copies onto a week SSW holds blank, so
+    // the Timesheet tab can show them first. Walks SSW records; call it only
+    // when a week needs it.
+    recentContact: () => Promise<{ phone: string; email: string }>;
   };
   logo: {
     forJob: (jobName: string) => Promise<string | null>;

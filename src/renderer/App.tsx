@@ -39,7 +39,7 @@ export default function App() {
   const [version, setVersion] = useState<string>('');
   const [settings, setSettings] = useState<UserSettings>({
     defaultStartTime: '8:00 am', defaultEndTime: '6:00 pm', autofillPerDiem: true,
-    defaultDailyRate: 0, timesheetEmail: '', theme: 'constellation',
+    defaultDailyRate: 0, timesheetEmail: '', timesheetPhone: '', theme: 'constellation',
     basePayDayRate: 0, subtractTaxes: false, perDiemInTotal: true, otInTotal: false, homeAirport: '', retirementPct: 0,
     filingStatus: 'single', ytdWages: 0, ytdAsOf: '', expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0, gigDayRates: {},
   });
@@ -70,6 +70,14 @@ export default function App() {
     window.api.app.getVersion().then(setVersion).catch(() => {});
     window.api.settings.get().then(setSettings).catch(() => {});
   }, []);
+
+  // Logging out clears the timesheet phone and email overrides, so read the
+  // settings again each time the app is set up; otherwise the next person's
+  // Timesheet tab would still show the last person's until a restart.
+  useEffect(() => {
+    if (status?.stage !== 'ready') return;
+    window.api.settings.get().then(setSettings).catch(() => {});
+  }, [status?.stage]);
 
   // -------- auto-update progress overlay --------
   useEffect(() => window.api.updater.onProgress(setUpdateProgress), []);
@@ -155,6 +163,15 @@ export default function App() {
       else next[id] = rate;
     }
     setSettings(await window.api.settings.update({ gigDayRates: next }));
+  };
+
+  // Tapping Email or Phone at the bottom of the Timesheet tab sets the same
+  // override as the Settings fields. Resolves with the stored settings so the
+  // tab can confirm the change took.
+  const setTimesheetContact = async (patch: Partial<Pick<UserSettings, 'timesheetEmail' | 'timesheetPhone'>>) => {
+    const next = await window.api.settings.update(patch);
+    setSettings(next);
+    return next;
   };
 
   const refreshBookings = async () => {
@@ -348,8 +365,8 @@ export default function App() {
           defaultStartTime={settings.defaultStartTime}
           defaultEndTime={settings.defaultEndTime}
           autofillPerDiem={settings.autofillPerDiem}
-          timesheetEmail={settings.timesheetEmail}
           settings={settings}
+          onSetContact={setTimesheetContact}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       )}

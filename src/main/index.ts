@@ -24,7 +24,7 @@ import {
   friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
   friendsRemove, friendsSetAvatar, friendsSetName, friendsSignOut, publishScheduleQuietly,
 } from './friends';
-import { createWeek, fetchIdentity, fetchWeek, pushWeek, testSswLogin } from './ssw';
+import { createWeek, fetchIdentity, fetchWeek, pushWeek, recentContact, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
 import {
   addReceiptFiles, buildDraftReport, exportReport, mailReport, openReceipt, pickReceiptFiles,
@@ -36,6 +36,7 @@ import type {
 } from '../shared/types';
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
 import { cleanAirportCode } from '../shared/airports';
+import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import { friendlyError } from '../shared/errors';
 
 const isDev = !app.isPackaged;
@@ -422,6 +423,7 @@ function toUserSettings(cfg: Awaited<ReturnType<typeof readConfig>>): UserSettin
     autofillPerDiem: cfg.autofillPerDiem,
     defaultDailyRate: cfg.defaultDailyRate,
     timesheetEmail: cfg.timesheetEmail,
+    timesheetPhone: cfg.timesheetPhone,
     theme: cfg.theme,
     basePayDayRate: cfg.basePayDayRate,
     subtractTaxes: cfg.subtractTaxes,
@@ -491,12 +493,15 @@ function registerIpc(): void {
     // Friends identity follows the CARL login: a reset may be a handoff to a
     // different person, so drop the token too. Auto sign-on re-binds the
     // right identity (same account for the same email) on the next visit.
-    // Who-you-are caches go too (a different person may log in next);
-    // expense receipts and reports deliberately survive logout.
+    // Who-you-are caches go too (a different person may log in next), and so
+    // do the timesheet phone and email, or that person's saves would put
+    // yours on their timesheets. Expense receipts and reports deliberately
+    // survive logout.
     await updateConfig({
       carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '',
       friendsSignedOut: false, sswSkipped: false,
       identityName: '', identityUserId: '', friendsAvatar: '',
+      timesheetEmail: '', timesheetPhone: '',
     });
   });
 
@@ -568,6 +573,7 @@ function registerIpc(): void {
   ipcMain.handle('ssw:fetchWeek', (_e, weekStartDate: string) => fetchWeek(weekStartDate));
   ipcMain.handle('ssw:createWeek', (_e, weekStartDate: string) => createWeek(weekStartDate));
   ipcMain.handle('ssw:pushWeek', (_e, week: SswWeek) => pushWeek(week));
+  ipcMain.handle('ssw:recentContact', () => recentContact());
 
   // ---- expense reports ----
   ipcMain.handle('expenses:getCached', () => readExpensesCache());
@@ -610,12 +616,12 @@ function registerIpc(): void {
     if (typeof patch?.defaultEndTime === 'string') allowed.defaultEndTime = patch.defaultEndTime.trim();
     if (typeof patch?.autofillPerDiem === 'boolean') allowed.autofillPerDiem = patch.autofillPerDiem;
     if (nonNegative(patch?.defaultDailyRate)) allowed.defaultDailyRate = patch.defaultDailyRate as number;
-    // '' clears the override; otherwise it must look like an email, since
-    // this value lands in SSW's own record on the next save.
-    if (typeof patch?.timesheetEmail === 'string') {
-      const e = patch.timesheetEmail.trim();
-      if (!e || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) allowed.timesheetEmail = e.slice(0, 120);
-    }
+    // '' clears an override; anything else has to pass the same check as the
+    // Timesheet tab, since the value lands in SSW's record on every save.
+    const tsEmail = cleanTimesheetEmail(patch?.timesheetEmail);
+    if (tsEmail !== null) allowed.timesheetEmail = tsEmail;
+    const tsPhone = cleanTimesheetPhone(patch?.timesheetPhone);
+    if (tsPhone !== null) allowed.timesheetPhone = tsPhone;
     if (typeof patch?.theme === 'string' && patch.theme.trim()) allowed.theme = patch.theme.trim();
     if (nonNegative(patch?.basePayDayRate)) allowed.basePayDayRate = patch.basePayDayRate as number;
     if (typeof patch?.subtractTaxes === 'boolean') allowed.subtractTaxes = patch.subtractTaxes;
@@ -673,6 +679,7 @@ function registerIpc(): void {
         await updateConfig({
           friendsToken: '', friendsName: '', friendsAvatar: '',
           identityName: '', identityUserId: '',
+          timesheetEmail: '', timesheetPhone: '',
         });
       }
       await saveCarlPassword(cleanEmail, password);

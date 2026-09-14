@@ -274,6 +274,18 @@ async function readBody(req: Request): Promise<Body> {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
+// The timesheet settings a client sends with a create or save. The phone and
+// email overrides pass the same check as in the apps; a build from before the
+// phone override sends none, which reads as no override.
+function sswCfgOf(raw: unknown): ssw.SswCfg {
+  const cfg = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    defaultDailyRate: typeof cfg.defaultDailyRate === 'number' ? cfg.defaultDailyRate : 0,
+    timesheetEmail: ssw.cleanTimesheetEmail(cfg.timesheetEmail) || '',
+    timesheetPhone: ssw.cleanTimesheetPhone(cfg.timesheetPhone) || '',
+  };
+}
+
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
     const url = new URL(req.url);
@@ -363,23 +375,25 @@ export default {
       }
       if (path === '/v1/ssw/create') {
         const b = await readBody(req);
-        const cfg = (b.cfg ?? {}) as { defaultDailyRate?: number; timesheetEmail?: string };
+        const cfg = sswCfgOf(b.cfg);
         const week = await withSsw(env, str(b.email), str(b.password), (t, s) =>
-          ssw.createWeek(t, s, str(b.weekMonday), {
-            defaultDailyRate: typeof cfg.defaultDailyRate === 'number' ? cfg.defaultDailyRate : 0,
-            timesheetEmail: str(cfg.timesheetEmail),
-          }));
+          ssw.createWeek(t, s, str(b.weekMonday), cfg));
         return json(req, week);
       }
       if (path === '/v1/ssw/save') {
         const b = await readBody(req);
-        const cfg = (b.cfg ?? {}) as { defaultDailyRate?: number; timesheetEmail?: string };
+        const cfg = sswCfgOf(b.cfg);
         const result = await withSsw(env, str(b.email), str(b.password), (t, s) =>
-          ssw.pushWeek(t, s, b.week as never, {
-            defaultDailyRate: typeof cfg.defaultDailyRate === 'number' ? cfg.defaultDailyRate : 0,
-            timesheetEmail: str(cfg.timesheetEmail),
-          }));
+          ssw.pushWeek(t, s, b.week as never, cfg));
         return json(req, result);
+      }
+      // The phone and email on the user's newest timesheets that have them:
+      // what a save copies onto a week SSW holds blank.
+      if (path === '/v1/ssw/contact') {
+        const b = await readBody(req);
+        const contact = await withSsw(env, str(b.email), str(b.password), (t, s) =>
+          ssw.recoverContact(t, s, { phone: true, email: true }));
+        return json(req, contact);
       }
 
       // ---- receipt OCR (web expenses; desktop runs Apple Vision locally) ----
