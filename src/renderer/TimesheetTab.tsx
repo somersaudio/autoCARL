@@ -133,11 +133,15 @@ function applyAutofill(
     return next;
   });
   // Sync the week-level identity (position, PM, LC) to whichever show is
-  // primary — i.e. the first past/today day with a job set. SSW only stores
-  // one PM/LC/position per week, and they're inherited from the prior saved
-  // week by default, so without this sync the UI shows stale fields from
-  // last week's show even after the user has switched to a new one.
-  const primaryJob = days.find((d) => !!d.job && parseISO(d.date).getTime() <= today)?.job;
+  // primary. SSW only stores one PM/LC/position per week, and a new week
+  // inherits them from the previous timesheet, so without this sync the UI
+  // shows last week's people even though this week is a different show.
+  // The primary show is the first worked (past or today) day with a job. A
+  // week created ahead of its gig has only upcoming days, so it falls back to
+  // the first upcoming day's show; otherwise a brand-new week kept the old
+  // PM and LC on screen until one of its days had passed.
+  const primaryJob = days.find((d) => !!d.job && parseISO(d.date).getTime() <= today)?.job
+    ?? days.find((d) => !!d.job)?.job;
   let position = week.position;
   let projectManager = week.projectManager;
   let laborCoordinator = week.laborCoordinator;
