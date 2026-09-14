@@ -814,6 +814,9 @@ function RunnerIcon({ size }: { size: number }) {
 const ICON_MAX_SIDE = 288;
 const ICON_SMALL_SIDE = 128;
 const ICON_BUDGET = 150_000;   // characters of data URI
+// An icon this small or smaller is pixel art (a classic AIM icon is about
+// 48px) and has no bigger copy anywhere; see BuddyIcon.
+const PIXEL_ART_MAX = 64;
 
 function stillIconDataUri(bmp: ImageBitmap): string {
   const draw = (side: number, white: boolean): HTMLCanvasElement => {
@@ -877,7 +880,26 @@ function BuddyIcon({ src, name, seed, preview = false, profile = false }: {
 }) {
   const cls = profile ? 'aim-avatar-profile' : preview ? 'aim-avatar-preview' : 'aim-buddy-avatar';
   const alt = preview ? 'Your buddy icon' : profile ? `${name}'s buddy icon` : '';
-  if (src) return <img className={cls} src={src} alt={alt} />;
+  // Buddy Info blows an icon up to about 96px. Smoothing turns a classic
+  // 50px AIM icon to mush at that size, and no sharper copy exists, so a
+  // pixel-art-sized icon is drawn with hard pixels at a whole-number scale
+  // instead: 50px shows at 100px, each source pixel an even 2x2 block.
+  const [pixelArt, setPixelArt] = useState<{ src: string; size: number } | null>(null);
+  if (src) {
+    const pixelSize = pixelArt && pixelArt.src === src ? pixelArt.size : null;
+    return (
+      <img
+        className={`${cls}${pixelSize ? ' is-pixel-art' : ''}`}
+        src={src}
+        alt={alt}
+        style={pixelSize ? { width: pixelSize, height: pixelSize } : undefined}
+        onLoad={profile ? (e) => {
+          const n = Math.max(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight);
+          if (n > 0 && n <= PIXEL_ART_MAX) setPixelArt({ src, size: n * Math.max(2, Math.round(96 / n)) });
+        } : undefined}
+      />
+    );
+  }
   const letter = (name.match(/[A-Za-z0-9]/)?.[0] || seed.match(/[A-Za-z0-9]/)?.[0] || '?').toUpperCase();
   return (
     <span

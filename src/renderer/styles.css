@@ -2742,6 +2742,15 @@ a.featured-venue:hover .featured-venue-name {
   flex-shrink: 0;
 }
 .aim-avatar-profile.aim-icon-default { font-size: 52px; }
+/* A small icon enlarged in Buddy Info keeps hard pixel edges (see BuddyIcon).
+   Its size is the picture's own, border outside it, so every source pixel
+   stays an even block; the last image-rendering a browser understands wins. */
+.aim-avatar-profile.is-pixel-art {
+  box-sizing: content-box;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: crisp-edges;
+  image-rendering: pixelated;
+}
 .aim-buddy-info-name { font-size: 16px; font-weight: bold; color: #000; overflow-wrap: anywhere; }
 .aim-buddy-info-away { margin-top: 4px; color: #555; font-size: 12px; font-style: italic; }
 .aim-buddy-info-gigs { margin: 0 14px 4px; max-height: 40vh; overflow-y: auto; }
