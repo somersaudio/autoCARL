@@ -63,8 +63,8 @@ type Config = {
   // want a different one on the paperwork.
   timesheetEmail: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
-  // Earnings inputs. basePayDayRate also starts every new timesheet week and
-  // fills a week SSW holds at 0 (see saveDailyRate in ssw.ts).
+  // Earnings inputs. basePayDayRate is also the rate timesheets save with,
+  // unless the week's show has its own rate in gigDayRates.
   basePayDayRate: number;    // day rate for projections; 0 = unset, estimate hidden
   subtractTaxes: boolean;    // show after-tax take-home as well as gross
   perDiemInTotal: boolean;   // estimator: fold per diem into the deposit figure

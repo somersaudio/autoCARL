@@ -335,8 +335,9 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         {tab === 'earnings' && (<>
         <p className="subtle" style={{ marginTop: 18, fontSize: 12 }}>
           Your base pay, used to project what an upcoming gig is worth. It's also
-          the day rate a new timesheet week starts at. To change one week's rate,
-          tap the Daily Rate at the bottom of the Timesheet tab.
+          the day rate your timesheets save with, unless a gig has its own rate.
+          To give a gig its own rate, tap the Daily Rate at the bottom of the
+          Timesheet tab, or the gig's chip in the Paycheck Estimator.
         </p>
         <div className="field" style={{ margin: '10px 0 0' }}>
           <label>Base pay — day rate ($)</label>

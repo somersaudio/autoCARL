@@ -23,9 +23,9 @@ writes your timesheet to SSW, so neither has to be filled in by hand.
 3. **Timesheet:** week editor that reads and writes SSW, with GSA per-diem
    autofill.
 4. **Earnings:** projects what an upcoming gig is worth — take-home and per
-   diem — from your day rate and tax profile. That day rate is also what a new
-   timesheet week starts at; each week's own Daily Rate can be changed at the
-   bottom of the Timesheet tab.
+   diem — from your day rate and tax profile. That day rate is also what your
+   timesheets save with; a gig can have its own rate, set from its Daily Rate
+   on the Timesheet tab or its chip in the paycheck estimator.
 
 ## Run
 

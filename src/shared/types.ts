@@ -28,9 +28,9 @@ export type UserSettings = {
   timesheetEmail: string;
   theme: string;             // theme id, see renderer/themes.ts — fresh installs get 'constellation'
   // ----- earnings -----
-  // Your day rate. It feeds the paycheck projection, and it's also the rate a
-  // new SSW timesheet week starts at (and fills a week SSW holds at 0). A
-  // week's own rate, once set, is kept on save; see saveDailyRate.
+  // Your day rate. It feeds the paycheck projection and is the rate timesheets
+  // save with, unless the week's show has its own rate in gigDayRates (see
+  // src/shared/week-rate.ts).
   basePayDayRate: number;    // your day rate in USD; 0 = unset, estimate is hidden
   subtractTaxes: boolean;    // when true, show take-home after tax alongside gross
   // Your home-base airport (IATA, e.g. 'AUS'). Travel legs that aren't

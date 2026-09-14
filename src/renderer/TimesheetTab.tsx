@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Booking, BookingContactsCache, SswDay, SswWeek } from '../shared/types';
+import type { Booking, BookingContactsCache, SswDay, SswWeek, UserSettings } from '../shared/types';
 import { friendlyError } from '../shared/errors';
 import { ctSplit } from '../shared/hours';
+import { expectedWeekRate, localTodayIso } from '../shared/week-rate';
 import WeekPicker from './WeekPicker';
 
 type Props = {
@@ -20,6 +21,10 @@ type Props = {
   // Settings override for the address submitted on the sheet; '' = whatever
   // SSW has stored. Shown in the identity panel so what you see is what saves.
   timesheetEmail: string;
+  // The week saves at its show's own rate (gigDayRates), else base pay.
+  settings: Pick<UserSettings, 'basePayDayRate' | 'defaultDailyRate' | 'gigDayRates'>;
+  // Set or clear a show's own day rate (shared with the paycheck estimator).
+  onSetGigRate: (bookingId: string, rate: number | null) => void | Promise<void>;
   onOpenSettings: () => void;
 };
 
@@ -197,7 +202,7 @@ function weekTotals(days: SswDay[]) {
 
 export default function TimesheetTab({
   bookings, contacts, weekMonday, onWeekChange, week, loading, error, onLocalEdit, onReload,
-  defaultStartTime, defaultEndTime, autofillPerDiem, timesheetEmail, onOpenSettings,
+  defaultStartTime, defaultEndTime, autofillPerDiem, timesheetEmail, settings, onSetGigRate, onOpenSettings,
 }: Props) {
   const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
@@ -242,6 +247,12 @@ export default function TimesheetTab({
 
   const totals = useMemo(() => week ? weekTotals(week.days) : null, [week]);
   const isLocked = (week?.statusIndex ?? 0) > 0;
+  // The rate a save will write for this week (see src/shared/week-rate.ts).
+  const expectedRate = useMemo(
+    () => (week ? expectedWeekRate(week, bookings, settings, localTodayIso()) : { rate: 0, bookingId: null }),
+    [week, bookings, settings],
+  );
+  const rateGig = expectedRate.bookingId ? bookings.find((b) => b.bookingId === expectedRate.bookingId) ?? null : null;
 
   // The 3 most recently-ended past bookings, so the user can charge time to a
   // show that wrapped a few days ago (cleanup, post-show paperwork, etc.).
@@ -333,7 +344,21 @@ export default function TimesheetTab({
             week={week}
             timesheetEmail={timesheetEmail}
             locked={isLocked}
-            onRateChange={(rate) => { if (week) onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true }); }}
+            expectedRate={expectedRate.rate}
+            gigName={rateGig?.jobName ?? ''}
+            gigHasOwnRate={!!(expectedRate.bookingId && settings.gigDayRates?.[expectedRate.bookingId])}
+            onRateChange={(rate) => {
+              if (!week) return;
+              onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true });
+              // A rate set here belongs to the week's show, so later saves and
+              // the paycheck estimate keep it. Setting it back to base pay
+              // clears the show's own rate.
+              if (expectedRate.bookingId) {
+                const n = parseFloat(rate);
+                const base = settings.defaultDailyRate > 0 ? settings.defaultDailyRate : settings.basePayDayRate;
+                void onSetGigRate(expectedRate.bookingId, Math.abs(n - base) < 0.005 ? null : n);
+              }
+            }}
           />
         </div>
       )}
@@ -523,11 +548,14 @@ function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, auto
 
 // Per-user identity fields AUTOcarl pulls from SSW and submits on every save,
 // so the user can see exactly what's attached to their timesheet. The Daily
-// Rate is the one editable field: it's the rate this week saves with (each
-// day's hourly is that rate / 11, the way SSW's Copy button fans it out), and
-// an edit here sticks to this week on every device (see saveDailyRate).
-function IdentityPanel({ week, timesheetEmail, locked, onRateChange }: {
-  week: SswWeek; timesheetEmail: string; locked: boolean; onRateChange: (rate: string) => void;
+// Rate is the one editable field. It shows the rate a save will write: an
+// edit in progress, else the week's show rate or base pay (a submitted week
+// shows what was submitted). Each day's hourly is that rate / 11, the way
+// SSW's Copy button fans it out.
+function IdentityPanel({ week, timesheetEmail, locked, expectedRate, gigName, gigHasOwnRate, onRateChange }: {
+  week: SswWeek; timesheetEmail: string; locked: boolean;
+  expectedRate: number; gigName: string; gigHasOwnRate: boolean;
+  onRateChange: (rate: string) => void;
 }) {
   const rows = (pairs: Array<[string, string]>) => pairs
     .filter(([, v]) => v && String(v).trim() !== '')
@@ -537,8 +565,16 @@ function IdentityPanel({ week, timesheetEmail, locked, onRateChange }: {
         <span className="identity-val">{v}</span>
       </div>
     ));
-  const rate = parseFloat(week.dailyRate);
-  const hourly = Number.isFinite(rate) && rate > 0 ? rate / 11 : 0;
+  const stored = parseFloat(week.dailyRate);
+  const storedOk = Number.isFinite(stored) && stored > 0;
+  const saveRate = locked ? (storedOk ? stored : 0)
+    : week.dailyRateEdited && storedOk ? stored
+      : expectedRate > 0 ? expectedRate
+        : storedOk ? stored : 0;
+  const hourly = saveRate > 0 ? saveRate / 11 : 0;
+  const differs = !locked && !week.dailyRateEdited && storedOk && expectedRate > 0
+    && Math.abs(stored - expectedRate) >= 0.005;
+  const whose = gigHasOwnRate && gigName ? `your ${gigName} rate` : 'your base pay';
   return (
     <div className="identity-panel subtle">
       <div className="identity-panel-title">Submitted with this timesheet</div>
@@ -552,7 +588,7 @@ function IdentityPanel({ week, timesheetEmail, locked, onRateChange }: {
         ])}
         <div className="identity-row">
           <span className="identity-key">Daily Rate</span>
-          <span className="identity-val"><RateField week={week} locked={locked} onChange={onRateChange} /></span>
+          <span className="identity-val"><RateField key={`${week.recordId}-${week.weekStartDate}`} rate={saveRate} locked={locked} onChange={onRateChange} /></span>
         </div>
         {rows([
           ['Project Manager', week.projectManager],
@@ -562,7 +598,17 @@ function IdentityPanel({ week, timesheetEmail, locked, onRateChange }: {
       </div>
       {week.dailyRateEdited && hourly > 0 && (
         <div className="rate-hint">
-          Tap Save to put ${rate.toFixed(2)} / day on this week. Each day&apos;s hourly rate becomes ${hourly.toFixed(2)}.
+          Tap Save to put ${saveRate.toFixed(2)} / day on this week (${hourly.toFixed(2)} an hour).
+          {gigName
+            ? (gigHasOwnRate
+              ? ` It's now your ${gigName} rate, so later saves and your paycheck estimate use it too.`
+              : ` That's your base pay, which ${gigName} now uses on later saves and in your paycheck estimate.`)
+            : ' This week has no gig on it, so the rate applies to this save only.'}
+        </div>
+      )}
+      {differs && (
+        <div className="rate-note">
+          SSW has ${stored.toFixed(2)} on this week. Saving puts ${expectedRate.toFixed(2)}, {whose}. Tap the rate to change it.
         </div>
       )}
     </div>
@@ -571,10 +617,10 @@ function IdentityPanel({ week, timesheetEmail, locked, onRateChange }: {
 
 // Tap-to-edit day rate. Commits on Enter or leaving the field; Escape
 // cancels. Submitted (locked) weeks show the rate but can't change it.
-function RateField({ week, locked, onChange }: {
-  week: SswWeek; locked: boolean; onChange: (rate: string) => void;
+function RateField({ rate, locked, onChange }: {
+  rate: number; locked: boolean; onChange: (rate: string) => void;
 }) {
-  const current = parseFloat(week.dailyRate);
+  const current = rate;
   const has = Number.isFinite(current) && current > 0;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
@@ -586,8 +632,11 @@ function RateField({ week, locked, onChange }: {
     setEditing(true);
   };
   const commit = () => {
-    const n = parseFloat(draft.replace(/[$,\s]/g, ''));
-    if (!Number.isFinite(n) || n <= 0 || n > 5000) { setBad(true); return; }
+    // The whole entry must be a plain amount: parseFloat alone would read
+    // "65o" as 65 or ".5" as 50 cents, and send that to payroll.
+    const cleaned = draft.replace(/[$,\s]/g, '');
+    const n = /^\d{1,4}(\.\d{1,2})?$/.test(cleaned) ? parseFloat(cleaned) : NaN;
+    if (!Number.isFinite(n) || n < 1 || n > 5000) { setBad(true); return; }
     setEditing(false);
     const next = n.toFixed(2);
     if (!has || next !== current.toFixed(2)) onChange(next);

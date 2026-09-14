@@ -349,6 +349,8 @@ export default function App() {
           defaultEndTime={settings.defaultEndTime}
           autofillPerDiem={settings.autofillPerDiem}
           timesheetEmail={settings.timesheetEmail}
+          settings={settings}
+          onSetGigRate={setGigDayRate}
           onOpenSettings={() => setSettingsOpen(true)}
         />
       )}
