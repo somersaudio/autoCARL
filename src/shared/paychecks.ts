@@ -15,6 +15,7 @@
 // over-withholding on heavy checks comes back at tax time.
 
 import { GUARANTEED_DAY_HOURS, pricedHours, splitWorkweek } from './hours';
+import { savedDaysOff } from './daysOff';
 import type { HoursSplit } from './hours';
 import type { Booking, BookingContactsCache, SswWeek, SswDay, UserSettings } from './types';
 import {
@@ -90,6 +91,9 @@ export type Paycheck = {
   actualHours: number;   // hours read off saved timesheets for this check
   withholdingRate: number; // taxes / gross — varies per check, by design
   actualDays: number;    // days priced from saved timesheet hours
+  // Booked days the saved timesheet holds as a day off (shared/daysOff.ts):
+  // not paid, not among the gigs' days, and not worked for the overtime rules.
+  daysOff: number;
   weeks: WeekOnCheck[];  // the timesheet weeks on this check, oldest first
 };
 
@@ -269,26 +273,33 @@ function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | 
 
 // The week of `monday` split by the pay rules (hours.ts), Monday first. The
 // weekly 40 and the seventh day reach across gigs, so the week is split as a
-// whole: a date with saved timesheet hours worked those hours, any other booked
-// date is a standard ten-hour day, and the rest weren't worked.
-function weekSplitFor(monday: string, weeks: Record<string, SswWeek>, booked: ReadonlySet<string>): HoursSplit[] {
+// whole: a date with saved timesheet hours worked those hours, a day off saved
+// on the timesheet wasn't worked (so it breaks a run of consecutive days), any
+// other booked date is a standard ten-hour day, and the rest weren't worked.
+function weekSplitFor(
+  monday: string,
+  weeks: Record<string, SswWeek>,
+  booked: ReadonlySet<string>,
+  daysOff: ReadonlySet<string>,
+): HoursSplit[] {
   const hours: number[] = [];
   for (let i = 0; i < 7; i++) {
     const date = addDays(monday, i);
     const sheet = timesheetDayFor(date, weeks);
-    hours.push(sheet ? pricedHours(sheet) : booked.has(date) ? GUARANTEED_DAY_HOURS : 0);
+    hours.push(sheet ? pricedHours(sheet) : daysOff.has(date) || !booked.has(date) ? 0 : GUARANTEED_DAY_HOURS);
   }
   return splitWorkweek(hours);
 }
 
 // The job a saved timesheet charges a date to, or '' when that day wasn't
 // worked (no start time and no hours) or its week isn't cached. A blank day
-// that only carries a job, like an upcoming day's preview, decides nothing.
-function sheetJobFor(iso: string, weeks: Record<string, SswWeek>): string {
+// that only carries a job, like an upcoming day's preview, decides nothing,
+// but a saved day off does: a per diem claimed on it belongs to the gig it names.
+function sheetJobFor(iso: string, weeks: Record<string, SswWeek>, daysOff: ReadonlySet<string>): string {
   const d = weeks[mondayOf(iso)]?.days.find((x) => x.date === iso);
   if (!d || !d.job) return '';
   const worked = !!d.startTime || d.regHours + d.otHours + d.dtHours > 0 || d.totalHours > 0;
-  return worked ? d.job : '';
+  return worked || daysOff.has(iso) ? d.job : '';
 }
 
 // Whether `challenger` should take a date that `holder` has so far: the booking
@@ -315,7 +326,9 @@ function claimsDay(challenger: Booking, holder: Booking, sheetJob: string): bool
  * holds one, instead of the standard 10-hour-day assumption, and its per diem
  * comes from the sheet rather than the GSA rate. Each week is split by the pay
  * rules as a whole (weekSplitFor), so a sixth or seventh day earns its premium
- * whether its hours are saved or assumed.
+ * whether its hours are saved or assumed. A booked day the timesheet holds as a
+ * day off (shared/daysOff.ts, judged as of `todayIso`) is paid nothing but a
+ * per diem the sheet itself claims.
  *
  * Every date is priced once. Bookings include their travel days, so gigs back
  * to back share the day one ends and the next begins; a date in two bookings
@@ -326,6 +339,7 @@ export function buildPaychecks(
   contacts: BookingContactsCache,
   settings: UserSettings,
   weeks: Record<string, SswWeek> = {},
+  todayIso: string = toISO(new Date()),
 ): PaycheckPlan {
   const baseRate = Number.isFinite(settings.basePayDayRate) && settings.basePayDayRate > 0
     ? settings.basePayDayRate : 0;
@@ -341,6 +355,13 @@ export function buildPaychecks(
   // One day's pay per date. The Sep 25 check used to carry 16 days for a
   // 14-day period: Klaviyo ended the day Dreamforce began, and Dreamforce the
   // day Google AITE began, and each booking priced that shared travel day.
+  // Booked days the saved timesheets hold as a day off, and how many land on
+  // each check. Read first: a day off's job still decides which gig owns it.
+  const daysOff = new Set<string>();
+  for (const w of Object.values(weeks)) {
+    for (const date of Array.from(savedDaysOff(w.days, todayIso))) daysOff.add(date);
+  }
+  const periodDaysOff = new Map<number, number>();
   const dayOwner = new Map<string, Booking>();
   // Every booked date, priced or not: each is a day worked in its week.
   const booked = new Set<string>();
@@ -352,7 +373,7 @@ export function buildPaychecks(
       booked.add(date);
       if (!priced) continue;
       const held = dayOwner.get(date);
-      if (!held || claimsDay(b, held, sheetJobFor(date, weeks))) dayOwner.set(date, b);
+      if (!held || claimsDay(b, held, sheetJobFor(date, weeks, daysOff))) dayOwner.set(date, b);
     }
   }
   const weekSplits = new Map<string, HoursSplit[]>();
@@ -360,7 +381,7 @@ export function buildPaychecks(
     const monday = mondayOf(date);
     let split = weekSplits.get(monday);
     if (!split) {
-      split = weekSplitFor(monday, weeks, booked);
+      split = weekSplitFor(monday, weeks, booked, daysOff);
       weekSplits.set(monday, split);
     }
     return split[daysBetween(monday, date)];
@@ -379,6 +400,15 @@ export function buildPaychecks(
       const monday = mondayOf(day);
       const home = periodIndex(day);
       const idx = home + slipCount(slippedWeeks, monday);
+      // A day off earns no pay and isn't one of the gig's days on the check.
+      // Only a per diem the sheet itself claims for it is owed, and without
+      // one the day adds nothing at all.
+      const off = daysOff.has(day);
+      const offPerDiem = off ? weeks[monday]?.days.find((d) => d.date === day)?.perDiem || 0 : 0;
+      if (off) {
+        periodDaysOff.set(idx, (periodDaysOff.get(idx) || 0) + 1);
+        if (offPerDiem <= 0) continue;
+      }
       let bucket = periods.get(idx);
       if (!bucket) { bucket = new Map(); periods.set(idx, bucket); }
       let gig = bucket.get(b.bookingId);
@@ -389,7 +419,7 @@ export function buildPaychecks(
         };
         bucket.set(b.bookingId, gig);
       }
-      gig.days += 1;
+      if (!off) gig.days += 1;
       let weekBucket = periodWeeks.get(idx);
       if (!weekBucket) { weekBucket = new Map(); periodWeeks.set(idx, weekBucket); }
       let week = weekBucket.get(monday);
@@ -401,12 +431,14 @@ export function buildPaychecks(
         };
         weekBucket.set(monday, week);
       }
-      week.days += 1;
+      if (!off) week.days += 1;
       const grossBefore = gig.gross;
       const perDiemBefore = gig.perDiem;
       const sheet = timesheetDayFor(day, weeks);
       const split = splitOn(day);
-      if (sheet) {
+      if (off) {
+        gig.perDiem += offPerDiem;
+      } else if (sheet) {
         // Saved hours are paid at the rate on that week's timesheet; the gig
         // override or base pay only stands in when the week carries none.
         const sheetRate = weekRateFor(day, weeks) || rate;
@@ -459,6 +491,7 @@ export function buildPaychecks(
       net, perDiem, otPay, actualHours,
       withholdingRate: gross > 0 ? taxes / gross : 0,
       actualDays: gigs.reduce((s2, g) => s2 + g.actualDays, 0),
+      daysOff: periodDaysOff.get(idx) || 0,
       weeks: Array.from(periodWeeks.get(idx)?.values() || []).sort((a, b) => a.monday.localeCompare(b.monday)),
     };
     checks.push(check);

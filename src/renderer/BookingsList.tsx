@@ -447,10 +447,10 @@ export default function BookingsList({
     .filter((b) => !isRequest(b) || b.endDate >= todayIso)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const confirmedOnly = onUnpaidChecks.filter((b) => !isRequest(b));
-  const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks);
+  const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks, todayIso);
   const planAll = confirmedOnly.length === onUnpaidChecks.length
     ? plan
-    : buildPaychecks(onUnpaidChecks, contacts, settings, sswWeeks);
+    : buildPaychecks(onUnpaidChecks, contacts, settings, sswWeeks, todayIso);
   const estimatorRows: EstimatorRow[] = planAll.checks.filter((c) => c.payDate >= keepFrom).flatMap((all): EstimatorRow[] => {
     const base = plan.checks.find((c) => c.periodStart === all.periodStart);
     // A check that has already paid can't gain a request's money.
@@ -1112,13 +1112,13 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
                   {i > 0 && <span className="paycheck-gig-sep">+</span>}
                   <button
                     className={`paycheck-gig${customJobs.has(g.jobNumber) ? ' is-custom' : ''}${requestIds.has(g.bookingId) ? ' is-request' : ''}`}
-                    title={`${g.days}d @ ${money(g.dayRate)}${customJobs.has(g.jobNumber) ? ' (custom)' : ''}${requestIds.has(g.bookingId) ? ' (request — not yet accepted)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this job's day rate`}
+                    title={`${g.days > 0 ? `${g.days}d @ ${money(g.dayRate)}` : 'Per diem only: its days on this check are days off on the timesheet'}${customJobs.has(g.jobNumber) ? ' (custom)' : ''}${requestIds.has(g.bookingId) ? ' (request — not yet accepted)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this job's day rate`}
                     onClick={() => {
                       setDraft(String(g.dayRate));
                       setEdit({ bookingId: g.bookingId, jobName: g.jobName, jobNumber: g.jobNumber });
                     }}
                   >
-                    {g.jobName} · {g.days}d
+                    {g.jobName} · {g.days > 0 ? `${g.days}d` : 'per diem only'}
                   </button>
                 </span>
               ))}
@@ -1179,7 +1179,12 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
                 : null,
               c.actualDays > 0
                 ? `${c.actualDays} of ${c.gigs.reduce((n, g) => n + g.days, 0)} days priced from saved timesheet hours (OT/DT included); the rest assume standard 10-hour days.`
-                : 'Assumes standard 10-hour days — OT and DT push real checks higher.',
+                : c.gigs.some((g) => g.days > 0)
+                  ? 'Assumes standard 10-hour days — OT and DT push real checks higher.'
+                  : null,
+              c.daysOff > 0
+                ? `${c.daysOff} booked day${c.daysOff === 1 ? '' : 's'} saved as a day off on the timesheet, not paid.`
+                : null,
               'Pay rules: 10-hour guarantee; OT past 8h a day or 40h a week; DT past 12h, or past 8h on a 7th straight day.',
             ].filter((l) => l !== null).join('\n')}
           >
@@ -1221,7 +1226,7 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
                     <div>
                       <div className="slip-week-dates">Week of {fmtPayDate(w.monday)} – {fmtPayDate(shiftIsoDays(w.monday, 6))}</div>
                       <div className="subtle slip-week-detail">
-                        {w.days} day{w.days === 1 ? '' : 's'} · about {money(share)}
+                        {w.days > 0 ? `${w.days} day${w.days === 1 ? '' : 's'}` : 'per diem only'} · about {money(share)}
                         {w.movedFrom && <> · moved from {fmtPayDate(w.movedFrom)}</>}
                         {notTurnedIn(w.monday) && <span className="slip-week-late"> · not turned in yet</span>}
                       </div>
