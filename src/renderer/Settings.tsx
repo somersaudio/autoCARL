@@ -473,11 +473,12 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           <span>Include Overtime in Total, instead of showing it separate</span>
         </label>
         <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
-          Counts hours past a standard 10-hour day, plus double time past 12 —
-          the 2 OT hours on a normal day aren't overtime worked. Only appears
-          once a week's hours are saved to your timesheet. Leave this off and
-          the check shows the rest of your take-home with the OT on its own
-          line; the two still add up to the same deposit.
+          Counts pay above your day rate: hours past a 10-hour day, double
+          time, and the overtime on a sixth or seventh day in the week, days
+          not yet saved to your timesheet included. The 2 OT hours on a normal
+          day aren't overtime worked. Leave this off and the check shows the
+          rest of your take-home with the OT on its own line; the two still add
+          up to the same deposit.
         </p>
 
         <p className="subtle" style={{ marginTop: 10, fontSize: 12 }}>

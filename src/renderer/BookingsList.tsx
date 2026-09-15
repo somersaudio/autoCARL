@@ -1174,7 +1174,7 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
               c.medicare > 0 ? `Medicare: −${money(c.medicare)}` : null,
               c.state > 0 ? `State: −${money(c.state)}` : null,
               c.withholdingRate > 0 ? `Withheld: ${(c.withholdingRate * 100).toFixed(1)}% of wages` : null,
-              c.otPay > 0 ? `Of that, hours past a standard 10-hour day: ${money(c.otPay)}` : null,
+              c.otPay > 0 ? `Of that, overtime above the day rate: ${money(c.otPay)}` : null,
               c.perDiem > 0 ? `Per diem (untaxed): +${money(c.perDiem)}` : null,
               c.requestOnly
                 ? `${money(c.net + c.perDiem)} if accepted — this gig is still a request`
@@ -1187,6 +1187,7 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
               c.actualDays > 0
                 ? `${c.actualDays} of ${c.gigs.reduce((n, g) => n + g.days, 0)} days priced from saved timesheet hours (OT/DT included); the rest assume standard 10-hour days.`
                 : 'Assumes standard 10-hour days — OT and DT push real checks higher.',
+              'Pay rules: 10-hour guarantee; OT past 8h a day or 40h a week; DT past 12h, or past 8h on a 7th straight day.',
             ].filter((l) => l !== null).join('\n')}
           >
             {!c.requestOnly && (
@@ -1198,7 +1199,7 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
               <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
             )}
             {/* Overtime on its own line, when asked for. It hides by default
-                because it is already inside the figure above; an 11-hour day
+                because it is already inside the figure above; a ten-hour day
                 prices to exactly the day rate, so OT can sit in a check
                 without moving that number at all. */}
             {!c.requestOnly && otShare > 0 && (

@@ -1,4 +1,4 @@
-// Hours math for a timesheet day, shared by the timesheet UI, the paycheck
+// Hours math for a timesheet week, shared by the timesheet UI, the paycheck
 // estimator, and both save paths.
 //
 // SSW does NOT reliably compute the reg/OT/DT split for a week the app saves:
@@ -6,31 +6,40 @@
 // saved through the app came back with TotalHrsWorked right and the three
 // buckets all zero — and everything downstream that reads the buckets (the
 // estimator's overtime, the pay preview) saw no overtime at all. The split is
-// therefore derived here, from the same rule SSW applies on its own page.
+// therefore derived here.
 //
-// The rule, read straight off weeks SSW split itself: 8 hours regular, the
-// next 4 at overtime, anything past 12 at double time.
-//   10h  -> 8 / 2 / 0      12h -> 8 / 4 / 0      16h -> 8 / 4 / 4
+// The pay rules, from CT's note to crew, applied per Monday–Sunday week:
+//  - the hourly base rate is the day rate / 11, and a worked day is guaranteed
+//    10 hours: 8 reg + 2 OT, which is 11 straight-time hours, the day rate;
+//  - overtime (1.5x) after 8 hours a day, double time (2x) after 12;
+//  - overtime after 40 regular hours in the week, the guaranteed hours
+//    counting toward the 40, so from the sixth worked day on it's all OT;
+//  - on the seventh consecutive workday, overtime from the first hour and
+//    double time after 8.
+// SSW's stored split for the week of May 18 follows these to the hour: a
+// 6-hour Friday went in as 8 reg + 2 OT, and the Saturday after it, with 40
+// regular hours already in the week, as 10 OT.
+//   Mon 11h -> 8 / 3 / 0    Fri 6h -> 8 / 2 / 0    Sat 10h -> 0 / 10 / 0
 //
-// One known approximation: SSW moved a Saturday's hours past 10 into double
-// time (a sixth-consecutive-day rule, most likely). A split SSW has actually
-// stored wins over this derivation — but only while it still adds up to the
-// day's hours. The times are what the user edits, and a split stored for an
-// earlier version of the day (8/4/4 from a 16-hour phantom, say, after the
-// end time was corrected to make it 14) is stale, not authoritative: it gets
-// re-derived from the hours the times actually describe.
+// A day's split depends on the days before it, so the whole week is always
+// derived again rather than kept from what SSW stored: a stored split can
+// predate an edit to an earlier day, and weeks the app saved before these
+// rules carry per-day splits with no weekly 40 and no guarantee.
 //
 // A day with only one of its two times filled in is a day still in progress
 // (or half-entered), not a worked day. SSW's spreadsheet treats the blank end
 // as midnight and reports "8:00 am –" as SIXTEEN hours, and a split derived
 // from that total paid four hours of double time for a day that had barely
-// started. So nothing here trusts a total, or a stored split, until both
-// times are present; such a day carries no payable hours and the estimator
-// prices it as a standard day.
+// started. So nothing here trusts a total until both times are present; such
+// a day carries no payable hours and the estimator prices it as a standard day.
 
 import type { SswDay } from './types';
 
 export type HoursSplit = { reg: number; ot: number; dt: number };
+
+// The hours a worked day is paid at least.
+export const GUARANTEED_DAY_HOURS = 10;
+const WEEKLY_REG_HOURS = 40;
 
 // "8:00 am" / "12:30 pm" -> minutes from midnight, or null if unparseable.
 export function parseTime(t: string): number | null {
@@ -53,18 +62,45 @@ export function workedHours(d: Pick<SswDay, 'startTime' | 'endTime' | 'lunchStar
   if (mins < 0) mins += 24 * 60;             // crossed midnight
   const lunchStart = parseTime(d.lunchStart);
   const lunchEnd = parseTime(d.lunchEnd);
-  if (lunchStart != null && lunchEnd != null) mins -= Math.max(0, lunchEnd - lunchStart);
+  if (lunchStart != null && lunchEnd != null) {
+    let lunch = lunchEnd - lunchStart;
+    // A break across midnight (11:30 pm – 12:30 am) wraps like the shift, but
+    // only on a shift that crosses midnight and only when the wrapped break
+    // fits inside it: "11:30 pm – 12:30 pm" is a mistyped lunch out, not a
+    // thirteen-hour break.
+    if (lunch < 0 && end < start && lunch + 24 * 60 <= mins) lunch += 24 * 60;
+    mins -= Math.max(0, lunch);
+  }
   return Math.max(0, mins / 60);
 }
 
-// Split a day's worked hours the way SSW does.
-export function splitWorkedHours(hours: number): HoursSplit {
-  if (!(hours > 0)) return { reg: 0, ot: 0, dt: 0 };
+// One day's hours by the daily rule alone: 8 reg, the next 4 OT, past 12 DT.
+function dailySplit(hours: number): HoursSplit {
   return {
     reg: Math.min(8, hours),
     ot: Math.min(4, Math.max(0, hours - 8)),
     dt: Math.max(0, hours - 12),
   };
+}
+
+// Split a week of worked hours by the pay rules. `hours` runs Monday first,
+// one entry per day, 0 for a day not worked; the result lines up with it.
+export function splitWorkweek(hours: readonly number[]): HoursSplit[] {
+  let weekReg = 0;
+  let streak = 0;
+  return hours.map((h) => {
+    if (!(h > 0)) {
+      streak = 0;
+      return { reg: 0, ot: 0, dt: 0 };
+    }
+    streak += 1;
+    const paid = Math.max(GUARANTEED_DAY_HOURS, h);
+    if (streak >= 7) return { reg: 0, ot: Math.min(8, paid), dt: Math.max(0, paid - 8) };
+    const day = dailySplit(paid);
+    const reg = Math.min(day.reg, Math.max(0, WEEKLY_REG_HOURS - weekReg));
+    weekReg += reg;
+    return { reg, ot: day.ot + day.reg - reg, dt: day.dt };
+  });
 }
 
 // Both a start and an end time are present. Only then does a total (SSW's or
@@ -83,37 +119,29 @@ export function pricedHours(d: SswDay): number {
   return fromTimes > 0 ? fromTimes : Math.max(0, d.totalHours);
 }
 
-// True when a finished day's stored split can't be used: either none of its
-// hours sorted into a bucket (the shape a save through the app used to
-// produce) or the buckets add up to a different day than the times describe
-// (a split left over from before the times were edited).
-export function splitIsMissing(d: SswDay): boolean {
-  const hours = pricedHours(d);
-  if (hours <= 0) return false;
-  return Math.abs(d.regHours + d.otHours + d.dtHours - hours) > 0.01;
+// Monday = 0 … Sunday = 6, read off the ISO date itself.
+function weekdayIndex(iso: string): number {
+  const [y, m, d] = iso.split('-').map(Number);
+  return (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7;
 }
 
-// The day's split: SSW's own when it stored one that still adds up to the
-// day's hours, otherwise derived from those hours. A day missing either time
-// gets no split at all, whatever SSW stored for it. Returned as a new day so
-// callers never mutate cached data.
-export function withSplit(d: SswDay): SswDay {
-  if (!hasBothTimes(d)) {
-    if (d.regHours === 0 && d.otHours === 0 && d.dtHours === 0) return d;
-    return { ...d, regHours: 0, otHours: 0, dtHours: 0 };
+// A timesheet week's days with their reg/OT/DT filled in by the pay rules.
+// A finished day's total becomes the hours its times describe; a day missing
+// either time gets no split at all, whatever SSW stored for it. Days come back
+// in the order given, as new objects wherever anything changed, so callers
+// never mutate cached data.
+export function splitWeek(days: readonly SswDay[]): SswDay[] {
+  const hours = [0, 0, 0, 0, 0, 0, 0];
+  for (const d of days) {
+    const i = weekdayIndex(d.date);
+    if (i >= 0 && i < 7) hours[i] = pricedHours(d);
   }
-  if (!splitIsMissing(d)) return d;
-  const hours = pricedHours(d);
-  const s = splitWorkedHours(hours);
-  return { ...d, regHours: s.reg, otHours: s.ot, dtHours: s.dt, totalHours: hours };
-}
-
-// CT's pay rule for the timesheet's own totals line: a worked day is paid at a
-// 10-hour minimum (8 reg + 2 OT). Display only — the estimator and the save
-// path use the plain split above, which is what SSW itself stores.
-export function ctSplit(d: SswDay): HoursSplit & { total: number } {
-  const raw = workedHours(d);
-  if (raw === 0) return { reg: 0, ot: 0, dt: 0, total: 0 };
-  const s = splitWorkedHours(Math.max(10, raw));
-  return { ...s, total: s.reg + s.ot + s.dt };
+  const split = splitWorkweek(hours);
+  return days.map((d) => {
+    const priced = pricedHours(d);
+    const s = (priced > 0 && split[weekdayIndex(d.date)]) || { reg: 0, ot: 0, dt: 0 };
+    const total = priced > 0 ? priced : d.totalHours;
+    if (d.regHours === s.reg && d.otHours === s.ot && d.dtHours === s.dt && d.totalHours === total) return d;
+    return { ...d, regHours: s.reg, otHours: s.ot, dtHours: s.dt, totalHours: total };
+  });
 }

@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Booking, BookingContactsCache, SswDay, SswWeek, UserSettings } from '../shared/types';
 import { friendlyError } from '../shared/errors';
-import { ctSplit } from '../shared/hours';
+import { splitWeek } from '../shared/hours';
+import type { HoursSplit } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import WeekPicker from './WeekPicker';
 
@@ -185,17 +186,14 @@ function normalizeTime(raw: string, defaultMeridiem: 'am' | 'pm'): string {
   return `${h}:${String(mins).padStart(2, '0')} ${mer}`;
 }
 
-function weekTotals(days: SswDay[]) {
-  return days.reduce(
-    (acc, d) => {
-      const s = ctSplit(d);
-      return {
-        reg: acc.reg + s.reg,
-        ot: acc.ot + s.ot,
-        dt: acc.dt + s.dt,
-        total: acc.total + s.total,
-      };
-    },
+function weekTotals(splits: HoursSplit[]) {
+  return splits.reduce<HoursSplit & { total: number }>(
+    (acc, s) => ({
+      reg: acc.reg + s.reg,
+      ot: acc.ot + s.ot,
+      dt: acc.dt + s.dt,
+      total: acc.total + s.reg + s.ot + s.dt,
+    }),
     { reg: 0, ot: 0, dt: 0, total: 0 },
   );
 }
@@ -250,7 +248,14 @@ export default function TimesheetTab({
     }
   };
 
-  const totals = useMemo(() => week ? weekTotals(week.days) : null, [week]);
+  // Each day's reg/OT/DT as payroll splits the week, the same numbers a save
+  // writes. A day's split depends on the days before it: once the week holds
+  // 40 regular hours, the next day worked is all overtime.
+  const daySplits = useMemo<HoursSplit[]>(
+    () => (week ? splitWeek(week.days).map((d) => ({ reg: d.regHours, ot: d.otHours, dt: d.dtHours })) : []),
+    [week],
+  );
+  const totals = useMemo(() => week ? weekTotals(daySplits) : null, [week, daySplits]);
   const isLocked = (week?.statusIndex ?? 0) > 0;
   // The rate a save writes unless it's edited in that save: base pay, with the
   // legacy General field winning if an old profile carries one (saveDailyRate).
@@ -343,6 +348,7 @@ export default function TimesheetTab({
               <DayRow
                 key={d.date}
                 day={d}
+                hours={daySplits[i]}
                 label={DAY_LABELS[i]}
                 bookingsForDay={bookingsCoveringDate(bookings, d.date)}
                 recentPast={recentPast}
@@ -459,6 +465,7 @@ function CreateWeekCard({ weekMonday, bookings, onCreated }: {
 
 type DayRowProps = {
   day: SswDay;
+  hours: HoursSplit;
   label: string;
   bookingsForDay: Booking[];
   recentPast: Booking[];
@@ -469,7 +476,7 @@ type DayRowProps = {
   onChange: (patch: Partial<SswDay>) => void;
 };
 
-function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, autofillPerDiem, getPerDiem, onChange }: DayRowProps) {
+function DayRow({ day, hours, label, bookingsForDay, recentPast, upcoming, locked, autofillPerDiem, getPerDiem, onChange }: DayRowProps) {
   const past = isPastOrToday(day.date);
   const worked = !!(day.startTime || day.endTime);
   const today = parseISO(day.date).getTime() === startOfToday().getTime();
@@ -552,11 +559,9 @@ function DayRow({ day, label, bookingsForDay, recentPast, upcoming, locked, auto
       </div>
 
       <div className="day-hours subtle">
-        {(() => {
-          const s = ctSplit(day);
-          if (s.total === 0) return <span style={{ opacity: 0.5 }}>—</span>;
-          return <>{s.reg.toFixed(1)} reg · {s.ot.toFixed(1)} OT · {s.dt.toFixed(1)} DT</>;
-        })()}
+        {hours.reg + hours.ot + hours.dt === 0
+          ? <span style={{ opacity: 0.5 }}>—</span>
+          : <>{hours.reg.toFixed(1)} reg · {hours.ot.toFixed(1)} OT · {hours.dt.toFixed(1)} DT</>}
       </div>
     </div>
   );

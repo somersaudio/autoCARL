@@ -1,7 +1,7 @@
 import { net, session } from 'electron';
 import { readConfig, writeSswWeek } from './store';
 import { getSswPassword } from './credentials';
-import { withSplit } from '../shared/hours';
+import { splitWeek } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import type { SswDay, SswPushResult, SswWeek } from '../shared/types';
 
@@ -610,8 +610,10 @@ function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: R
   const date = isoToPaddedMDY(week.weekStartDate);
   // Fill in the reg/OT/DT buckets before writing them: the local week never
   // computes them, and SSW does not compute them on this save path either, so
-  // without this every day went up as 0 / 0 / 0.
-  const saveDays = week.days.map((d) => isFutureISO(d.date) ? blankFutureDay(d) : withSplit(d));
+  // without this every day went up as 0 / 0 / 0. The week is split as a whole
+  // (the weekly 40 and the seventh day hang on earlier days), then days still
+  // ahead are blanked; no day's split depends on a later one.
+  const saveDays = splitWeek(week.days).map((d) => isFutureISO(d.date) ? blankFutureDay(d) : d);
   const hourly = hourlyFromDaily(originalDailyRate);
 
   // ---- PrimaryTable identity ----

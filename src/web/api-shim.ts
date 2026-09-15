@@ -25,7 +25,7 @@ import { cleanAirportCode } from '../shared/airports';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import { cleanSlippedWeeks } from '../shared/paychecks';
 import { parseItinerary } from '../shared/flight-itinerary';
-import { withSplit } from '../shared/hours';
+import { splitWeek } from '../shared/hours';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
@@ -1284,7 +1284,8 @@ const api: Api = {
         // The reg/OT/DT buckets are filled here, before the week leaves the
         // phone: the local week never computes them and SSW won't on this
         // path, so the worker would otherwise write 0 / 0 / 0 for every day.
-        const filled: SswWeek = { ...week, days: week.days.map(withSplit) };
+        // The worker blanks days still ahead; no earlier day's split hangs on them.
+        const filled: SswWeek = { ...week, days: splitWeek(week.days) };
         const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg: sswCfg() });
         // The edit marker belongs to the unsaved change, not the cached week.
         if (r && r.ok) cacheWeek({ ...filled, dailyRateEdited: undefined });

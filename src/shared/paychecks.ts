@@ -14,7 +14,8 @@
 // The rates here are cash-flow truth per check, not the year's blended rate:
 // over-withholding on heavy checks comes back at tax time.
 
-import { withSplit } from './hours';
+import { GUARANTEED_DAY_HOURS, pricedHours, splitWorkweek } from './hours';
+import type { HoursSplit } from './hours';
 import type { Booking, BookingContactsCache, SswWeek, SswDay, UserSettings } from './types';
 import {
   STANDARD_DEDUCTION, SS_RATE, MEDICARE_RATE, federalIncomeTax,
@@ -47,13 +48,13 @@ export type GigOnCheck = {
   jobNumber: string;
   days: number;          // this gig's worked days inside this period
   dayRate: number;
-  gross: number;         // standard days * dayRate, actual-hours days by hours
+  gross: number;         // each day by its hours as the week splits them (hoursPay)
   perDiem: number;       // per-diem dollars accrued on this check (untaxed)
-  // Gross dollars on this gig that came from OT and DT hours (time-and-a-half
-  // and double time), 0 when the days are priced from the standard-day
-  // assumption rather than a saved timesheet.
+  // Gross dollars on this gig above its day rate: hours past a ten-hour day,
+  // double time, and the weekly-40 and seventh-day premiums. A standard day
+  // adds none, but a standard sixth or seventh day in one week does.
   otPay: number;
-  actualHours: number;   // hours actually read off the timesheet
+  actualHours: number;   // hours worked, read off the timesheet's times
   // Days whose pay came from saved timesheet hours rather than the standard
   // 10-hour-day assumption.
   actualDays: number;
@@ -85,7 +86,7 @@ export type Paycheck = {
   taxes: number;         // sum of the four above; 0 when subtractTaxes is off
   net: number;           // gross - retirement - taxes  (per diem NOT included)
   perDiem: number;       // untaxed, lands on the same deposit
-  otPay: number;         // gross dollars from OT + DT hours across this check
+  otPay: number;         // gross dollars above the day rate across this check
   actualHours: number;   // hours read off saved timesheets for this check
   withholdingRate: number; // taxes / gross — varies per check, by design
   actualDays: number;    // days priced from saved timesheet hours
@@ -224,33 +225,28 @@ function federalPerCheck(taxableCheckWages: number, settings: UserSettings): num
   return annualTax / CHECKS_PER_YEAR;
 }
 
-// SSW's own pay model (see ssw.ts): a day rate covers 8 reg + 2 OT×1.5 = 11
-// weighted hours, so hourly = dayRate / 11 and a day's wages are
-// hourly × (reg + 1.5×OT + 2×DT). Reproduces John's stub exactly
-// (72 reg + 29 OT at $650/day = $6,824.90).
-function hoursPay(day: SswDay, dayRate: number): number {
-  const hourly = dayRate / 11;
-  return hourly * (day.regHours + 1.5 * day.otHours + 2 * day.dtHours);
+// SSW's own pay model (see ssw.ts): hourly = dayRate / 11, so a day's wages
+// are dayRate × (reg + 1.5×OT + 2×DT) / 11. A guaranteed ten-hour day, 8 reg
+// + 2 OT, weighs exactly 11 hours: the day rate. Matches John's stub to the
+// dime (72 reg + 29 OT at $650/day = $6,824.90; the stub rounds hourly).
+const DAY_RATE_HOURS = 11;
+
+function weightedHours(s: HoursSplit): number {
+  return s.reg + 1.5 * s.ot + 2 * s.dt;
 }
 
-// A standard show day is ten hours, which SSW books as 8 regular + 2 OT — and
-// the app autofills exactly that (8:00 am - 6:00 pm) into every day you don't
-// type over. Those two hours are the normal day, not overtime worked, so they
-// stay out of the figure: only OT beyond them counts, plus all double time.
-const STANDARD_OT_HOURS = 2;
-
-// The slice of a day's pay that came from genuine overtime, at premium rates.
-// It earns its own line because a ten-hour day prices to exactly the day rate,
-// so real extra hours can be in a check without moving the headline at all.
-function overtimePay(day: SswDay, dayRate: number): number {
-  const hourly = dayRate / 11;
-  const extraOt = Math.max(0, day.otHours - STANDARD_OT_HOURS);
-  return hourly * (1.5 * extraOt + 2 * day.dtHours);
+function hoursPay(s: HoursSplit, dayRate: number): number {
+  return (dayRate * weightedHours(s)) / DAY_RATE_HOURS;
 }
 
-// The saved timesheet entry for a date, if its week is cached and the day has
-// SSW-computed hours. Unsaved grid edits don't qualify — the reg/OT/DT split
-// comes from SSW's spreadsheet on save, and we won't guess it locally.
+// The slice of a day's pay above the day rate: hours past a ten-hour day,
+// double time, and a sixth or seventh day's weekly premium. It earns its own
+// line because a ten-hour day prices to exactly the day rate, so real extra
+// hours can be in a check without moving the headline at all.
+function overtimePay(s: HoursSplit, dayRate: number): number {
+  return (dayRate * Math.max(0, weightedHours(s) - DAY_RATE_HOURS)) / DAY_RATE_HOURS;
+}
+
 // The Daily Rate SSW holds for the week containing `iso`, or 0 when the week
 // isn't cached or carries no rate. A week's rate can differ from base pay (a
 // rate edited on the Timesheet tab for that save, or one set in SSW), and it's
@@ -261,23 +257,28 @@ function weekRateFor(iso: string, weeks: Record<string, SswWeek>): number {
   return Number.isFinite(rate) && rate > 0 ? rate : 0;
 }
 
+// The saved timesheet entry for a date when its week is cached and the day is
+// finished, with hours to pay; otherwise null, and the date is priced as a
+// standard day. SSW can hand back a day carrying a total with no times behind
+// it (a freshly created week, or "8:00 am –" read as sixteen hours), and those
+// hours aren't real.
 function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | null {
-  const monday = addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
-  const week = weeks[monday];
-  if (!week) return null;
-  const found = week.days.find((d) => d.date === iso);
-  if (!found) return null;
-  // SSW returns a day the app saved with its total right and the reg/OT/DT
-  // buckets all zero; derive them so overtime doesn't vanish.
-  const day = withSplit(found);
-  // Only a day with PAYABLE hours may override the day-rate assumption.
-  // SSW can hand back a day carrying a total with no reg/OT/DT split — a
-  // freshly created week, or one saved before its spreadsheet recalculated —
-  // and pricing that day from those hours pays it $0, which silently wipes an
-  // otherwise real paycheck. A day with nothing payable on it simply hasn't
-  // been filled in yet, so it falls back to the standard-day estimate.
-  const payable = day.regHours + day.otHours + day.dtHours;
-  return payable > 0 ? day : null;
+  const found = weeks[mondayOf(iso)]?.days.find((d) => d.date === iso);
+  return found && pricedHours(found) > 0 ? found : null;
+}
+
+// The week of `monday` split by the pay rules (hours.ts), Monday first. The
+// weekly 40 and the seventh day reach across gigs, so the week is split as a
+// whole: a date with saved timesheet hours worked those hours, any other booked
+// date is a standard ten-hour day, and the rest weren't worked.
+function weekSplitFor(monday: string, weeks: Record<string, SswWeek>, booked: ReadonlySet<string>): HoursSplit[] {
+  const hours: number[] = [];
+  for (let i = 0; i < 7; i++) {
+    const date = addDays(monday, i);
+    const sheet = timesheetDayFor(date, weeks);
+    hours.push(sheet ? pricedHours(sheet) : booked.has(date) ? GUARANTEED_DAY_HOURS : 0);
+  }
+  return splitWorkweek(hours);
 }
 
 // The job a saved timesheet charges a date to, or '' when that day wasn't
@@ -312,7 +313,9 @@ function claimsDay(challenger: Booking, holder: Booking, sheetJob: string): bool
  * `weeks` is the cached SSW timesheet map: any day with saved hours is priced
  * from those hours (OT/DT included), at that week's own Daily Rate when SSW
  * holds one, instead of the standard 10-hour-day assumption, and its per diem
- * comes from the sheet rather than the GSA rate.
+ * comes from the sheet rather than the GSA rate. Each week is split by the pay
+ * rules as a whole (weekSplitFor), so a sixth or seventh day earns its premium
+ * whether its hours are saved or assumed.
  *
  * Every date is priced once. Bookings include their travel days, so gigs back
  * to back share the day one ends and the next begins; a date in two bookings
@@ -339,15 +342,29 @@ export function buildPaychecks(
   // 14-day period: Klaviyo ended the day Dreamforce began, and Dreamforce the
   // day Google AITE began, and each booking priced that shared travel day.
   const dayOwner = new Map<string, Booking>();
+  // Every booked date, priced or not: each is a day worked in its week.
+  const booked = new Set<string>();
   for (const b of upcoming) {
-    if ((settings.gigDayRates?.[b.bookingId] || baseRate) <= 0) continue;
+    const priced = (settings.gigDayRates?.[b.bookingId] || baseRate) > 0;
     const span = daysBetween(b.startDate, b.endDate) + 1;
     for (let i = 0; i < span; i++) {
       const date = addDays(b.startDate, i);
+      booked.add(date);
+      if (!priced) continue;
       const held = dayOwner.get(date);
       if (!held || claimsDay(b, held, sheetJobFor(date, weeks))) dayOwner.set(date, b);
     }
   }
+  const weekSplits = new Map<string, HoursSplit[]>();
+  const splitOn = (date: string): HoursSplit => {
+    const monday = mondayOf(date);
+    let split = weekSplits.get(monday);
+    if (!split) {
+      split = weekSplitFor(monday, weeks, booked);
+      weekSplits.set(monday, split);
+    }
+    return split[daysBetween(monday, date)];
+  };
   for (const b of upcoming) {
     const rate = settings.gigDayRates?.[b.bookingId] || baseRate;
     if (rate <= 0) continue;
@@ -388,13 +405,14 @@ export function buildPaychecks(
       const grossBefore = gig.gross;
       const perDiemBefore = gig.perDiem;
       const sheet = timesheetDayFor(day, weeks);
+      const split = splitOn(day);
       if (sheet) {
         // Saved hours are paid at the rate on that week's timesheet; the gig
         // override or base pay only stands in when the week carries none.
         const sheetRate = weekRateFor(day, weeks) || rate;
-        gig.gross += hoursPay(sheet, sheetRate);
-        gig.otPay += overtimePay(sheet, sheetRate);
-        gig.actualHours += sheet.regHours + sheet.otHours + sheet.dtHours;
+        gig.gross += hoursPay(split, sheetRate);
+        gig.otPay += overtimePay(split, sheetRate);
+        gig.actualHours += pricedHours(sheet);
         // A blank per-diem box on the timesheet means "not filled in", not
         // "none owed" — taking it literally quietly removes the day's per
         // diem from the estimate, so a saved sheet could LOWER the projected
@@ -402,7 +420,8 @@ export function buildPaychecks(
         gig.perDiem += sheet.perDiem > 0 ? sheet.perDiem : perDiemRate;
         gig.actualDays += 1;
       } else {
-        gig.gross += rate;
+        gig.gross += hoursPay(split, rate);
+        gig.otPay += overtimePay(split, rate);
         gig.perDiem += perDiemRate;
       }
       week.gross += gig.gross - grossBefore;
