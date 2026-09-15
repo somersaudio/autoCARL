@@ -35,6 +35,9 @@ type Props = {
 
 const DAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const;
 
+// A day with no hours: what "— no work —" leaves on a day that had them.
+const NO_TIMES: Partial<SswDay> = { startTime: '', endTime: '', lunchStart: '', lunchEnd: '' };
+
 // Default times are user-configurable via the Settings modal. The component
 // receives current values as props (`defaultStartTime` / `defaultEndTime`).
 
@@ -696,6 +699,15 @@ function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recent
   const worked = !!(day.startTime || day.endTime);
   const today = parseISO(day.date).getTime() === startOfToday().getTime();
 
+  // "— no work —" on a past day or today also empties its times, so a save
+  // doesn't send hours with no job. It empties them at once, however it was
+  // picked, but keeps what it took out while the field has focus: arrow keys
+  // pick every option they pass, and on Windows and Linux Enter opens the list
+  // instead of closing it, so a keyboard user can land on "— no work —" on the
+  // way to another show. Picking a show again before leaving the field puts the
+  // day back as it was. Leaving the field on "— no work —" makes it stick.
+  const removed = useRef<Pick<SswDay, 'job' | 'perDiem' | 'startTime' | 'endTime' | 'lunchStart' | 'lunchEnd'> | null>(null);
+
   // Options: shows covering this day first, then upcoming shows (prep time),
   // then the 3 most-recently-wrapped past shows (cleanup/paperwork), then the
   // currently-selected job if it isn't already in the list.
@@ -722,15 +734,34 @@ function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recent
       <select
         className="day-show"
         value={day.job}
+        onBlur={(e) => {
+          // A window or browser tab losing focus blurs the field as well, but
+          // it stays the focused element and gets focus back on return. Only
+          // moving on to something else ends the chance to put the day back.
+          if (e.currentTarget.ownerDocument.activeElement !== e.currentTarget) removed.current = null;
+        }}
         onChange={(e) => {
           const job = e.target.value;
           // Switching shows also switches the per-diem rate — pull the new
           // job's suggested rate (GSA → CARL → 0) and replace whatever was
           // there. If the new job is unknown ('— no work —'), zero it out.
           // When the user has disabled GSA autofill, clear the per-diem so
-          // they explicitly type the rate they want for the new show.
+          // they explicitly type the rate they want for the new show. Coming
+          // back to the show "— no work —" replaced brings its per diem back.
           const rate = autofillPerDiem && job ? getPerDiem(job) : 0;
-          onChange({ job, perDiem: rate });
+          if (!job && past && worked) {
+            removed.current = {
+              job: day.job, perDiem: day.perDiem,
+              startTime: day.startTime, endTime: day.endTime, lunchStart: day.lunchStart, lunchEnd: day.lunchEnd,
+            };
+            onChange({ job, perDiem: rate, ...NO_TIMES });
+          } else if (job && removed.current) {
+            const { job: before, perDiem, ...times } = removed.current;
+            removed.current = null;
+            onChange({ job, perDiem: job === before ? perDiem : rate, ...times });
+          } else {
+            onChange({ job, perDiem: rate });
+          }
         }}
         disabled={locked}
       >
