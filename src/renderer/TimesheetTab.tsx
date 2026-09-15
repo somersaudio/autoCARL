@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Booking, BookingContactsCache, SswDay, SswWeek, UserSettings } from '../shared/types';
+import type { Booking, BookingContactsCache, SswDay, SswPushResult, SswWeek, UserSettings } from '../shared/types';
 import { friendlyError } from '../shared/errors';
 import { splitWeek } from '../shared/hours';
 import { savedDaysOff } from '../shared/daysOff';
+import { dayEditKey, weekEditKey } from '../shared/weekMerge';
 import type { HoursSplit } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import WeekPicker from './WeekPicker';
@@ -18,7 +19,20 @@ type Props = {
   savedWeek: SswWeek | null;
   loading: boolean;
   error: string | null;
+  // Whether `week` was read from SSW, rather than painted from the copy saved
+  // on this device while SSW couldn't be reached. Save is off until it is.
+  live: boolean;
+  // A save of this week is running. App keeps it, so the week stays locked
+  // until the save is done even if the tab unmounts meanwhile.
+  saving: boolean;
+  // Why the last save didn't happen, until the next save or another week.
+  saveNotice: string | null;
+  // Autofill's changes, which aren't edits made here.
   onLocalEdit: (next: SswWeek) => void;
+  // A change made by hand; `keys` name the fields it changed (see weekMerge).
+  onEdit: (next: SswWeek, keys: string[]) => void;
+  // Saves the week, unless SSW's copy changed since it was read here.
+  onSave: (week: SswWeek) => Promise<SswPushResult>;
   onReload: () => void | Promise<void>;
   defaultStartTime: string;
   defaultEndTime: string;
@@ -312,12 +326,14 @@ function weekTotals(splits: HoursSplit[]) {
 type RecentContact = { phone: string; email: string };
 
 export default function TimesheetTab({
-  bookings, contacts, weekMonday, onWeekChange, week, savedWeek, loading, error, onLocalEdit, onReload,
+  bookings, contacts, weekMonday, onWeekChange, week, savedWeek, loading, error, live, saving, saveNotice, onLocalEdit, onEdit, onSave, onReload,
   defaultStartTime, defaultEndTime, autofillPerDiem, settings, onSetContact, onOpenSettings,
 }: Props) {
-  const [saving, setSaving] = useState(false);
   const [savedFlash, setSavedFlash] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(() => (saveNotice ? friendlyError(saveNotice, !navigator.onLine) : null));
+  // A save's refusal is kept by App, so coming back to this tab still says the
+  // week wasn't saved.
+  useEffect(() => { setSaveError(saveNotice ? friendlyError(saveNotice, !navigator.onLine) : null); }, [saveNotice]);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Days emptied by hand (see readClearedDays), for the SSW user whose week is
@@ -399,7 +415,7 @@ export default function TimesheetTab({
     const hasTimes = !!(after.startTime || after.endTime);
     if (hadTimes && !hasTimes && isPastOrToday(after.date)) markCleared(after.date, true);
     else if (!hadTimes && hasTimes) markCleared(after.date, false);
-    onLocalEdit({ ...week, days });
+    onEdit({ ...week, days }, Object.keys(patch).map((field) => dayEditKey(after.date, field)));
   };
 
   // "Fill hours" on a day read as a day off: the default times and the covering
@@ -432,10 +448,8 @@ export default function TimesheetTab({
         return;
       }
     }
-    setSaving(true);
     setSaveError(null);
-    const result = await window.api.ssw.pushWeek(week);
-    setSaving(false);
+    const result = await onSave(week);
     if (result.ok) {
       // The save may have put a phone or email on a newer timesheet.
       forgetRecent();
@@ -515,11 +529,11 @@ export default function TimesheetTab({
     <>
       <div className="card">
         <div className="row-actions">
-          <WeekPicker value={weekMonday} onChange={onWeekChange} />
+          <WeekPicker value={weekMonday} onChange={onWeekChange} disabled={saving} />
           <button
             className="primary"
             onClick={handleSave}
-            disabled={!week || saving || loading || isLocked}
+            disabled={!week || saving || loading || isLocked || !live}
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -528,6 +542,12 @@ export default function TimesheetTab({
         {isLocked && (
           <div className="banner" style={{ marginTop: 8 }}>
             This week has been submitted and editing is disabled. Contact your Labor Coordinator to unlock.
+          </div>
+        )}
+        {week && !live && !loading && (
+          <div className="banner" style={{ marginTop: 8 }}>
+            Showing the copy saved on this device, which may be older than SSW's. Save is off until the week loads from SSW.{' '}
+            <button className="link" onClick={() => void onReload()} style={{ padding: 0, fontSize: 'inherit' }}>Try again</button>
           </div>
         )}
         {/* Both can be up at once: a week shown from the saved copy after a
@@ -572,7 +592,7 @@ export default function TimesheetTab({
                 bookingsForDay={bookingsCoveringDate(bookings, d.date)}
                 recentPast={recentPast}
                 upcoming={upcoming}
-                locked={isLocked}
+                locked={isLocked || saving}
                 autofillPerDiem={autofillPerDiem}
                 getPerDiem={(job) => perDiemForJob(job, bookings, contacts)}
                 onChange={(patch) => updateDay(i, patch)}
@@ -593,11 +613,11 @@ export default function TimesheetTab({
           <IdentityPanel
             key={week.weekStartDate}
             week={week}
-            locked={isLocked}
+            locked={isLocked || saving}
             configuredRate={configuredRate}
             overrides={{ phone: settings.timesheetPhone, email: settings.timesheetEmail }}
             recent={recent === 'pending' ? 'loading' : recent ?? (needsRecent ? 'loading' : null)}
-            onRateChange={(rate) => { if (week) onLocalEdit({ ...week, dailyRate: rate, dailyRateEdited: true }); }}
+            onRateChange={(rate) => { if (week) onEdit({ ...week, dailyRate: rate, dailyRateEdited: true }, [weekEditKey('dailyRate')]); }}
             onSetContact={onSetContact}
           />
         </div>
@@ -814,7 +834,7 @@ function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recent
       <div className="day-hours subtle">
         {dayOff
           ? (onFillHours
-            ? <>Day off · <button type="button" className="link" onClick={onFillHours}>Fill hours</button></>
+            ? <>Day off · <button type="button" className="link" onClick={onFillHours} disabled={locked}>Fill hours</button></>
             : <>Day off</>)
           : hours.reg + hours.ot + hours.dt === 0
             ? <span style={{ opacity: 0.5 }}>—</span>
@@ -1002,7 +1022,12 @@ function RateField({ rate, locked, onChange }: {
     setBad(false);
     setEditing(true);
   };
+  // A save sends the copy taken when it was tapped, so a rate changed now would
+  // be dropped by the read that follows. Closing the editor fires this commit
+  // through the input's blur, so it has to refuse too.
+  useEffect(() => { if (locked) setEditing(false); }, [locked]);
   const commit = () => {
+    if (locked) return;
     // The whole entry must be a plain amount: parseFloat alone would read
     // "65o" as 65 or ".5" as 50 cents, and send that to payroll.
     const cleaned = draft.replace(/[$,\s]/g, '');

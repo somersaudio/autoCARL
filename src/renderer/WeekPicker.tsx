@@ -3,6 +3,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 type Props = {
   value: string; // Monday in "YYYY-MM-DD"
   onChange: (mondayISO: string) => void;
+  // Off while the open week is being saved: the save is about the week shown
+  // here, and so is whatever it has to say when it comes back.
+  disabled?: boolean;
 };
 
 function parseISO(s: string): Date {
@@ -33,7 +36,7 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June',
                 'July', 'August', 'September', 'October', 'November', 'December'];
 const WEEKDAYS_MON_FIRST = ['M', 'T', 'W', 'T', 'F', 'S', 'S'] as const;
 
-export default function WeekPicker({ value, onChange }: Props) {
+export default function WeekPicker({ value, onChange, disabled = false }: Props) {
   const selectedMonday = useMemo(() => parseISO(value), [value]);
   const [open, setOpen] = useState(false);
   const [viewMonth, setViewMonth] = useState(() => new Date(selectedMonday.getFullYear(), selectedMonday.getMonth(), 1));
@@ -81,10 +84,10 @@ export default function WeekPicker({ value, onChange }: Props) {
 
   return (
     <div className="week-picker" ref={rootRef}>
-      <button type="button" className="week-picker-trigger" onClick={() => setOpen((o) => !o)}>
+      <button type="button" className="week-picker-trigger" onClick={() => setOpen((o) => !o)} disabled={disabled}>
         Week of {triggerLabel}
       </button>
-      {open && (
+      {open && !disabled && (
         <div className="week-picker-pop">
           <div className="week-picker-header">
             <button

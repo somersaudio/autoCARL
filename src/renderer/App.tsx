@@ -1,8 +1,10 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type {
-  Booking, BookingContactsCache, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress, UserSettings,
+  Booking, BookingContactsCache, FlightsCache, RefreshResult, SetupStatus, SswDay, SswPushResult, SswWeek, UpdateProgress, UserSettings,
 } from '../shared/types';
 import { friendlyError } from '../shared/errors';
+import { rebaseWeek, sameDay, weekChangedSince } from '../shared/weekMerge';
+import type { WeekRebase } from '../shared/weekMerge';
 import Setup from './Setup';
 import BookingsList from './BookingsList';
 import TimesheetTab, { forgetClearedDays } from './TimesheetTab';
@@ -39,6 +41,33 @@ function localDayKey(): string {
   return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 }
 
+// Today's local date, YYYY-MM-DD.
+function isoToday(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+// One SSW timesheet record, for telling whether two copies are the same week.
+function weekIdOf(w: SswWeek): string {
+  return `${w.recordId}|${w.weekStartDate}`;
+}
+
+// What the Timesheet tab says when a save found the week changed in SSW since
+// it was read here, and merged the two on screen instead of saving.
+function rebaseNotice(r: WeekRebase): string {
+  const days = (dates: string[]) => r.week.days
+    .filter((d) => dates.includes(d.date))
+    .map((d) => d.weekday.slice(0, 3))
+    .join(', ');
+  const where = [
+    r.changedDates.length > 0 ? days(r.changedDates) : '',
+    r.weekFieldsChanged ? 'the week details' : '',
+  ].filter(Boolean).join(' and ');
+  let notice = `Not saved yet: this week was changed in SSW after it was opened here${where ? ` (${where})` : ''}. Those changes are in now, with your edits on top.`;
+  if (r.conflictDates.length > 0) notice += ` Where you both changed the same thing (${days(r.conflictDates)}), yours is kept.`;
+  return `${notice} Check it, then tap Save again.`;
+}
+
 export default function App() {
   const [status, setStatus] = useState<SetupStatus | null>(null);
   const [tab, setTab] = useState<Tab>('bookings');
@@ -73,6 +102,37 @@ export default function App() {
   const [sswWeeks, setSswWeeks] = useState<Record<string, SswWeek>>({});
   const [sswLoading, setSswLoading] = useState(false);
   const [sswError, setSswError] = useState<string | null>(null);
+  // Whether the open week on screen was read from SSW. A copy painted from the
+  // cache while SSW can't be reached may be older than what SSW holds, and
+  // saving it would write those older days back over newer ones, so the
+  // Timesheet tab keeps Save off until a read comes back.
+  const [sswLive, setSswLive] = useState(false);
+  // A save of the open week is running. The Timesheet tab keeps the week locked
+  // meanwhile, even after a switch of tabs: the save sends the copy from the
+  // tap, so an edit typed during it would be lost or put back.
+  const [sswSaving, setSswSaving] = useState(false);
+  // Why the last save of the open week didn't happen, kept here so the tab
+  // still says so after it unmounts and comes back.
+  const [sswSaveNotice, setSswSaveNotice] = useState<string | null>(null);
+  // Fields of the open week changed by hand here and not saved yet (see
+  // weekMerge). Kept here because the Timesheet tab unmounts on another tab.
+  const weekEdits = useRef<{ id: string; keys: Set<string> }>({ id: '', keys: new Set() });
+  // Each of those days as it was before the first edit to it, so an edit that
+  // puts the day back stops counting (see editOpenWeek).
+  const weekEditBase = useRef<Map<string, SswDay>>(new Map());
+  // Every read or save of the open week takes the next number; a read that
+  // comes back after a newer one began is dropped.
+  const weekLoad = useRef(0);
+  const weekSaving = useRef(false);
+  const lastWeekRead = useRef(0);
+  // The open week as last set, for callbacks that land between renders.
+  const openWeek = useRef({ week: sswWeek, saved: sswSavedWeek, live: sswLive, loading: sswLoading });
+  openWeek.current = { week: sswWeek, saved: sswSavedWeek, live: sswLive, loading: sswLoading };
+  // The week picked now. The Timesheet tab's reload after a save comes from the
+  // render the tap happened in, so it reads this instead of that render's
+  // Monday: a week picked while the save was out is the one to load.
+  const openMonday = useRef(currentWeekMonday);
+  openMonday.current = currentWeekMonday;
 
   // -------- setup status --------
   useEffect(() => {
@@ -247,17 +307,90 @@ export default function App() {
   // now: a submitted week's unsaved edits couldn't be saved anyway, and a week
   // that was locked had none. Otherwise the open copy, edits and all, stays.
   const takeFreshOpenWeek = (fresh: SswWeek) => {
-    const statusMoved = (cur: SswWeek | null) =>
-      !!cur && cur.recordId === fresh.recordId && cur.statusIndex !== fresh.statusIndex;
-    setSswWeek((cur) => (statusMoved(cur) ? fresh : cur));
-    setSswSavedWeek((cur) => (statusMoved(cur) ? fresh : cur));
+    const cur = openWeek.current.week;
+    if (cur && cur.recordId === fresh.recordId && cur.statusIndex !== fresh.statusIndex) showSswWeek(fresh);
   };
+
+  const forgetEdits = () => {
+    weekEdits.current = { id: '', keys: new Set() };
+    weekEditBase.current = new Map();
+  };
+  const editsOf = (w: SswWeek | null): ReadonlySet<string> =>
+    (w && weekEdits.current.id === weekIdOf(w) ? weekEdits.current.keys : new Set<string>());
+
+  // Show the open week as SSW holds it. Edits made here and not saved yet stay
+  // on top (see rebaseWeek), unless the week is now submitted or is another
+  // record, where they could never be saved.
+  const showSswWeek = (fresh: SswWeek | null) => {
+    const { week: mine, saved } = openWeek.current;
+    const edits = editsOf(mine);
+    let next = fresh;
+    if (fresh && mine && edits.size > 0 && fresh.statusIndex === 0 && weekIdOf(mine) === weekIdOf(fresh)) {
+      const base = saved && weekIdOf(saved) === weekIdOf(fresh) ? saved : fresh;
+      const merged = rebaseWeek(base, mine, fresh, edits, isoToday());
+      next = merged.week;
+      // A read that put someone else's save under the edits here says so, just
+      // as a save held back does. Otherwise the day this device keeps whole
+      // goes over theirs on the next Save with nothing ever shown.
+      if (merged.changedDates.length > 0 || merged.weekFieldsChanged) setSswSaveNotice(rebaseNotice(merged));
+    } else {
+      forgetEdits();
+    }
+    openWeek.current = { ...openWeek.current, week: next, saved: fresh, live: !!fresh };
+    setSswWeek(next);
+    setSswSavedWeek(fresh);
+    setSswLive(!!fresh);
+  };
+
+  // Autofill's changes to the open week: shown, but not edits made here.
+  const showAutofilledWeek = useCallback((next: SswWeek) => {
+    openWeek.current = { ...openWeek.current, week: next };
+    setSswWeek(next);
+  }, []);
+
+  // A change typed or picked on the Timesheet tab; `keys` name its fields.
+  const editOpenWeek = useCallback((next: SswWeek, keys: string[]) => {
+    const id = weekIdOf(next);
+    if (weekEdits.current.id !== id) {
+      weekEdits.current = { id, keys: new Set() };
+      weekEditBase.current = new Map();
+    }
+    const before = openWeek.current.week;
+    const dates = new Set<string>();
+    for (const key of keys) {
+      weekEdits.current.keys.add(key);
+      const date = key.slice(0, key.indexOf(':'));
+      if (date === 'week') continue;
+      dates.add(date);
+      const was = before?.days.find((d) => d.date === date);
+      if (was && !weekEditBase.current.has(date)) weekEditBase.current.set(date, was);
+    }
+    // A day put back the way it was isn't an edit any more: passing through
+    // "— no work —" on the way to another show and back changes every field of
+    // the day and then changes them back, and that must not outrank hours saved
+    // on another device.
+    for (const date of dates) {
+      const was = weekEditBase.current.get(date);
+      const now = next.days.find((d) => d.date === date);
+      if (!was || !now || !sameDay(was, now)) continue;
+      weekEdits.current.keys.forEach((k) => { if (k.startsWith(`${date}:`)) weekEdits.current.keys.delete(k); });
+      weekEditBase.current.delete(date);
+    }
+    openWeek.current = { ...openWeek.current, week: next };
+    setSswWeek(next);
+  }, []);
 
   // Log out, Reset, or a login changed in Settings: nothing from the previous
   // account's timesheets stays on screen or in memory.
   const forgetSswWeeks = () => {
+    weekLoad.current += 1;
+    forgetEdits();
+    openWeek.current = { week: null, saved: null, live: false, loading: false };
     setSswWeek(null);
     setSswSavedWeek(null);
+    setSswLive(false);
+    setSswLoading(false);
+    setSswSaveNotice(null);
     setSswWeeks({});
   };
 
@@ -315,36 +448,167 @@ export default function App() {
   // -------- ssw week --------
   // Paint cached data immediately (sub-ms read from disk) then kick off a
   // live refresh in the background. No loading screen on app open as long as
-  // the week has been fetched at least once before.
+  // the week has been fetched at least once before. The cached copy isn't
+  // live, so Save stays off until SSW's own copy arrives.
   useEffect(() => {
     if (status?.stage !== 'ready' || sswSkipped) return;
-    let cancelled = false;
+    const load = ++weekLoad.current;
+    lastWeekRead.current = Date.now();
+    forgetEdits();
     setSswError(null);
+    setSswSaveNotice(null);
+    setSswLive(false);
+    let fromSsw = false;
     window.api.ssw.getCached(currentWeekMonday).then((cached) => {
-      if (cancelled) return;
+      if (load !== weekLoad.current || fromSsw) return;
+      openWeek.current = { ...openWeek.current, week: cached, saved: cached, live: false };
       setSswWeek(cached);
       setSswSavedWeek(cached);
     });
     setSswLoading(true);
     window.api.ssw.fetchWeek(currentWeekMonday)
-      .then((w) => { if (!cancelled && w) { setSswWeek(w); setSswSavedWeek(w); } })
-      .catch((e) => { if (!cancelled) setSswError(friendlyError(e, !navigator.onLine)); })
-      .finally(() => { if (!cancelled) setSswLoading(false); });
-    return () => { cancelled = true; };
+      .then((w) => { if (load === weekLoad.current && w) { fromSsw = true; showSswWeek(w); } })
+      .catch((e) => { if (load === weekLoad.current) setSswError(friendlyError(e, !navigator.onLine)); })
+      .finally(() => { if (load === weekLoad.current) setSswLoading(false); });
+    return () => { weekLoad.current += 1; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [status?.stage, sswSkipped, currentWeekMonday]);
 
   const reloadWeek = async () => {
+    const load = ++weekLoad.current;
+    lastWeekRead.current = Date.now();
     setSswLoading(true);
     setSswError(null);
     try {
-      const w = await window.api.ssw.fetchWeek(currentWeekMonday);
-      setSswWeek(w);
-      setSswSavedWeek(w);
+      const w = await window.api.ssw.fetchWeek(openMonday.current);
+      if (load === weekLoad.current) showSswWeek(w);
     } catch (e) {
-      setSswError(friendlyError(e, !navigator.onLine));
+      if (load === weekLoad.current) setSswError(friendlyError(e, !navigator.onLine));
     } finally {
-      setSswLoading(false);
+      if (load === weekLoad.current) setSswLoading(false);
+    }
+  };
+
+  // Coming back to the app, read the open week again when nothing typed here
+  // is waiting to be saved, so a save made on another device shows up; and
+  // whenever the copy on screen isn't SSW's, so Save comes back once SSW can
+  // be reached. At most once a minute. It gives way to any other read or save
+  // that starts meanwhile.
+  useEffect(() => {
+    if (status?.stage !== 'ready' || sswSkipped) return;
+    const refresh = () => {
+      const { week, live, loading } = openWeek.current;
+      if (document.visibilityState !== 'visible' || loading || weekSaving.current) return;
+      if (live && editsOf(week).size > 0) return;
+      if (Date.now() - lastWeekRead.current < 60_000) return;
+      lastWeekRead.current = Date.now();
+      const load = weekLoad.current;
+      window.api.ssw.fetchWeek(currentWeekMonday)
+        .then((w) => {
+          if (load !== weekLoad.current || !w) return;
+          // Not under someone typing: a time field keeps its draft until it's
+          // left, and swapping the week in now would put the old value back.
+          // The next return to the app reads again.
+          const active = document.activeElement;
+          if (active instanceof HTMLInputElement || active instanceof HTMLSelectElement || active instanceof HTMLTextAreaElement) {
+            lastWeekRead.current = 0;
+            return;
+          }
+          showSswWeek(w);
+          setSswError(null);
+        })
+        .catch(() => { /* the copy on screen stays; a save reads SSW again first */ });
+    };
+    window.addEventListener('focus', refresh);
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('online', refresh);
+    return () => {
+      window.removeEventListener('focus', refresh);
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('online', refresh);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status?.stage, sswSkipped, currentWeekMonday]);
+
+  // Save the open week, unless SSW's copy has changed since it was read here
+  // (saved on another device, or on the SSW site): pushing this copy would
+  // write its older days back over the newer ones. Then the two are merged on
+  // screen for another look instead. A save landing elsewhere in the moment
+  // between this read and the push can still be overwritten.
+  const saveOpenWeek = async (week: SswWeek): Promise<SswPushResult> => {
+    setSswSaving(true);
+    setSswSaveNotice(null);
+    try {
+      const result = await checkAndPushOpenWeek(week);
+      setSswSaveNotice(result.ok ? null : result.error);
+      return result;
+    } finally {
+      setSswSaving(false);
+    }
+  };
+
+  const checkAndPushOpenWeek = async (week: SswWeek): Promise<SswPushResult> => {
+    const load = ++weekLoad.current;
+    weekSaving.current = true;
+    try {
+      let fresh: SswWeek | null;
+      try {
+        fresh = await window.api.ssw.fetchWeek(week.weekStartDate);
+      } catch (e) {
+        return { ok: false, error: `Not saved: SSW couldn't be checked for changes made elsewhere. ${friendlyError(e, !navigator.onLine)}` };
+      }
+      if (load !== weekLoad.current) {
+        return { ok: false, error: 'Not saved: the week on screen changed while SSW was being checked. Check it, then tap Save again.' };
+      }
+      if (!fresh || fresh.recordId !== week.recordId) {
+        openWeek.current = { ...openWeek.current, live: false };
+        setSswLive(false);
+        return { ok: false, error: "Not saved: SSW doesn't hold this week the way it was opened here. Load it again from SSW." };
+      }
+      if (fresh.statusIndex > 0) {
+        showSswWeek(fresh);
+        return { ok: false, error: 'Not saved: this week has been submitted in SSW since it was opened here.' };
+      }
+      // A change there that only wrote what this copy already holds (autofill
+      // filling the same days on both) is no reason to stop.
+      const { saved } = openWeek.current;
+      const merged = saved && weekIdOf(saved) === weekIdOf(fresh) && weekChangedSince(saved, fresh)
+        ? rebaseWeek(saved, week, fresh, editsOf(week), isoToday())
+        : null;
+      if (merged && (merged.changedDates.length > 0 || merged.weekFieldsChanged)) {
+        openWeek.current = { ...openWeek.current, week: merged.week, saved: fresh, live: true };
+        setSswWeek(merged.week);
+        setSswSavedWeek(fresh);
+        setSswLive(true);
+        return { ok: false, error: rebaseNotice(merged) };
+      }
+      const result = await window.api.ssw.pushWeek(week);
+      // Unless another week was picked while the push was out: what's open now
+      // is that week, with its own edits and its own read on the way.
+      if (result.ok && openMonday.current === week.weekStartDate) {
+        // Nothing typed here is waiting any more. Until the Timesheet tab's
+        // read of the saved week lands, the copy on screen is this device's
+        // rather than SSW's, so it isn't saved from again. What the push wrote
+        // is SSW's copy as far as this device knows — days still ahead go in
+        // blank, as the save left them — so that a later merge, after a read
+        // that never landed, counts these days as this device's own and takes
+        // anything newer from SSW.
+        forgetEdits();
+        const today = isoToday();
+        const pushed: SswWeek = {
+          ...week,
+          dailyRateEdited: undefined,
+          days: week.days.map((d) => (d.date > today
+            ? { ...d, job: '', startTime: '', endTime: '', lunchStart: '', lunchEnd: '', perDiem: 0, miles: null }
+            : d)),
+        };
+        openWeek.current = { ...openWeek.current, saved: pushed, live: false };
+        setSswSavedWeek(pushed);
+        setSswLive(false);
+      }
+      return result;
+    } finally {
+      weekSaving.current = false;
     }
   };
 
@@ -449,7 +713,12 @@ export default function App() {
           savedWeek={sswSavedWeek}
           loading={sswLoading}
           error={sswError}
-          onLocalEdit={setSswWeek}
+          live={sswLive}
+          saving={sswSaving}
+          saveNotice={sswSaveNotice}
+          onLocalEdit={showAutofilledWeek}
+          onEdit={editOpenWeek}
+          onSave={saveOpenWeek}
           onReload={reloadWeek}
           defaultStartTime={settings.defaultStartTime}
           defaultEndTime={settings.defaultEndTime}
