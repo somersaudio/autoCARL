@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Booking, BookingContactsCache, SswDay, SswWeek, UserSettings } from '../shared/types';
 import { friendlyError } from '../shared/errors';
 import { splitWeek } from '../shared/hours';
+import { savedDaysOff } from '../shared/daysOff';
 import type { HoursSplit } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import WeekPicker from './WeekPicker';
@@ -12,6 +13,9 @@ type Props = {
   weekMonday: string;
   onWeekChange: (mondayISO: string) => void;
   week: SswWeek | null;
+  // The same week as SSW last returned it, without the unsaved edits `week`
+  // picks up. A day saved as a day off shows here (see savedDaysOff).
+  savedWeek: SswWeek | null;
   loading: boolean;
   error: string | null;
   onLocalEdit: (next: SswWeek) => void;
@@ -80,10 +84,102 @@ function bookingsCoveringDate(bookings: Booking[], iso: string): Booking[] {
   );
 }
 
+// Days the user emptied by hand, as ISO dates, so autofill leaves them empty.
+// A booked day with no times is otherwise filled with the default hours, which
+// made a day off impossible to save: clear both times and 8:00 am – 6:00 pm
+// came straight back, and a save wrote those hours to SSW. Kept in this
+// device's storage, not only in the tab's state, because the tab unmounts on
+// every tab switch and a save reloads the week with the day blank; either
+// would have filled it again. Filed under the week's SSW user, so someone else
+// signing in on this device doesn't inherit these days off, and forgotten on
+// Log out and Reset. A date leaves the list once its day gets a time again.
+// Other devices can't see this list; they read a saved day off from SSW itself
+// (shared/daysOff.ts).
+const CLEARED_DAYS_KEY = 'autocarl.timesheetClearedDays';
+// The newest dates kept per user. Pruned by count, not age, so a day cleared on
+// an old week that was never submitted still sticks.
+const CLEARED_DAYS_MAX = 366;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+// Changes this session couldn't write to storage, per user: date -> cleared by
+// hand (true) or handed back (false). They're laid over whatever storage holds
+// until a write succeeds. Only the changes, never a whole list, so a copy held
+// here can't undo days another window stored in the meantime.
+const clearedPending = new Map<string, Map<string, boolean>>();
+
+// Every user's stored list, or null when storage can't be reached. A stored
+// value that isn't valid JSON reads as empty and is replaced on the next write.
+function readClearedStore(): Record<string, unknown> | null {
+  let raw: string | null;
+  try {
+    raw = localStorage.getItem(CLEARED_DAYS_KEY);
+  } catch {
+    return null;
+  }
+  try {
+    const stored: unknown = JSON.parse(raw || '{}');
+    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored as Record<string, unknown> : {};
+  } catch {
+    return {};
+  }
+}
+
+function storedClearedDays(store: Record<string, unknown> | null, owner: string): Set<string> {
+  const stored = store?.[owner];
+  return new Set(Array.isArray(stored)
+    ? stored.filter((d): d is string => typeof d === 'string' && ISO_DATE.test(d))
+    : []);
+}
+
+function readClearedDays(owner: string): Set<string> {
+  const days = storedClearedDays(readClearedStore(), owner);
+  clearedPending.get(owner)?.forEach((cleared, date) => {
+    if (cleared) days.add(date);
+    else days.delete(date);
+  });
+  return days;
+}
+
+// Record one day as cleared by hand (true) or handed back to autofill (false).
+function setDayCleared(owner: string, date: string, cleared: boolean): void {
+  const pending = new Map<string, boolean>(clearedPending.get(owner) ?? []);
+  pending.set(date, cleared);
+  try {
+    const store = readClearedStore();
+    if (!store) throw new Error('storage unavailable');
+    const days = storedClearedDays(store, owner);
+    pending.forEach((c, d) => {
+      if (c) days.add(d);
+      else days.delete(d);
+    });
+    const kept = Array.from(days).sort().slice(-CLEARED_DAYS_MAX);
+    if (kept.length > 0) store[owner] = kept;
+    else delete store[owner];
+    localStorage.setItem(CLEARED_DAYS_KEY, JSON.stringify(store));
+    clearedPending.delete(owner);
+  } catch {
+    clearedPending.set(owner, pending);
+  }
+}
+
+// For Log out and Reset: whoever signs in next starts with no days off here.
+export function forgetClearedDays(): void {
+  clearedPending.clear();
+  try {
+    localStorage.removeItem(CLEARED_DAYS_KEY);
+  } catch { /* nothing stored */ }
+}
+
+function todayISO(): string {
+  const t = startOfToday();
+  return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+}
+
 // v1-style autofill: when a day has no times set yet AND a booking covers it,
 // drop in 8a–6p (blank end if today), per-diem, and the booking's job.
 // Days that already have ANY time data are left untouched — the user's edits
-// always win.
+// always win — and so are days off (`daysOff`): days the user emptied by hand,
+// and days SSW holds saved without times. A day off gets nothing filled in. A
+// submitted week isn't filled at all, so it shows exactly what SSW holds.
 function applyAutofill(
   week: SswWeek,
   bookings: Booking[],
@@ -91,7 +187,9 @@ function applyAutofill(
   defaultStart: string,
   defaultEnd: string,
   autofillPerDiem: boolean,
+  daysOff: ReadonlySet<string>,
 ): SswWeek {
+  if ((week.statusIndex ?? 0) > 0) return week;
   let anyChanged = false;
   const today = startOfToday().getTime();
   const days = week.days.map((d) => {
@@ -104,34 +202,43 @@ function applyAutofill(
         const covering = bookingsCoveringDate(bookings, d.date);
         if (covering.length > 0) {
           const booking = covering.sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
-          anyChanged = true;
-          return { ...d, job: booking.jobNumber };
+          // A booking with no job number would "change" the day to the same
+          // blank job on every pass, and the effect would never settle.
+          if (booking.jobNumber) {
+            anyChanged = true;
+            return { ...d, job: booking.jobNumber };
+          }
         }
       }
       return d;
     }
     let next = d;
+    const hasTimes = !!(next.startTime || next.endTime);
+    const dayOff = !hasTimes && daysOff.has(next.date);
     // Phase 1: fill the day's times + job from a covering booking when the
     // user hasn't touched it yet.
-    const hasTimes = !!(next.startTime || next.endTime);
-    if (!hasTimes) {
+    if (!hasTimes && !dayOff) {
       const covering = bookingsCoveringDate(bookings, next.date);
       if (covering.length > 0) {
         const booking = covering.sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
-        next = {
-          ...next,
-          job: next.job || booking.jobNumber,
-          startTime: defaultStart,
-          endTime: isToday(next.date) ? '' : defaultEnd,
-        };
+        const job = next.job || booking.jobNumber;
+        const startTime = defaultStart;
+        const endTime = isToday(next.date) ? '' : defaultEnd;
+        // Only a real change makes a new day. With blank default times the
+        // fill changes nothing, and building a new day anyway never settled:
+        // the effect that runs this looped.
+        if (job !== next.job || startTime !== next.startTime || endTime !== next.endTime) {
+          next = { ...next, job, startTime, endTime };
+        }
       }
     }
     // Phase 2: fill the per-diem amount whenever a job is set and the field
     // is still empty. Runs even on days the user has worked, so swapping the
     // show on a saved day still picks up the new rate. User-typed amounts
     // (any non-zero value) are preserved. Skipped entirely when the user has
-    // disabled GSA autofill in Settings.
-    if (autofillPerDiem && next.job && !next.perDiem) {
+    // disabled GSA autofill in Settings, and on a day off, whose per diem
+    // stays whatever the user left.
+    if (autofillPerDiem && !dayOff && next.job && !next.perDiem) {
       const suggested = perDiemForJob(next.job, bookings, contacts);
       if (suggested > 0) next = { ...next, perDiem: suggested };
     }
@@ -202,7 +309,7 @@ function weekTotals(splits: HoursSplit[]) {
 type RecentContact = { phone: string; email: string };
 
 export default function TimesheetTab({
-  bookings, contacts, weekMonday, onWeekChange, week, loading, error, onLocalEdit, onReload,
+  bookings, contacts, weekMonday, onWeekChange, week, savedWeek, loading, error, onLocalEdit, onReload,
   defaultStartTime, defaultEndTime, autofillPerDiem, settings, onSetContact, onOpenSettings,
 }: Props) {
   const [saving, setSaving] = useState(false);
@@ -210,27 +317,118 @@ export default function TimesheetTab({
   const [saveError, setSaveError] = useState<string | null>(null);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Days emptied by hand (see readClearedDays), for the SSW user whose week is
+  // open. Read again when that user changes, after each change made here, and
+  // when another window changes the stored list.
+  const owner = week?.userId ?? '';
+  const [clearedVersion, setClearedVersion] = useState(0);
+  const clearedDays = useMemo(() => readClearedDays(owner), [owner, clearedVersion]);
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== CLEARED_DAYS_KEY && e.key !== null) return;
+      // Another window logged out or reset: changes this one never managed to
+      // store go with that session.
+      if (e.newValue === null) clearedPending.clear();
+      setClearedVersion((v) => v + 1);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+  // Today's date, kept current, so autofill and the day-off reading move on at
+  // midnight without waiting for an edit: a day that has just become today gets
+  // its start time instead of keeping only its preview job.
+  const [dayKey, setDayKey] = useState(todayISO);
+  const autofilledFor = useRef(dayKey);
+  useEffect(() => {
+    const tick = () => setDayKey(todayISO());
+    const timer = window.setInterval(tick, 60_000);
+    window.addEventListener('focus', tick);
+    document.addEventListener('visibilitychange', tick);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener('focus', tick);
+      document.removeEventListener('visibilitychange', tick);
+    };
+  }, []);
+  // Everything autofill leaves empty: days cleared here, and days SSW holds
+  // saved as a day off.
+  const daysOffOn = (today: string) =>
+    new Set([...Array.from(clearedDays), ...Array.from(savedDaysOff(savedWeek?.days ?? [], today))]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const daysOff = useMemo(() => daysOffOn(dayKey), [clearedDays, savedWeek, dayKey]);
+
   // Run autofill whenever the week or its data sources change. applyAutofill
   // returns the SAME reference when nothing needs filling, so onLocalEdit is
   // only triggered when there's actual new data to apply — no infinite loop
   // and no stale dedup-key bug when navigating between weeks.
   useEffect(() => {
     if (!week) return;
-    const filled = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem);
+    autofilledFor.current = dayKey;
+    const filled = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOff);
     if (filled !== week) onLocalEdit(filled);
-  }, [week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, onLocalEdit]);
+  }, [week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOff, dayKey, onLocalEdit]);
 
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
+
+  // Record or forget a day emptied by hand. Only that one date is written, over
+  // what storage holds now, so days other windows changed are kept.
+  const markCleared = (date: string, cleared: boolean) => {
+    if (clearedDays.has(date) === cleared) return;
+    setDayCleared(owner, date, cleared);
+    setClearedVersion((v) => v + 1);
+  };
 
   const updateDay = (idx: number, patch: Partial<SswDay>) => {
     if (!week) return;
     const days = [...week.days];
-    days[idx] = { ...days[idx], ...patch };
+    const before = days[idx];
+    const after = { ...before, ...patch };
+    days[idx] = after;
+    // Emptying a worked day's times makes it a day off that autofill leaves
+    // alone, and typing a time into it again hands it back. Only those two
+    // edits count. An edit to a day that keeps its times (lunch, per diem, the
+    // job) says nothing; in a tab still showing times that another tab has
+    // since cleared, it would otherwise hand the day back for every tab.
+    // Recorded before the edit lands, so the autofill pass that follows
+    // already knows. Days still ahead are never filled, so only a past day or
+    // today counts as cleared.
+    const hadTimes = !!(before.startTime || before.endTime);
+    const hasTimes = !!(after.startTime || after.endTime);
+    if (hadTimes && !hasTimes && isPastOrToday(after.date)) markCleared(after.date, true);
+    else if (!hadTimes && hasTimes) markCleared(after.date, false);
     onLocalEdit({ ...week, days });
+  };
+
+  // "Fill hours" on a day read as a day off: the default times and the covering
+  // show, as autofill gives a day nobody has touched.
+  const fillHours = (idx: number) => {
+    if (!week) return;
+    const d = week.days[idx];
+    const booking = bookingsCoveringDate(bookings, d.date).sort((a, b) => b.startDate.localeCompare(a.startDate))[0];
+    updateDay(idx, {
+      job: d.job || booking?.jobNumber || '',
+      startTime: defaultStartTime,
+      endTime: isToday(d.date) ? '' : defaultEndTime,
+    });
   };
 
   const handleSave = async () => {
     if (!week) return;
+    // The page can sleep through midnight before the date tick runs, leaving a
+    // day that has just become today with only its preview job. Saved like that,
+    // SSW would hold a job with no times, which reads as a day off. When the
+    // date has moved on since autofill last ran, bring the week up to date and
+    // let the user look at it before anything is saved.
+    const today = todayISO();
+    if (today !== autofilledFor.current) {
+      setDayKey(today);
+      const current = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOffOn(today));
+      if (current !== week) {
+        onLocalEdit(current);
+        setSaveError('The week was updated for today. Check it, then tap Save again.');
+        return;
+      }
+    }
     setSaving(true);
     setSaveError(null);
     const result = await window.api.ssw.pushWeek(week);
@@ -322,8 +520,14 @@ export default function TimesheetTab({
             This week has been submitted and editing is disabled. Contact your Labor Coordinator to unlock.
           </div>
         )}
-        {(error || saveError) && (
-          <div className="banner error" style={{ marginTop: 8 }}>{error || saveError}</div>
+        {/* Both can be up at once: a week shown from the saved copy after a
+            failed load, and a save held back or refused. The save message
+            comes first, since it's the answer to the tap just made. */}
+        {saveError && (
+          <div className="banner error" style={{ marginTop: 8 }}>{saveError}</div>
+        )}
+        {error && error !== saveError && (
+          <div className="banner error" style={{ marginTop: 8 }}>{error}</div>
         )}
       </div>
 
@@ -349,6 +553,11 @@ export default function TimesheetTab({
                 key={d.date}
                 day={d}
                 hours={daySplits[i]}
+                dayOff={!isLocked && !(d.startTime || d.endTime) && daysOff.has(d.date)
+                  && isPastOrToday(d.date) && bookingsCoveringDate(bookings, d.date).length > 0}
+                onFillHours={defaultStartTime.trim() || (!isToday(d.date) && defaultEndTime.trim())
+                  ? () => fillHours(i)
+                  : undefined}
                 label={DAY_LABELS[i]}
                 bookingsForDay={bookingsCoveringDate(bookings, d.date)}
                 recentPast={recentPast}
@@ -466,6 +675,12 @@ function CreateWeekCard({ weekMonday, bookings, onCreated }: {
 type DayRowProps = {
   day: SswDay;
   hours: HoursSplit;
+  // A booked day autofill leaves empty because it reads as a day off. It says
+  // so, with a way to fill it, so a wrong reading shows instead of saving a
+  // worked day with no hours. No fill is offered when the default times would
+  // add nothing (both blank, or only an end time on today).
+  dayOff: boolean;
+  onFillHours?: () => void;
   label: string;
   bookingsForDay: Booking[];
   recentPast: Booking[];
@@ -476,7 +691,7 @@ type DayRowProps = {
   onChange: (patch: Partial<SswDay>) => void;
 };
 
-function DayRow({ day, hours, label, bookingsForDay, recentPast, upcoming, locked, autofillPerDiem, getPerDiem, onChange }: DayRowProps) {
+function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recentPast, upcoming, locked, autofillPerDiem, getPerDiem, onChange }: DayRowProps) {
   const past = isPastOrToday(day.date);
   const worked = !!(day.startTime || day.endTime);
   const today = parseISO(day.date).getTime() === startOfToday().getTime();
@@ -559,9 +774,13 @@ function DayRow({ day, hours, label, bookingsForDay, recentPast, upcoming, locke
       </div>
 
       <div className="day-hours subtle">
-        {hours.reg + hours.ot + hours.dt === 0
-          ? <span style={{ opacity: 0.5 }}>—</span>
-          : <>{hours.reg.toFixed(1)} reg · {hours.ot.toFixed(1)} OT · {hours.dt.toFixed(1)} DT</>}
+        {dayOff
+          ? (onFillHours
+            ? <>Day off · <button type="button" className="link" onClick={onFillHours}>Fill hours</button></>
+            : <>Day off</>)
+          : hours.reg + hours.ot + hours.dt === 0
+            ? <span style={{ opacity: 0.5 }}>—</span>
+            : <>{hours.reg.toFixed(1)} reg · {hours.ot.toFixed(1)} OT · {hours.dt.toFixed(1)} DT</>}
       </div>
     </div>
   );

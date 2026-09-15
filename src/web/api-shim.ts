@@ -791,6 +791,15 @@ function unwrapWeek(r: unknown): SswWeek | null {
   return null;
 }
 
+// A day still ahead as SSW holds it after a save: blankFutureDay in
+// worker-api/src/ssw.ts empties it before writing.
+function blankedFutureDay(d: SswWeek['days'][number]): SswWeek['days'][number] {
+  return {
+    ...d, job: '', startTime: '', endTime: '', lunchStart: '', lunchEnd: '',
+    perDiem: 0, miles: null, regHours: 0, otHours: 0, dtHours: 0, totalHours: 0,
+  };
+}
+
 function cacheWeek(week: SswWeek): void {
   const weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
   weeks[week.weekStartDate] = week;
@@ -1268,9 +1277,17 @@ const api: Api = {
         // path, so the worker would otherwise write 0 / 0 / 0 for every day.
         // The worker blanks days still ahead; no earlier day's split hangs on them.
         const filled: SswWeek = { ...week, days: splitWeek(week.days) };
-        const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg: sswCfg() });
+        const cfg = sswCfg();
+        const r = await postJson<SswPushResult>('/v1/ssw/save', { email, password, week: filled, cfg });
         // The edit marker belongs to the unsaved change, not the cached week.
-        if (r && r.ok) cacheWeek({ ...filled, dailyRateEdited: undefined });
+        // The cache stands in for SSW's copy until the next fetch, so days still
+        // ahead go in blank, as the worker saved them: a preview job left on one
+        // would read as a day off once the day passed (savedDaysOff in
+        // TimesheetTab).
+        if (r && r.ok) {
+          const days = filled.days.map((d) => (d.date > cfg.todayIso ? blankedFutureDay(d) : d));
+          cacheWeek({ ...filled, dailyRateEdited: undefined, days });
+        }
         return r;
       } catch (e) {
         // Desktop pushWeek resolves with the error union rather than throwing.

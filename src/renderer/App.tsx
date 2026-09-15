@@ -5,7 +5,7 @@ import type {
 import { friendlyError } from '../shared/errors';
 import Setup from './Setup';
 import BookingsList from './BookingsList';
-import TimesheetTab from './TimesheetTab';
+import TimesheetTab, { forgetClearedDays } from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab from './FriendsTab';
 import { estimatorKeepFrom, lastPayDateOf, timesheetDueDate } from '../shared/paychecks';
@@ -63,6 +63,10 @@ export default function App() {
 
   const [currentWeekMonday, setCurrentWeekMonday] = useState<string>(() => mondayOfDate(new Date()));
   const [sswWeek, setSswWeek] = useState<SswWeek | null>(null);
+  // The same week as SSW last returned it, without the unsaved edits sswWeek
+  // picks up; set together with sswWeek whenever a week comes from SSW. The
+  // Timesheet tab reads a saved day off from it.
+  const [sswSavedWeek, setSswSavedWeek] = useState<SswWeek | null>(null);
   // Every cached SSW week, for the paycheck estimator's actual-hours pricing.
   // Re-read whenever the active week changes — fetchWeek/pushWeek write the
   // cache, so this stays current after timesheet edits are saved.
@@ -298,10 +302,11 @@ export default function App() {
     window.api.ssw.getCached(currentWeekMonday).then((cached) => {
       if (cancelled) return;
       setSswWeek(cached);
+      setSswSavedWeek(cached);
     });
     setSswLoading(true);
     window.api.ssw.fetchWeek(currentWeekMonday)
-      .then((w) => { if (!cancelled && w) setSswWeek(w); })
+      .then((w) => { if (!cancelled && w) { setSswWeek(w); setSswSavedWeek(w); } })
       .catch((e) => { if (!cancelled) setSswError(friendlyError(e, !navigator.onLine)); })
       .finally(() => { if (!cancelled) setSswLoading(false); });
     return () => { cancelled = true; };
@@ -314,6 +319,7 @@ export default function App() {
     try {
       const w = await window.api.ssw.fetchWeek(currentWeekMonday);
       setSswWeek(w);
+      setSswSavedWeek(w);
     } catch (e) {
       setSswError(friendlyError(e, !navigator.onLine));
     } finally {
@@ -397,7 +403,7 @@ export default function App() {
           onSetDayRate={setGigDayRate}
           onSetWeekSlipped={setWeekSlipped}
           onRefresh={refreshBookings}
-          onResetSetup={async () => { await window.api.setup.clear(); setStatus({ stage: 'needs-carl-credentials' }); }}
+          onResetSetup={async () => { forgetClearedDays(); await window.api.setup.clear(); forgetClearedDays(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />
       )}
 
@@ -419,6 +425,7 @@ export default function App() {
           weekMonday={currentWeekMonday}
           onWeekChange={setCurrentWeekMonday}
           week={sswWeek}
+          savedWeek={sswSavedWeek}
           loading={sswLoading}
           error={sswError}
           onLocalEdit={setSswWeek}
@@ -451,7 +458,11 @@ export default function App() {
         }}
         onLogout={async () => {
           setSettingsOpen(false);
+          forgetClearedDays();
           await window.api.setup.clear();
+          // Again once the wait is over: the Timesheet tab stays up until the
+          // status changes, and a day cleared meanwhile would outlive the logout.
+          forgetClearedDays();
           setStatus({ stage: 'needs-carl-credentials' });
         }}
       />

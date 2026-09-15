@@ -314,7 +314,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         </p>
         <div className="row-actions" style={{ justifyContent: 'flex-end', marginTop: 10 }}>
           {savedFlash?.tab === 'general' && <span className="save-flash" key={savedFlash.n}>Saved!</span>}
-          <button className="primary" onClick={saveDefaults} disabled={busy || !start || !end || tsEmailClean === null || tsPhoneClean === null}>
+          <button className="primary" onClick={saveDefaults} disabled={busy || !start.trim() || !end.trim() || tsEmailClean === null || tsPhoneClean === null}>
             {busy ? 'Saving…' : 'Save'}
           </button>
         </div>
