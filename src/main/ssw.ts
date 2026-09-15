@@ -545,6 +545,9 @@ function fmt2(n: number): string {
 // Future days are not saved to SSW — the user fills them in once they happen.
 // Anything pre-populated by autofill (or typed early) gets blanked at save time
 // so the server never sees speculative hours on a date that hasn't passed yet.
+// The copy in worker-api/src/ssw.ts takes the client's local date instead of
+// reading the clock, because Workers run in UTC. Here the clock is the user's
+// own, so its local midnight is the right "today".
 function isFutureISO(iso: string): boolean {
   const today = new Date(); today.setHours(0, 0, 0, 0);
   const [y, m, d] = iso.split('-').map(Number);

@@ -33,8 +33,9 @@ export type SswSession = { jar: CookieJar; token: string | null };
 export class SessionExpiredError extends Error {}
 
 // timesheetEmail and timesheetPhone are the user's Settings overrides, '' for
-// none (see cleanTimesheetEmail below).
-export type SswCfg = { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string };
+// none (see cleanTimesheetEmail below). todayIso is the client's local date,
+// YYYY-MM-DD (see isFutureISO below).
+export type SswCfg = { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string; todayIso: string };
 
 function sswFetch(t: Transport, jar: CookieJar, url: string, opts: FetchOpts = {}): Promise<FetchResult> {
   // Same defaults the desktop set on every request. Electron's setHeader
@@ -422,8 +423,13 @@ function fmt2(n: number): string {
 // Future days are not saved to SSW — the user fills them in once they happen.
 // Anything pre-populated by autofill (or typed early) gets blanked at save time
 // so the server never sees speculative hours on a date that hasn't passed yet.
-function isFutureISO(iso: string): boolean {
-  const today = new Date(); today.setHours(0, 0, 0, 0);
+// Unlike the copy in src/main/ssw.ts, "today" is the client's local date passed
+// in (cfg.todayIso), not this machine's clock: Workers run in UTC, so after
+// 00:00 UTC a US evening's tomorrow would already read as today here, and the
+// Timesheet tab's preview job for it would be saved.
+function isFutureISO(iso: string, todayIso: string): boolean {
+  const [ty, tm, td] = todayIso.split('-').map(Number);
+  const today = new Date(ty, tm - 1, td);
   const [y, m, d] = iso.split('-').map(Number);
   return new Date(y, m - 1, d).getTime() > today.getTime();
 }
@@ -479,10 +485,11 @@ export function saveDailyRate(
 
 // `emailForSave` is the address that lands in SSW's own record: the user's
 // Settings override when they set one, else whatever SSW already had.
-function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: Record<string, string>, emailForSave: string): SswInput[] {
+// `todayIso` is the client's local date (see isFutureISO).
+function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: Record<string, string>, emailForSave: string, todayIso: string): SswInput[] {
   const inputs: SswInput[] = [];
   const date = isoToPaddedMDY(week.weekStartDate);
-  const saveDays = week.days.map((d) => isFutureISO(d.date) ? blankFutureDay(d) : d);
+  const saveDays = week.days.map((d) => isFutureISO(d.date, todayIso) ? blankFutureDay(d) : d);
   const hourly = hourlyFromDaily(originalDailyRate);
 
   // ---- PrimaryTable identity ----
@@ -666,7 +673,7 @@ export async function createWeek(t: Transport, s: SswSession, weekStartDate: str
     draft.phone = draft.phone.trim() || found.phone;
     draft.email = draft.email.trim() || found.email;
   }
-  const Inputs = buildInputs(draft, dailyRate, {}, tsEmail || draft.email);
+  const Inputs = buildInputs(draft, dailyRate, {}, tsEmail || draft.email, cfg.todayIso);
   const body = {
     request: {
       ApplicationKey: APP_KEY,
@@ -742,7 +749,7 @@ export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: 
       if (r) originalRates[dayName] = fmtRate(num(r));
     }
 
-    const Inputs = buildInputs({ ...week, phone }, dailyRate, originalRates, emailForSave);
+    const Inputs = buildInputs({ ...week, phone }, dailyRate, originalRates, emailForSave, cfg.todayIso);
     const body = {
       request: {
         ApplicationKey: APP_KEY,

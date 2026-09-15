@@ -779,7 +779,7 @@ function requireSsw(): { email: string; password: string } {
   return { email, password };
 }
 
-function sswCfg(): { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string } {
+function sswCfg(): { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string; todayIso: string } {
   const s = getSettings();
   // Base pay, with the legacy field winning if an old profile still carries it.
   // New weeks start at it, and every save writes it unless the week's rate was
@@ -787,11 +787,16 @@ function sswCfg(): { defaultDailyRate: number; timesheetEmail: string; timesheet
   const dayRate = s.defaultDailyRate > 0
     ? s.defaultDailyRate
     : (s.basePayDayRate > 0 ? s.basePayDayRate : 0);
+  const today = new Date();
   return {
     defaultDailyRate: dayRate,
     // The email and phone overrides; '' keeps what SSW has on each week.
     timesheetEmail: cleanTimesheetEmail(s.timesheetEmail) || '',
     timesheetPhone: cleanTimesheetPhone(s.timesheetPhone) || '',
+    // This device's local date. The worker runs in UTC, so it needs this to
+    // tell which days haven't happened yet for the user (isFutureISO in
+    // worker-api/src/ssw.ts); a US evening's tomorrow is still blanked.
+    todayIso: `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`,
   };
 }
 

@@ -274,15 +274,25 @@ async function readBody(req: Request): Promise<Body> {
 
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');
 
+// A real calendar date written YYYY-MM-DD, else null.
+function isoDateOf(raw: unknown): string | null {
+  if (typeof raw !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null;
+  const d = new Date(`${raw}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === raw ? raw : null;
+}
+
 // The timesheet settings a client sends with a create or save. The phone and
 // email overrides pass the same check as in the apps; a build from before the
-// phone override sends none, which reads as no override.
+// phone override sends none, which reads as no override. todayIso is the
+// client's local date; a build from before it sends none, which falls back to
+// today's UTC date, what saves used before.
 function sswCfgOf(raw: unknown): ssw.SswCfg {
   const cfg = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   return {
     defaultDailyRate: typeof cfg.defaultDailyRate === 'number' ? cfg.defaultDailyRate : 0,
     timesheetEmail: ssw.cleanTimesheetEmail(cfg.timesheetEmail) || '',
     timesheetPhone: ssw.cleanTimesheetPhone(cfg.timesheetPhone) || '',
+    todayIso: isoDateOf(cfg.todayIso) || new Date().toISOString().slice(0, 10),
   };
 }
 
