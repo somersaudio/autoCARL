@@ -280,6 +280,30 @@ function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | 
   return payable > 0 ? day : null;
 }
 
+// The job a saved timesheet charges a date to, or '' when that day wasn't
+// worked (no start time and no hours) or its week isn't cached. A blank day
+// that only carries a job, like an upcoming day's preview, decides nothing.
+function sheetJobFor(iso: string, weeks: Record<string, SswWeek>): string {
+  const d = weeks[mondayOf(iso)]?.days.find((x) => x.date === iso);
+  if (!d || !d.job) return '';
+  const worked = !!d.startTime || d.regHours + d.otHours + d.dtHours > 0 || d.totalHours > 0;
+  return worked ? d.job : '';
+}
+
+// Whether `challenger` should take a date that `holder` has so far: the booking
+// the saved timesheet charges the day to wins, then the gig starting later (the
+// one you're travelling to, which is also the job the Timesheet tab fills in
+// for a shared day). A pending request ranks like any gig, so the "if accepted"
+// figure prices exactly the days it would own once accepted. The booking id
+// settles a tie, so the same bookings always price the same way in any order.
+function claimsDay(challenger: Booking, holder: Booking, sheetJob: string): boolean {
+  const cJob = sheetJob && challenger.jobNumber === sheetJob ? 1 : 0;
+  const hJob = sheetJob && holder.jobNumber === sheetJob ? 1 : 0;
+  if (cJob !== hJob) return cJob > hJob;
+  if (challenger.startDate !== holder.startDate) return challenger.startDate > holder.startDate;
+  return challenger.bookingId < holder.bookingId;
+}
+
 /**
  * Map upcoming bookings onto bi-weekly checks and withhold each check the way
  * payroll will. Gigs with no day rate contribute nothing (same rule as the
@@ -289,6 +313,10 @@ function timesheetDayFor(iso: string, weeks: Record<string, SswWeek>): SswDay | 
  * from those hours (OT/DT included), at that week's own Daily Rate when SSW
  * holds one, instead of the standard 10-hour-day assumption, and its per diem
  * comes from the sheet rather than the GSA rate.
+ *
+ * Every date is priced once. Bookings include their travel days, so gigs back
+ * to back share the day one ends and the next begins; a date in two bookings
+ * goes to just one of them (see claimsDay).
  */
 export function buildPaychecks(
   upcoming: Booking[],
@@ -307,6 +335,19 @@ export function buildPaychecks(
   type Bucket = Map<string, GigOnCheck>;           // bookingId -> partial gig
   const periods = new Map<number, Bucket>();
   const periodWeeks = new Map<number, Map<string, WeekOnCheck>>();
+  // One day's pay per date. The Sep 25 check used to carry 16 days for a
+  // 14-day period: Klaviyo ended the day Dreamforce began, and Dreamforce the
+  // day Google AITE began, and each booking priced that shared travel day.
+  const dayOwner = new Map<string, Booking>();
+  for (const b of upcoming) {
+    if ((settings.gigDayRates?.[b.bookingId] || baseRate) <= 0) continue;
+    const span = daysBetween(b.startDate, b.endDate) + 1;
+    for (let i = 0; i < span; i++) {
+      const date = addDays(b.startDate, i);
+      const held = dayOwner.get(date);
+      if (!held || claimsDay(b, held, sheetJobFor(date, weeks))) dayOwner.set(date, b);
+    }
+  }
   for (const b of upcoming) {
     const rate = settings.gigDayRates?.[b.bookingId] || baseRate;
     if (rate <= 0) continue;
@@ -316,6 +357,8 @@ export function buildPaychecks(
     if (total <= 0) continue;
     for (let i = 0; i < total; i++) {
       const day = addDays(b.startDate, i);
+      // A date another booking also covers is priced on that date's owner.
+      if (dayOwner.get(day) !== b) continue;
       const monday = mondayOf(day);
       const home = periodIndex(day);
       const idx = home + slipCount(slippedWeeks, monday);

@@ -458,7 +458,10 @@ export default function BookingsList({
     if (!base) return paid ? [] : [{ ...all, requestOnly: true, requestExtra: Math.round(all.net + all.perDiem) }];
     const extra = Math.round((all.net + all.perDiem) - (base.net + base.perDiem));
     if (paid || extra <= 0) return [base];
-    return [{ ...base, gigs: all.gigs, requestExtra: extra }];
+    // Confirmed gigs keep the chips the headline was priced from; a request adds
+    // its own, showing the days it would own once accepted.
+    const requestGigs = all.gigs.filter((g) => !base.gigs.some((bg) => bg.bookingId === g.bookingId));
+    return [{ ...base, gigs: [...base.gigs, ...requestGigs], requestExtra: extra }];
   });
 
   return (
