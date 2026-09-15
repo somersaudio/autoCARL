@@ -241,6 +241,18 @@ export default function App() {
   }, []);
   const slippedKey = (settings.slippedWeeks || []).join(',');
 
+  // A copy of the open week read from SSW outside the week loader. When its
+  // submitted status has changed since the week was opened (submitted on the
+  // SSW site, or unlocked by the Labor Coordinator), show it as SSW holds it
+  // now: a submitted week's unsaved edits couldn't be saved anyway, and a week
+  // that was locked had none. Otherwise the open copy, edits and all, stays.
+  const takeFreshOpenWeek = (fresh: SswWeek) => {
+    const statusMoved = (cur: SswWeek | null) =>
+      !!cur && cur.recordId === fresh.recordId && cur.statusIndex !== fresh.statusIndex;
+    setSswWeek((cur) => (statusMoved(cur) ? fresh : cur));
+    setSswSavedWeek((cur) => (statusMoved(cur) ? fresh : cur));
+  };
+
   // The estimator prices a day from saved timesheet hours when it has them,
   // but the app only ever LOADED the current week — so a gig that began in an
   // earlier week had those days priced at the flat day rate and any overtime
@@ -281,7 +293,8 @@ export default function App() {
       const missing = Array.from(wanted).filter((m) => !cached[m] || stale(m)).sort().slice(0, 6);
       for (const monday of missing) {
         if (cancelled) return;
-        await window.api.ssw.fetchWeek(monday).catch(() => null);
+        const fresh = await window.api.ssw.fetchWeek(monday).catch(() => null);
+        if (!cancelled && fresh) takeFreshOpenWeek(fresh);
       }
       if (!cancelled && missing.length > 0) {
         window.api.ssw.getCachedWeeks().then(setSswWeeks).catch(() => {});

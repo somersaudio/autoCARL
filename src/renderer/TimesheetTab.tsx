@@ -446,6 +446,9 @@ export default function TimesheetTab({
       onReload();
     } else {
       setSaveError(friendlyError(result.error, !navigator.onLine));
+      // Submitted in SSW since this copy was loaded: load the week as SSW now
+      // holds it, so the tab shows it locked instead of inviting another try.
+      if (result.submitted) onReload();
     }
   };
 
