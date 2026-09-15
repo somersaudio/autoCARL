@@ -1,4 +1,6 @@
 import { net, session } from 'electron';
+import type { Session } from 'electron';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { readConfig, writeSswWeek } from './store';
 import { getSswPassword } from './credentials';
 import { splitWeek } from '../shared/hours';
@@ -15,22 +17,55 @@ const APP_KEY = '6d15fd2e153e41818d683f18459d3306';            // app-scoped, st
 
 // ----- session state ------------------------------------------------------
 
+// Which SSW account this process is working for. Log out, Reset and a login
+// change bump it through resetSession. A request already on the wire can't be
+// cancelled, and one landing after the switch would log the app back in as the
+// previous person (Chromium keeps a Set-Cookie that arrives after the cookie
+// clear, and SSW can renew its cookie on any reply) or write their week into
+// the cache. So each number has its own cookie partition, work that began
+// under an older number sends nothing more (see sswWork), and a login, token,
+// fetch or save that began under one is thrown away when it finishes.
+let accountEpoch = 0;
+const ACCOUNT_CHANGED = 'The SSW login changed while this was in progress.';
+
+// The account a withSession operation started under.
+const sswWork = new AsyncLocalStorage<{ epoch: number }>();
+
+export function sswEpoch(): number {
+  return accountEpoch;
+}
+
 // Electron's net.request silently parks Set-Cookie headers in the session
 // store (even with useSessionCookies:false), so we use a dedicated partition
 // for SSW traffic and let Electron handle the cookie lifecycle natively.
-function sswSession() {
-  return session.fromPartition('ssw');
+function sswSession(epoch = accountEpoch): Session {
+  return session.fromPartition(`ssw-${epoch}`);
 }
 
 let cachedToken: string | null = null;
 let loggedIn = false;
 
-async function resetSession(): Promise<void> {
+async function clearCookies(jar: Session): Promise<void> {
+  try {
+    await jar.clearStorageData({ storages: ['cookies'] });
+  } catch { /* ignore */ }
+}
+
+// Forget this process's SSW login: token, logged-in flag and cookies.
+async function dropSession(): Promise<void> {
   cachedToken = null;
   loggedIn = false;
-  try {
-    await sswSession().clearStorageData({ storages: ['cookies'] });
-  } catch { /* ignore */ }
+  await clearCookies(sswSession());
+}
+
+// Start over as whoever's login is stored now. Logout, Reset and a login change
+// call this; see accountEpoch.
+export async function resetSession(): Promise<void> {
+  const previous = sswSession();
+  accountEpoch += 1;
+  cachedToken = null;
+  loggedIn = false;
+  await clearCookies(previous);
 }
 
 type FetchResult = {
@@ -39,7 +74,12 @@ type FetchResult = {
   text(): Promise<string>;
 };
 
-function sswFetch(url: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}): Promise<FetchResult> {
+// `jar` is for the login test's own partition; everything else uses the
+// current account's.
+function sswFetch(url: string, opts: { method?: string; headers?: Record<string, string>; body?: string } = {}, jar?: Session): Promise<FetchResult> {
+  const work = sswWork.getStore();
+  if (work && work.epoch !== accountEpoch) return Promise.reject(new Error(ACCOUNT_CHANGED));
+  const partition = jar ?? sswSession();
   return new Promise((resolve, reject) => {
     const headers: Record<string, string> = {
       Referer: SSW + '/',
@@ -49,12 +89,12 @@ function sswFetch(url: string, opts: { method?: string; headers?: Record<string,
       ...(opts.headers || {}),
     };
 
-    // Run through the dedicated 'ssw' session with useSessionCookies:true so
+    // Run through the dedicated SSW session with useSessionCookies:true so
     // Electron sends and captures cookies for us across the redirect chain.
     const req = net.request({
       method: opts.method || 'GET',
       url,
-      session: sswSession(),
+      session: partition,
       useSessionCookies: true,
       redirect: 'follow',
     });
@@ -99,35 +139,24 @@ function extractInput(html: string, name: string): string | null {
 
 // Verify a CARL→SSW credential pair without persisting anything. Used by the
 // Settings modal to validate creds before saving them to the keychain.
-// Throws on failure (rejection, network error). Resolves on success.
+// Throws on failure (rejection, network error). Resolves on success. The test
+// logs in inside a throwaway cookie partition of its own: in the app's, its
+// cookies replaced the running login's, so the app went on as a mix of the two.
+let loginTests = 0;
 export async function testSswLogin(email: string, password: string): Promise<void> {
   if (!email || !password) throw new Error('Email and password are required.');
-  // Run the existing login flow against an isolated session so we don't
-  // disturb the in-memory session of the live app.
-  const prevSession = await carlSwapForTest();
+  loginTests += 1;
+  const jar = session.fromPartition(`ssw-test-${loginTests}`);
   try {
-    await loginWithCreds(email, password);
+    await loginWithCreds(email, password, jar);
   } finally {
-    await carlRestoreFromTest(prevSession);
+    await clearCookies(jar);
   }
 }
 
-// Helpers used only by testSswLogin — swap the SSW session out so the test
-// login can't accidentally invalidate the running app's cookies.
-async function carlSwapForTest(): Promise<{ loggedIn: boolean; cachedToken: string | null }> {
-  const prev = { loggedIn, cachedToken };
-  loggedIn = false;
-  cachedToken = null;
-  return prev;
-}
-async function carlRestoreFromTest(prev: { loggedIn: boolean; cachedToken: string | null }): Promise<void> {
-  loggedIn = prev.loggedIn;
-  cachedToken = prev.cachedToken;
-}
-
-async function loginWithCreds(email: string, password: string): Promise<void> {
+async function loginWithCreds(email: string, password: string, jar?: Session): Promise<void> {
   // Prime ASP.NET form vars from the login page.
-  const res1 = await sswFetch(`${SSW}/Default.aspx`);
+  const res1 = await sswFetch(`${SSW}/Default.aspx`, {}, jar);
   const html1 = await res1.text();
   const viewState = extractInput(html1, '__VIEWSTATE');
   const viewStateGenerator = extractInput(html1, '__VIEWSTATEGENERATOR') || '';
@@ -146,7 +175,7 @@ async function loginWithCreds(email: string, password: string): Promise<void> {
     method: 'POST',
     headers: { 'content-type': 'application/x-www-form-urlencoded' },
     body: form.toString(),
-  });
+  }, jar);
   if (res2.status !== 302 && res2.status !== 200) {
     throw new Error(`SSW login failed: HTTP ${res2.status}`);
   }
@@ -157,14 +186,23 @@ async function loginWithCreds(email: string, password: string): Promise<void> {
 }
 
 async function login(): Promise<void> {
+  const epoch = accountEpoch;
   const cfg = await readConfig();
   const email = cfg.sswEmail;
   if (!email) throw new Error('SSW email not configured — complete Step 2 of setup.');
   const password = await getSswPassword(email);
   if (!password) throw new Error('SSW password not found in keychain.');
 
-  resetSession();
+  // Nothing is dropped for an account that has already been replaced.
+  if (epoch !== accountEpoch) throw new Error(ACCOUNT_CHANGED);
+  await dropSession();
   await loginWithCreds(email, password);
+  if (epoch !== accountEpoch) {
+    // The account changed while this login was on the wire. The cookies it
+    // brought back went to that account's partition, which nothing uses again.
+    await clearCookies(sswSession(epoch));
+    throw new Error(ACCOUNT_CHANGED);
+  }
   loggedIn = true;
 }
 
@@ -182,24 +220,36 @@ async function fetchToken(): Promise<string> {
 
 async function ensureToken(): Promise<string> {
   if (cachedToken) return cachedToken;
-  cachedToken = await fetchToken();
+  const epoch = accountEpoch;
+  const token = await fetchToken();
+  if (epoch !== accountEpoch) throw new Error(ACCOUNT_CHANGED);
+  cachedToken = token;
   return cachedToken;
 }
 
 // Run an operation, refreshing the session once if SSW reports auth trouble.
+// Its result only counts if the account is still the one it started under.
 async function withSession<T>(fn: () => Promise<T>): Promise<T> {
-  await ensureLoggedIn();
-  try {
-    return await fn();
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    if (/InvalidToken|HTTP 401|session.*expired|Token/i.test(msg)) {
-      resetSession();
-      await ensureLoggedIn();
-      return await fn();
+  const epoch = accountEpoch;
+  const run = async () => {
+    const out = await fn();
+    if (epoch !== accountEpoch) throw new Error(ACCOUNT_CHANGED);
+    return out;
+  };
+  return sswWork.run({ epoch }, async () => {
+    await ensureLoggedIn();
+    try {
+      return await run();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (epoch === accountEpoch && /InvalidToken|HTTP 401|session.*expired|Token/i.test(msg)) {
+        await dropSession();
+        await ensureLoggedIn();
+        return await run();
+      }
+      throw e;
     }
-    throw e;
-  }
+  });
 }
 
 // ----- helpers ------------------------------------------------------------
@@ -452,6 +502,7 @@ export async function recentContact(): Promise<{ phone: string; email: string }>
 }
 
 export async function fetchWeek(weekStartDate: string): Promise<SswWeek | null> {
+  const epoch = accountEpoch;
   return withSession(async () => {
     const recordId = await findRecordIdForWeek(weekStartDate);
     if (!recordId) return null;
@@ -503,7 +554,9 @@ export async function fetchWeek(weekStartDate: string): Promise<SswWeek | null> 
     };
     // Snapshot to disk so the renderer can paint last-known data instantly
     // on the next app open. Best-effort — a failed write doesn't fail fetch.
-    writeSswWeek(weekStartDate, result).catch(() => {});
+    // Only while the account is still the one this week was read for: a fetch
+    // landing after Log out would put the last person's week back in the cache.
+    writeSswWeek(weekStartDate, result, () => epoch === accountEpoch).catch(() => {});
     return result;
   });
 }
@@ -852,7 +905,7 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
 const SUBMITTED_WEEK_ERROR = "This week has been submitted in SSW, so it can't be changed here. Contact your Labor Coordinator to unlock it.";
 
 export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
-  return withSession(async () => {
+  return withSession<SswPushResult>(async () => {
     try {
       // Re-fetch to capture iDailyRate / iRate_<Day> values verbatim, so we
       // don't have to compute them ourselves.
@@ -931,6 +984,8 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : String(e) };
     }
-  });
+    // The renderer expects a result, never a rejection; the session wrapper
+    // itself can reject, for example when the account changed mid-save.
+  }).catch((e) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }));
 }
 

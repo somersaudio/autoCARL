@@ -17,6 +17,9 @@ type Props = {
   onEnableSsw: () => void;
   // Full sign-out: clears logins and returns to setup.
   onLogout: () => void;
+  // A CARL or SSW login was saved. It may be another person's account, so
+  // anything shown from the old one has to go.
+  onAccountChanged?: () => void;
 };
 
 type SaveState = { tone: 'idle' | 'ok' | 'err' | 'busy'; message: string };
@@ -24,7 +27,7 @@ const IDLE: SaveState = { tone: 'idle', message: '' };
 
 type Tab = 'general' | 'earnings' | 'theme';
 
-export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEnableSsw, onLogout }: Props) {
+export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEnableSsw, onLogout, onAccountChanged }: Props) {
   // Logging out clears logins — destructive enough for a two-click arm.
   const [logoutArmed, setLogoutArmed] = useState(false);
   // "Saved!" flash beside whichever Save was clicked; n keys the animation
@@ -62,23 +65,26 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const [sswPassword, setSswPassword] = useState('');
   const [sswState, setSswState] = useState<SaveState>(IDLE);
 
+  // Fill the form from settings as stored.
+  const showSettings = (s: UserSettings) => {
+    setStart(s.defaultStartTime);
+    setEnd(s.defaultEndTime);
+    setAutofillPerDiem(s.autofillPerDiem);
+    setTsEmail(s.timesheetEmail);
+    setTsPhone(s.timesheetPhone);
+    setHomeAirport(s.homeAirport);
+    setTheme(s.theme);
+    setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
+    setSubtractTaxes(s.subtractTaxes);
+    setPerDiemInTotal(s.perDiemInTotal);
+    setRetirement(s.retirementPct > 0 ? String(s.retirementPct) : '');
+    setFilingStatus(s.filingStatus);
+    setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
+  };
+
   useEffect(() => {
     if (!open) return;
-    window.api.settings.get().then((s) => {
-      setStart(s.defaultStartTime);
-      setEnd(s.defaultEndTime);
-      setAutofillPerDiem(s.autofillPerDiem);
-      setTsEmail(s.timesheetEmail);
-      setTsPhone(s.timesheetPhone);
-      setHomeAirport(s.homeAirport);
-      setTheme(s.theme);
-      setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
-      setSubtractTaxes(s.subtractTaxes);
-      setPerDiemInTotal(s.perDiemInTotal);
-      setRetirement(s.retirementPct > 0 ? String(s.retirementPct) : '');
-      setFilingStatus(s.filingStatus);
-      setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
-    });
+    window.api.settings.get().then(showSettings);
     window.api.settings.getCredentials().then((c) => {
       setCarlEmail(c.carlEmail);
       setAccountEmail(c.carlEmail);
@@ -89,7 +95,20 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     setSswPassword('');
     setCarlState(IDLE);
     setSswState(IDLE);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
+
+  // A login for someone else clears the last person's timesheet email and
+  // phone and the weeks they marked not paid. Show what's stored now, in this
+  // form and in the app, so a Save on the General tab can't write them back.
+  const accountChanged = async () => {
+    const s = await window.api.settings.get().catch(() => null);
+    if (s) {
+      showSettings(s);
+      onSaved(s);
+    }
+    onAccountChanged?.();
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -185,6 +204,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     if (r.ok) {
       setCarlState({ tone: 'ok', message: '✓ Saved. CARL login works.' });
       setCarlPassword('');
+      await accountChanged();
     } else {
       setCarlState({ tone: 'err', message: r.error });
     }
@@ -196,6 +216,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     if (r.ok) {
       setSswState({ tone: 'ok', message: '✓ Saved. SSW login works.' });
       setSswPassword('');
+      await accountChanged();
     } else {
       setSswState({ tone: 'err', message: r.error });
     }

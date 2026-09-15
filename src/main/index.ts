@@ -17,14 +17,14 @@ import {
 } from './credentials';
 import {
   readCachedBookings, readConfig, updateConfig, writeCachedBookings,
-  readFlightsCache, readSswWeek, readSswWeeksCache, readContactsCache, writeContactsCache, migrateStoreFiles,
+  readFlightsCache, readSswWeek, readSswWeeksCache, clearSswWeeksCache, readContactsCache, writeContactsCache, migrateStoreFiles,
 } from './store';
 import { sweepFlights } from './flight-fetcher';
 import {
   friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
   friendsRemove, friendsSetAvatar, friendsSetName, friendsSignOut, publishScheduleQuietly,
 } from './friends';
-import { createWeek, fetchIdentity, fetchWeek, pushWeek, recentContact, testSswLogin } from './ssw';
+import { createWeek, fetchIdentity, fetchWeek, pushWeek, recentContact, resetSession, sswEpoch, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
 import {
   addReceiptFiles, buildDraftReport, exportReport, mailReport, openReceipt, pickReceiptFiles,
@@ -447,6 +447,18 @@ function nonNegative(v: unknown): v is number {
 }
 
 function registerIpc(): void {
+  // Log out and changes to the stored logins take turns, and a Settings login
+  // check that finishes after a Log out stores nothing: that login was the last
+  // person's, and the next person's setup would find it already saved.
+  let logouts = 0;
+  let loginWrites: Promise<unknown> = Promise.resolve();
+  function inLoginWrites<T>(task: () => Promise<T>): Promise<T> {
+    const run = loginWrites.then(task, task);
+    loginWrites = run.catch(() => {});
+    return run;
+  }
+  const LOGGED_OUT = 'Logged out while this login was being checked, so it wasn’t saved.';
+
   ipcMain.handle('setup:getStatus', () => currentSetupStatus());
 
   ipcMain.handle('setup:saveCarl', async (_e, email: string, password: string): Promise<SetupStatus> => {
@@ -480,6 +492,8 @@ function registerIpc(): void {
     try {
       await saveSswPassword(cleanEmail, password);
       await updateConfig({ sswEmail: cleanEmail });
+      // A new setup never carries on in whatever SSW session was left running.
+      await resetSession();
       return await currentSetupStatus();
     } catch (e) {
       return { stage: 'error', from: 'ssw', message: friendlyError(e) };
@@ -487,22 +501,40 @@ function registerIpc(): void {
   });
 
   ipcMain.handle('setup:clear', async () => {
-    const cfg = await readConfig();
-    if (cfg.carlEmail) await clearCarlPassword(cfg.carlEmail).catch(() => {});
-    if (cfg.sswEmail) await clearSswPassword(cfg.sswEmail).catch(() => {});
-    await clearIcalUrl().catch(() => {});
-    // Friends identity follows the CARL login: a reset may be a handoff to a
-    // different person, so drop the token too. Auto sign-on re-binds the
-    // right identity (same account for the same email) on the next visit.
-    // Who-you-are caches go too (a different person may log in next), and so
-    // do the timesheet phone and email, or that person's saves would put
-    // yours on their timesheets. Expense receipts and reports deliberately
-    // survive logout.
-    await updateConfig({
-      carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '',
-      friendsSignedOut: false, sswSkipped: false,
-      identityName: '', identityUserId: '', friendsAvatar: '',
-      timesheetEmail: '', timesheetPhone: '',
+    logouts += 1;
+    return inLoginWrites(async () => {
+      // First, so SSW work already on its way back is dropped rather than logging
+      // the app in again or re-caching this person's week (see resetSession).
+      await resetSession();
+      const cfg = await readConfig();
+      if (cfg.carlEmail) await clearCarlPassword(cfg.carlEmail).catch(() => {});
+      if (cfg.sswEmail) await clearSswPassword(cfg.sswEmail).catch(() => {});
+      await clearIcalUrl().catch(() => {});
+      // Friends identity follows the CARL login: a reset may be a handoff to a
+      // different person, so drop the token too. Auto sign-on re-binds the
+      // right identity (same account for the same email) on the next visit.
+      // Who-you-are caches go too (a different person may log in next), and so
+      // do the timesheet phone and email, or that person's saves would put
+      // yours on their timesheets. Expense receipts and reports deliberately
+      // survive logout.
+      await updateConfig({
+        carlEmail: '', sswEmail: '', friendsToken: '', friendsName: '',
+        friendsSignedOut: false, sswSkipped: false,
+        identityName: '', identityUserId: '', friendsAvatar: '',
+        timesheetEmail: '', timesheetPhone: '',
+        // Weeks marked not paid are the last person's pay, keyed only by date.
+        slippedWeeks: [],
+      });
+      // Their timesheets and SSW login go too. The Timesheet tab paints the cached
+      // week before fetching, so a kept cache showed the next person this one's
+      // week, and a save from it went to this person's record; a kept session
+      // went on fetching as them until the app restarted. The session is reset
+      // again before the cache and identity go: SSW work that started while
+      // their login was still stored is dropped from here on, so nothing it
+      // caches or learns outlives the clear.
+      await resetSession();
+      await clearSswWeeksCache().catch(() => {});
+      await updateConfig({ identityName: '', identityUserId: '' });
     });
   });
 
@@ -538,6 +570,9 @@ function registerIpc(): void {
   // timesheet hours into any pay period it has data for.
   ipcMain.handle('ssw:getCachedWeeks', () => readSswWeeksCache());
   ipcMain.handle('ssw:identity', async () => {
+    // Who the user is is saved only if the SSW account is still the one this
+    // lookup started under; a lookup landing after Log out is the last person.
+    const epoch = sswEpoch();
     const cfg = await readConfig();
     if (cfg.identityName || cfg.identityUserId) {
       return { name: cfg.identityName || '', userId: cfg.identityUserId || '' };
@@ -547,12 +582,12 @@ function registerIpc(): void {
       .sort((a, b) => b.weekStartDate.localeCompare(a.weekStartDate))
       .find((w) => w.name || w.userId);
     if (week) {
-      await updateConfig({ identityName: week.name, identityUserId: week.userId });
+      if (epoch === sswEpoch()) await updateConfig({ identityName: week.name, identityUserId: week.userId });
       return { name: week.name, userId: week.userId };
     }
     try {
       const ident = await fetchIdentity();
-      if (ident) await updateConfig({ identityName: ident.name, identityUserId: ident.userId });
+      if (ident && epoch === sswEpoch()) await updateConfig({ identityName: ident.name, identityUserId: ident.userId });
       return ident;
     } catch (e) {
       console.warn('[autocarl] identity lookup failed:', e instanceof Error ? e.message : e);
@@ -666,29 +701,38 @@ function registerIpc(): void {
   ipcMain.handle('settings:updateCarlCredentials', async (_e, email: string, password: string) => {
     const cleanEmail = (email || '').trim();
     if (!cleanEmail || !password) return { ok: false, error: 'Email and password are required.' };
+    const logoutsBefore = logouts;
     try {
       // Validate against CARL — if login fails, this throws.
       await loginCarl(cleanEmail, password);
-      // Only persist after the test succeeds. If the email changed, also
-      // clean up the old keychain entry so we don't leave stale passwords.
-      const cfg = await readConfig();
-      if (cfg.carlEmail && cfg.carlEmail !== cleanEmail) {
-        await clearCarlPassword(cfg.carlEmail).catch(() => {});
-        // Different CARL account = different person as far as friends goes:
-        // drop the old identity so schedules never publish to the previous
-        // owner's buddy list. Auto sign-on re-enrolls the new email; the
-        // SSW identity cache goes too so forms don't carry the old name.
-        await updateConfig({
-          friendsToken: '', friendsName: '', friendsAvatar: '',
-          identityName: '', identityUserId: '',
-          timesheetEmail: '', timesheetPhone: '',
-          // Weeks marked not paid are the last person's pay, keyed only by date.
-          slippedWeeks: [],
-        });
-      }
-      await saveCarlPassword(cleanEmail, password);
-      await updateConfig({ carlEmail: cleanEmail });
-      return { ok: true };
+      return await inLoginWrites(async () => {
+        if (logouts !== logoutsBefore) return { ok: false, error: LOGGED_OUT };
+        // Only persist after the test succeeds. If the email changed, also
+        // clean up the old keychain entry so we don't leave stale passwords.
+        const cfg = await readConfig();
+        if (cfg.carlEmail && cfg.carlEmail !== cleanEmail) {
+          await clearCarlPassword(cfg.carlEmail).catch(() => {});
+          // Different CARL account = different person as far as friends goes:
+          // drop the old identity so schedules never publish to the previous
+          // owner's buddy list. Auto sign-on re-enrolls the new email; the
+          // SSW identity cache goes too so forms don't carry the old name.
+          await updateConfig({
+            friendsToken: '', friendsName: '', friendsAvatar: '',
+            identityName: '', identityUserId: '',
+            timesheetEmail: '', timesheetPhone: '',
+            // Weeks marked not paid are the last person's pay, keyed only by date.
+            slippedWeeks: [],
+          });
+          // And their cached timesheets, as the web app drops its week cache here.
+          // The session reset first, so a fetch still on its way can't cache
+          // their week again after the delete.
+          await resetSession();
+          await clearSswWeeksCache().catch(() => {});
+        }
+        await saveCarlPassword(cleanEmail, password);
+        await updateConfig({ carlEmail: cleanEmail });
+        return { ok: true };
+      });
     } catch (e) {
       return { ok: false, error: friendlyError(e) };
     }
@@ -697,15 +741,31 @@ function registerIpc(): void {
   ipcMain.handle('settings:updateSswCredentials', async (_e, email: string, password: string) => {
     const cleanEmail = (email || '').trim();
     if (!cleanEmail || !password) return { ok: false, error: 'Email and password are required.' };
+    const logoutsBefore = logouts;
     try {
       await testSswLogin(cleanEmail, password);
-      const cfg = await readConfig();
-      if (cfg.sswEmail && cfg.sswEmail !== cleanEmail) {
-        await clearSswPassword(cfg.sswEmail).catch(() => {});
-      }
-      await saveSswPassword(cleanEmail, password);
-      await updateConfig({ sswEmail: cleanEmail });
-      return { ok: true };
+      return await inLoginWrites(async () => {
+        if (logouts !== logoutsBefore) return { ok: false, error: LOGGED_OUT };
+        const cfg = await readConfig();
+        // Another SSW account, rather than a new password for this one. A new
+        // password leaves the running session alone, so a save already on its
+        // way still counts.
+        const otherAccount = cfg.sswEmail !== cleanEmail;
+        if (otherAccount && cfg.sswEmail) await clearSswPassword(cfg.sswEmail).catch(() => {});
+        await saveSswPassword(cleanEmail, password);
+        await updateConfig({ sswEmail: cleanEmail });
+        if (otherAccount) {
+          // Only once the new login is stored: SSW work still running as the old
+          // one, including any that started during this save, is dropped from
+          // here on (see resetSession). Without the reset the app went on
+          // fetching and saving as the old login. The weeks cached here, and who
+          // they say you are, belong to the old account, so they go after it.
+          await resetSession();
+          await clearSswWeeksCache().catch(() => {});
+          await updateConfig({ identityName: '', identityUserId: '' });
+        }
+        return { ok: true };
+      });
     } catch (e) {
       return { ok: false, error: friendlyError(e) };
     }

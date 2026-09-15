@@ -800,6 +800,18 @@ function blankedFutureDay(d: SswWeek['days'][number]): SswWeek['days'][number] {
   };
 }
 
+// Whether the SSW login a request went out with is still the one stored. A
+// reply landing after Log out or a login change belongs to the previous
+// person: it must not be cached, or shown as this person's week. The email is
+// the account, so a new password for the same one doesn't count, as on desktop.
+function sameSswLogin(email: string, _password: string): boolean {
+  return lsGet(K.sswEmail) === email;
+}
+
+function requireSameSswLogin(email: string, password: string): void {
+  if (!sameSswLogin(email, password)) throw new Error('The SSW login changed while this was in progress.');
+}
+
 function cacheWeek(week: SswWeek): void {
   const weeks = readJson<Record<string, SswWeek>>(K.sswWeeks, {});
   weeks[week.weekStartDate] = week;
@@ -1088,7 +1100,9 @@ async function getIdentity(): Promise<{ name: string; userId: string } | null> {
   try {
     const { email, password } = requireSsw();
     const ident = await postJson<{ name?: string; userId?: string } | null>('/v1/ssw/identity', { email, password });
-    if (ident && (ident.name || ident.userId)) {
+    // A reply for a login that has since been logged out or changed is the
+    // previous person's, not this one's.
+    if (ident && (ident.name || ident.userId) && sameSswLogin(email, password)) {
       writeJson(K.identity, { name: ident.name || '', userId: ident.userId || '' });
       return { name: ident.name || '', userId: ident.userId || '' };
     }
@@ -1136,6 +1150,12 @@ async function buildBundleFiles(clean: ExpenseReport): Promise<File[]> {
   return files;
 }
 
+// Bumped by Log out. A Settings login check still out when it happens stores
+// nothing afterwards: that login was the last person's, and the next person's
+// setup would find it already saved (as desktop settings:update*Credentials).
+let logouts = 0;
+const LOGGED_OUT = 'Logged out while this login was being checked, so it wasn’t saved.';
+
 const api: Api = {
   setup: {
     getStatus: async () => currentStatus(),
@@ -1180,6 +1200,7 @@ const api: Api = {
     },
 
     clear: async () => {
+      logouts += 1;
       lsRemove(K.carlEmail);
       lsRemove(K.carlPassword);
       lsRemove(K.sswEmail);
@@ -1198,6 +1219,7 @@ const api: Api = {
       lsRemove(K.friendsAvatar);
       lsRemove(K.sswWeeks);
       forgetTimesheetContact();
+      forgetSlippedWeeks();           // their pay corrections, as desktop setup:clear
     },
     setSswSkipped: async (skipped) => {
       if (skipped) lsSet(K.sswSkipped, '1');
@@ -1256,6 +1278,7 @@ const api: Api = {
     fetchWeek: async (weekStartDate) => {
       const { email, password } = requireSsw();
       const r = await postJson<unknown>('/v1/ssw/week', { email, password, weekMonday: weekStartDate });
+      requireSameSswLogin(email, password);
       const week = unwrapWeek(r);
       if (week) cacheWeek(week);
       return week;
@@ -1265,6 +1288,7 @@ const api: Api = {
       const r = await postJson<unknown>('/v1/ssw/create', {
         email, password, weekMonday: weekStartDate, cfg: sswCfg(),
       });
+      requireSameSswLogin(email, password);
       const week = unwrapWeek(r);
       if (week) cacheWeek(week);
       return week;
@@ -1284,7 +1308,7 @@ const api: Api = {
         // ahead go in blank, as the worker saved them: a preview job left on one
         // would read as a day off once the day passed (savedDaysOff in
         // TimesheetTab).
-        if (r && r.ok) {
+        if (r && r.ok && sameSswLogin(email, password)) {
           const days = filled.days.map((d) => (d.date > cfg.todayIso ? blankedFutureDay(d) : d));
           cacheWeek({ ...filled, dailyRateEdited: undefined, days });
         }
@@ -1297,6 +1321,7 @@ const api: Api = {
     recentContact: async () => {
       const { email, password } = requireSsw();
       const r = await postJson<{ phone?: unknown; email?: unknown } | null>('/v1/ssw/contact', { email, password });
+      requireSameSswLogin(email, password);
       return {
         phone: typeof r?.phone === 'string' ? r.phone : '',
         email: typeof r?.email === 'string' ? r.email : '',
@@ -1596,8 +1621,10 @@ const api: Api = {
     updateCarlCredentials: async (email, password) => {
       const cleanEmail = (email || '').trim();
       if (!cleanEmail || !password) return { ok: false as const, error: 'Email and password are required.' };
+      const logoutsBefore = logouts;
       try {
         await postJson('/v1/carl/verify', { email: cleanEmail, password });
+        if (logouts !== logoutsBefore) return { ok: false as const, error: LOGGED_OUT };
         dropFriendsIfEmailChanged(cleanEmail);
         lsSet(K.carlEmail, cleanEmail);
         lsSet(K.carlPassword, password);
@@ -1609,8 +1636,17 @@ const api: Api = {
     updateSswCredentials: async (email, password) => {
       const cleanEmail = (email || '').trim();
       if (!cleanEmail || !password) return { ok: false as const, error: 'Email and password are required.' };
+      const logoutsBefore = logouts;
       try {
         await postJson('/v1/ssw/verify', { email: cleanEmail, password });
+        if (logouts !== logoutsBefore) return { ok: false as const, error: LOGGED_OUT };
+        // Another SSW account: the weeks cached here, and who they say you are,
+        // belong to the old one (as desktop settings:updateSswCredentials).
+        const prevSsw = lsGet(K.sswEmail);
+        if (prevSsw && prevSsw !== cleanEmail) {
+          lsRemove(K.sswWeeks);
+          lsRemove(K.identity);
+        }
         lsSet(K.sswEmail, cleanEmail);
         lsSet(K.sswPassword, password);
         return { ok: true as const };

@@ -212,10 +212,41 @@ export async function readSswWeek(weekStartDate: string): Promise<SswWeek | null
   return cache[weekStartDate] || null;
 }
 
-export async function writeSswWeek(weekStartDate: string, week: SswWeek): Promise<void> {
-  const cache = await readSswWeeksCache();
-  cache[weekStartDate] = week;
-  await fs.writeFile(sswWeeksPath(), JSON.stringify(cache, null, 2), 'utf8');
+// Writes and deletes of the week cache run one at a time, so a delete can't
+// land between a write's read and its write and bring the whole old cache back.
+let sswWeeksQueue: Promise<unknown> = Promise.resolve();
+function inSswWeeksQueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = sswWeeksQueue.then(task, task);
+  sswWeeksQueue = run.catch(() => {});
+  return run;
+}
+
+// `stillCurrent` is checked when the write's turn comes; a week read for an
+// account that has since been logged out is dropped.
+export async function writeSswWeek(
+  weekStartDate: string,
+  week: SswWeek,
+  stillCurrent: () => boolean = () => true,
+): Promise<void> {
+  return inSswWeeksQueue(async () => {
+    if (!stillCurrent()) return;
+    // A file cut short (a crash mid-write) starts over instead of failing every
+    // later write until Log out removes it.
+    const cache = await readSswWeeksCache().catch((): SswWeekCache => ({}));
+    cache[weekStartDate] = week;
+    await fs.writeFile(sswWeeksPath(), JSON.stringify(cache, null, 2), 'utf8');
+  });
+}
+
+// Logout, Reset, or a switch to another account: the weeks cached here are the
+// last person's timesheets, and the Timesheet tab paints them before fetching.
+// The copy under the old file name goes too: with ssw-weeks.json gone, the next
+// launch's migrateStoreFiles would copy it back.
+export async function clearSswWeeksCache(): Promise<void> {
+  return inSswWeeksQueue(async () => {
+    await fs.rm(sswWeeksPath(), { force: true });
+    await fs.rm(join(app.getPath('userData'), LEGACY_FILES[SSW_WEEKS_FILE]), { force: true });
+  });
 }
 
 // ----- BookingContacts cache (PM/LC emails scraped from CARL) -----

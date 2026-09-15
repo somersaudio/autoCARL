@@ -479,6 +479,10 @@ export default function TimesheetTab({
   const [recent, setRecent] = useState<RecentContact | 'failed' | 'pending' | null>(null);
   const recentAsk = useRef(0);
   const forgetRecent = () => { recentAsk.current += 1; setRecent(null); };
+  // A week for another SSW user (a login changed in Settings): the contact
+  // found for the last one is theirs, not this person's.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { forgetRecent(); }, [owner]);
   useEffect(() => {
     if (!needsRecent || loading || recent) return;
     const ask = ++recentAsk.current;

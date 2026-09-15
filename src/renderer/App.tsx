@@ -253,6 +253,14 @@ export default function App() {
     setSswSavedWeek((cur) => (statusMoved(cur) ? fresh : cur));
   };
 
+  // Log out, Reset, or a login changed in Settings: nothing from the previous
+  // account's timesheets stays on screen or in memory.
+  const forgetSswWeeks = () => {
+    setSswWeek(null);
+    setSswSavedWeek(null);
+    setSswWeeks({});
+  };
+
   // The estimator prices a day from saved timesheet hours when it has them,
   // but the app only ever LOADED the current week — so a gig that began in an
   // earlier week had those days priced at the flat day rate and any overtime
@@ -416,7 +424,7 @@ export default function App() {
           onSetDayRate={setGigDayRate}
           onSetWeekSlipped={setWeekSlipped}
           onRefresh={refreshBookings}
-          onResetSetup={async () => { forgetClearedDays(); await window.api.setup.clear(); forgetClearedDays(); setStatus({ stage: 'needs-carl-credentials' }); }}
+          onResetSetup={async () => { forgetClearedDays(); await window.api.setup.clear(); forgetClearedDays(); forgetSswWeeks(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />
       )}
 
@@ -464,6 +472,12 @@ export default function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSaved={setSettings}
+        onAccountChanged={() => {
+          // The saved login may be another person's: drop what the old one
+          // showed and read the open week again as the new login.
+          forgetSswWeeks();
+          if (status?.stage === 'ready' && !sswSkipped) void reloadWeek();
+        }}
         sswSkipped={sswSkipped}
         onEnableSsw={async () => {
           setSettingsOpen(false);
@@ -476,6 +490,7 @@ export default function App() {
           // Again once the wait is over: the Timesheet tab stays up until the
           // status changes, and a day cleared meanwhile would outlive the logout.
           forgetClearedDays();
+          forgetSswWeeks();
           setStatus({ stage: 'needs-carl-credentials' });
         }}
       />
