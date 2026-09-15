@@ -129,10 +129,12 @@ export type SswWeek = {
   statusIndex: number;
 };
 
-// Result of a push attempt — same union shape as RefreshResult.
+// Result of a push attempt — same union shape as RefreshResult. `submitted` is
+// set when SSW refused because the week has been submitted there, so the
+// Timesheet tab can reload the week and show it locked.
 export type SswPushResult =
   | { ok: true; recordId: string; savedAt: string }
-  | { ok: false; error: string };
+  | { ok: false; error: string; submitted?: true };
 
 // One flight itinerary PDF attached to a booking in CARL, with optional
 // summary fields. Two layers of metadata, in order of preference:

@@ -724,12 +724,22 @@ export async function createWeek(t: Transport, s: SswSession, weekStartDate: str
   return created;
 }
 
+// What a save answers when SSW shows the week has been submitted. Mirrored in
+// src/main/ssw.ts; keep the two identical.
+const SUBMITTED_WEEK_ERROR = "This week has been submitted in SSW, so it can't be changed here. Contact your Labor Coordinator to unlock it.";
+
 export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: SswCfg): Promise<SswPushResult> {
   try {
     // Re-fetch to capture iDailyRate / iRate_<Day> values verbatim, so we
     // don't have to compute them ourselves.
     const current = await getRecordExtended(t, s, week.recordId);
     const pt = current.PrimaryTable;
+    // A week submitted on SSW's site after this copy was loaded is not ours to
+    // change: the save below sends SetRecordStatusIndex '0', which would pull
+    // the submitted record back to draft and write this copy over it.
+    if (num(pt.CurrentStatusIndex) > 0) {
+      return { ok: false, error: SUBMITTED_WEEK_ERROR, submitted: true };
+    }
     // Phone and email: the Settings override (timesheetPhone, timesheetEmail),
     // else this week's own, else what SSW now holds for it, else the newest
     // record that has them (see recoverContact). The day rate follows
@@ -740,6 +750,11 @@ export async function pushWeek(t: Transport, s: SswSession, week: SswWeek, cfg: 
       const found = await recoverContact(t, s, { phone: !phone, email: !emailForSave });
       phone = phone || found.phone;
       emailForSave = emailForSave || found.email;
+      // That lookup can take a dozen round trips to SSW. A submit landing in
+      // the meantime must still stop this save, so read the status again.
+      if (num((await getRecordExtended(t, s, week.recordId)).PrimaryTable.CurrentStatusIndex) > 0) {
+        return { ok: false, error: SUBMITTED_WEEK_ERROR, submitted: true };
+      }
     }
     const dailyRate = saveDailyRate(week, pt.iDailyRate, cfg.defaultDailyRate);
     const originalRates: Record<string, string> = {};

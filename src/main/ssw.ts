@@ -847,6 +847,10 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
   });
 }
 
+// What a save answers when SSW shows the week has been submitted. Mirrored in
+// worker-api/src/ssw.ts; keep the two identical.
+const SUBMITTED_WEEK_ERROR = "This week has been submitted in SSW, so it can't be changed here. Contact your Labor Coordinator to unlock it.";
+
 export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
   return withSession(async () => {
     try {
@@ -854,6 +858,12 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
       // don't have to compute them ourselves.
       const current = await getRecordExtended(week.recordId);
       const pt = current.PrimaryTable;
+      // A week submitted on SSW's site after this copy was loaded is not ours to
+      // change: the save below sends SetRecordStatusIndex '0', which would pull
+      // the submitted record back to draft and write this copy over it.
+      if (num(pt.CurrentStatusIndex) > 0) {
+        return { ok: false, error: SUBMITTED_WEEK_ERROR, submitted: true };
+      }
       const cfg = await readConfig();
       // Phone and email: the Settings override (timesheetPhone, timesheetEmail),
       // else this week's own, else what SSW now holds for it, else the newest
@@ -865,6 +875,11 @@ export async function pushWeek(week: SswWeek): Promise<SswPushResult> {
         const found = await recoverContact({ phone: !phone, email: !emailForSave });
         phone = phone || found.phone;
         emailForSave = emailForSave || found.email;
+        // That lookup can take a dozen round trips to SSW. A submit landing in
+        // the meantime must still stop this save, so read the status again.
+        if (num((await getRecordExtended(week.recordId)).PrimaryTable.CurrentStatusIndex) > 0) {
+          return { ok: false, error: SUBMITTED_WEEK_ERROR, submitted: true };
+        }
       }
       const dailyRate = saveDailyRate(week, pt.iDailyRate, configuredDayRate(cfg));
       const originalRates: Record<string, string> = {};
