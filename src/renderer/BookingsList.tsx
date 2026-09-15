@@ -1098,13 +1098,6 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
     <div className="card">
       <h3>Paycheck Estimator</h3>
       {checks.map((c) => {
-        // OT is part of your wages, so it already sits inside `net`. Pulling
-        // it onto its own line means taking its share back OUT of the
-        // headline — its slice of take-home rather than its gross, so the
-        // two still add up to exactly the same deposit.
-        const otShare = !settings.otInTotal && c.gross > 0
-          ? Math.round(c.net * (c.otPay / c.gross))
-          : 0;
         return (
         <div className="paycheck-row" key={c.periodStart}>
           <div className="paycheck-main">
@@ -1192,18 +1185,11 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
           >
             {!c.requestOnly && (
               <div className="earnings-mini-main">
-                {money((settings.perDiemInTotal ? c.net + c.perDiem : c.net) - otShare)}
+                {money(settings.perDiemInTotal ? c.net + c.perDiem : c.net)}
               </div>
             )}
             {!c.requestOnly && !settings.perDiemInTotal && c.perDiem > 0 && (
               <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
-            )}
-            {/* Overtime on its own line, when asked for. It hides by default
-                because it is already inside the figure above; a ten-hour day
-                prices to exactly the day rate, so OT can sit in a check
-                without moving that number at all. */}
-            {!c.requestOnly && otShare > 0 && (
-              <div className="earnings-mini-sub is-ot">OT +{money(otShare)}</div>
             )}
             {(c.requestExtra ?? 0) > 0 && (
               <div className="earnings-mini-sub is-request">

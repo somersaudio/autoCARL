@@ -46,7 +46,6 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const [basePay, setBasePay] = useState('');
   const [subtractTaxes, setSubtractTaxes] = useState(false);
   const [perDiemInTotal, setPerDiemInTotal] = useState(true);
-  const [otInTotal, setOtInTotal] = useState(true);
   const [retirement, setRetirement] = useState('');
   const [filingStatus, setFilingStatus] = useState<FilingStatus>('single');
   const [stateRate, setStateRate] = useState('');
@@ -76,7 +75,6 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       setBasePay(s.basePayDayRate > 0 ? String(s.basePayDayRate) : '');
       setSubtractTaxes(s.subtractTaxes);
       setPerDiemInTotal(s.perDiemInTotal);
-      setOtInTotal(s.otInTotal);
       setRetirement(s.retirementPct > 0 ? String(s.retirementPct) : '');
       setFilingStatus(s.filingStatus);
       setStateRate(s.stateTaxRatePct > 0 ? String(s.stateTaxRatePct) : '');
@@ -144,7 +142,6 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
       basePayDayRate: num(basePay, 1_000_000),
       subtractTaxes,
       perDiemInTotal,
-      otInTotal,
       retirementPct: num(retirement, 100),
       filingStatus,
       stateTaxRatePct: num(stateRate, 100),
@@ -165,12 +162,6 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   const togglePerDiemInTotal = async (checked: boolean) => {
     setPerDiemInTotal(checked);
     const next = await window.api.settings.update({ perDiemInTotal: checked });
-    onSaved(next);
-  };
-
-  const toggleOtInTotal = async (checked: boolean) => {
-    setOtInTotal(checked);
-    const next = await window.api.settings.update({ otInTotal: checked });
     onSaved(next);
   };
 
@@ -463,23 +454,6 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
           />
           <span>Include Per Diem in Total, instead of showing it separate</span>
         </label>
-
-        <label className="row-actions" style={{ gap: 8, alignItems: 'center', cursor: 'pointer', marginTop: 10 }}>
-          <input
-            type="checkbox"
-            checked={otInTotal}
-            onChange={(e) => toggleOtInTotal(e.target.checked)}
-          />
-          <span>Include Overtime in Total, instead of showing it separate</span>
-        </label>
-        <p className="subtle" style={{ marginTop: 4, fontSize: 12 }}>
-          Counts pay above your day rate: hours past a 10-hour day, double
-          time, and the overtime on a sixth or seventh day in the week, days
-          not yet saved to your timesheet included. The 2 OT hours on a normal
-          day aren't overtime worked. Leave this off and the check shows the
-          rest of your take-home with the OT on its own line; the two still add
-          up to the same deposit.
-        </p>
 
         <p className="subtle" style={{ marginTop: 10, fontSize: 12 }}>
           401k comes out pre-tax, so income tax is figured after it — but Social Security and

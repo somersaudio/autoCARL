@@ -240,9 +240,9 @@ function hoursPay(s: HoursSplit, dayRate: number): number {
 }
 
 // The slice of a day's pay above the day rate: hours past a ten-hour day,
-// double time, and a sixth or seventh day's weekly premium. It earns its own
-// line because a ten-hour day prices to exactly the day rate, so real extra
-// hours can be in a check without moving the headline at all.
+// double time, and a sixth or seventh day's weekly premium. It stays inside
+// the check's total; the breakdown names it, since a ten-hour day prices to
+// exactly the day rate and extra hours don't stand out in the total.
 function overtimePay(s: HoursSplit, dayRate: number): number {
   return (dayRate * Math.max(0, weightedHours(s) - DAY_RATE_HOURS)) / DAY_RATE_HOURS;
 }

@@ -71,10 +71,6 @@ type Config = {
   basePayDayRate: number;    // day rate for projections; 0 = unset, estimate hidden
   subtractTaxes: boolean;    // show after-tax take-home as well as gross
   perDiemInTotal: boolean;   // estimator: fold per diem into the deposit figure
-  // estimator: fold the OT premium into the deposit figure, or give it its
-  // own line. Defaults to its own line — overtime is invisible otherwise,
-  // since an 11-hour day prices to exactly the day rate.
-  otInTotal: boolean;
   homeAirport: string;       // IATA home base for travel legs, '' = unset
   retirementPct: number;     // 401k contribution as % of gross wages; 0 = none
   filingStatus: FilingStatus;
@@ -116,7 +112,6 @@ const DEFAULT_CONFIG: Config = {
   basePayDayRate: 0,
   subtractTaxes: false,
   perDiemInTotal: true,
-  otInTotal: false,
   homeAirport: '',
   retirementPct: 0,
   filingStatus: 'single',
