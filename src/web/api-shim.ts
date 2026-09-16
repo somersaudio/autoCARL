@@ -70,21 +70,53 @@ function lsRemove(key: string): void {
   try { localStorage.removeItem(key); } catch { /* ignore */ }
 }
 
+// Whose C.A.R.L. login this browser is working as. Log out and a change to
+// another C.A.R.L. email bump it, so a friends reply that went out under the one
+// before writes nothing when it lands: enrolling goes through a full C.A.R.L.
+// login on the worker, which takes seconds, and the token and name coming back
+// are the previous person's. Stored, they would sign the next person on as them
+// — their buddy list on screen, and this person's shows published to it. Same
+// marker as src/main/friends.ts keeps for the app.
+let carlEpoch = 0;
+const CARL_CHANGED = 'The C.A.R.L. login changed while this was in progress.';
+
+function carlAccountChanged(): void {
+  carlEpoch += 1;
+  friendsListCache = null;   // the buddies it holds are the last person's
+  lastPublishedHash = '';    // the next account publishes even if its shows match
+}
+
+// Whether the reply now landing still belongs to the login it went out under —
+// and, when it carried a token, whether that is still the stored one: signing
+// out and back on leaves the C.A.R.L. login alone but mints a new token.
+function sameCarlAccount(epoch: number, token?: string): boolean {
+  return carlEpoch === epoch && (token === undefined || lsGet(K.friendsToken) === token);
+}
+
+function requireSameCarlAccount(epoch: number, token?: string): void {
+  if (!sameCarlAccount(epoch, token)) throw new Error(CARL_CHANGED);
+}
+
 // Friends identity follows the CARL login: when the stored email changes,
 // drop the previous token so schedules never publish to another person's
 // buddy list. Auto sign-on re-enrolls the new email on the next visit.
 function dropFriendsIfEmailChanged(newEmail: string): void {
   const prev = lsGet(K.carlEmail);
-  if (prev && prev !== newEmail) {
-    lsRemove(K.friendsToken);
-    lsRemove(K.friendsName);
-    lsRemove(K.friendsSignedOut);   // a new person gets auto sign-on again
-    lsRemove(K.friendsAvatar);
-    lsRemove(K.identity);           // their name/ID, not yours
-    lsRemove(K.sswWeeks);           // their timesheets, not yours
-    forgetTimesheetContact();       // your phone and email, not theirs
-    forgetSlippedWeeks();           // your pay corrections, not theirs
-  }
+  if (prev === newEmail) return;
+  carlAccountChanged();
+  lsRemove(K.friendsToken);
+  lsRemove(K.friendsName);
+  lsRemove(K.friendsSignedOut);   // a new person gets auto sign-on again
+  lsRemove(K.friendsAvatar);
+  // With no email stored, this is a login being set up rather than one being
+  // swapped: everything below is already this person's, but a friends identity
+  // is not — it is one a reply still in flight at Log out wrote back, so the
+  // drop above stands.
+  if (!prev) return;
+  lsRemove(K.identity);           // their name/ID, not yours
+  lsRemove(K.sswWeeks);           // their timesheets, not yours
+  forgetTimesheetContact();       // your phone and email, not theirs
+  forgetSlippedWeeks();           // your pay corrections, not theirs
 }
 
 // Weeks marked not paid are one person's pay corrections, keyed only by date.
@@ -705,6 +737,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
 let lastPublishedHash = '';
 
 async function publishSchedule(bookings?: Booking[]): Promise<void> {
+  const epoch = carlEpoch;
   const token = lsGet(K.friendsToken);
   if (!token) return;
   let source = bookings;
@@ -729,6 +762,10 @@ async function publishSchedule(bookings?: Booking[]): Promise<void> {
     }));
   const hash = JSON.stringify(gigs);
   if (hash === lastPublishedHash) return;
+  // Enrolling calls this straight after its own await, so the login may have
+  // changed since: publishing now would put this person's shows on the last
+  // person's buddy list. The next refresh publishes under the new account.
+  if (!sameCarlAccount(epoch, token)) return;
   await postJson('/v1/friends/publish', { token, gigs });
   lastPublishedHash = hash;
 }
@@ -1201,6 +1238,9 @@ const api: Api = {
 
     clear: async () => {
       logouts += 1;
+      // Friends work already on its way back writes nothing from here on, so it
+      // can't put this person's identity in again after the keys below go.
+      carlAccountChanged();
       lsRemove(K.carlEmail);
       lsRemove(K.carlPassword);
       lsRemove(K.sswEmail);
@@ -1362,6 +1402,7 @@ const api: Api = {
       signedOut: lsGet(K.friendsSignedOut) === '1',
     }),
     enroll: async (name): Promise<FriendsStatus> => {
+      const epoch = carlEpoch;
       const carlEmail = lsGet(K.carlEmail);
       if (!carlEmail || !lsGet(K.carlPassword)) {
         throw new Error('Complete C.A.R.L. setup first — your email identifies you to friends.');
@@ -1379,6 +1420,11 @@ const api: Api = {
         email: carlEmail, password: lsGet(K.carlPassword), name: clean,
       });
       const finalName = r.name || clean;
+      // The worker signs in to C.A.R.L. before it answers, so this was on the
+      // wire for seconds. If the login changed in that time, this token is the
+      // last person's: it is dropped rather than stored, and the publish below
+      // never runs. Auto sign-on enrolls the login stored now instead.
+      requireSameCarlAccount(epoch);
       lsSet(K.friendsToken, r.token);
       lsSet(K.friendsName, finalName);
       lsRemove(K.friendsSignedOut);
@@ -1404,18 +1450,30 @@ const api: Api = {
     // stays off. The account survives — signing back in with the same
     // C.A.R.L. login restores the buddy list.
     signOut: async () => {
+      const epoch = carlEpoch;
       const token = lsGet(K.friendsToken);
       if (token) {
         await postJson('/v1/friends/publish', { token, gigs: [] }).catch(() => { /* best-effort */ });
       }
+      // Landing after a Log out, this would leave "signed out on purpose" set
+      // for whoever logs in next, holding them on the Sign On screen over a
+      // decision the person before them made.
+      if (!sameCarlAccount(epoch, token)) return;
       lsRemove(K.friendsToken);
       lsRemove(K.friendsName);
       lsRemove(K.friendsAvatar);
       lsSet(K.friendsSignedOut, '1');
+      // Signing out took the schedule down, so signing back on has to put it up
+      // again. Without this, an unchanged set of shows counts as already
+      // published and friends go on seeing nothing until a booking changes.
+      lastPublishedHash = '';
     },
 
     setAvatar: async (avatar) => {
-      await postJson('/v1/friends/avatar', { token: friendsToken(), avatar });
+      const epoch = carlEpoch;
+      const token = friendsToken();
+      await postJson('/v1/friends/avatar', { token, avatar });
+      requireSameCarlAccount(epoch, token);
       if (avatar) lsSet(K.friendsAvatar, avatar);
       else lsRemove(K.friendsAvatar);
     },
@@ -1423,20 +1481,29 @@ const api: Api = {
     // Screen name: the service normalises it and refuses an email; keep its
     // answer as the local copy.
     setName: async (name) => {
-      const r = await postJson<{ name: string }>('/v1/friends/name', { token: friendsToken(), name });
+      const epoch = carlEpoch;
+      const token = friendsToken();
+      const r = await postJson<{ name: string }>('/v1/friends/name', { token, name });
+      requireSameCarlAccount(epoch, token);
       lsSet(K.friendsName, r.name);
       return r.name;
     },
 
     list: async () => {
+      const epoch = carlEpoch;
       const token = friendsToken();
       const cached = friendsListCache && friendsListCache.token === token ? friendsListCache : null;
       type Reply = FriendsList & { etag?: string; unchanged?: boolean };
       let r = await postJson<Reply>('/v1/friends/list', { token, etag: cached?.etag || '' });
+      // These are the buddies of the account this went out under. If that
+      // account has gone since — Log out, another C.A.R.L. email, a sign-out —
+      // they are the last person's: not kept, not shown, nobody renamed by them.
+      requireSameCarlAccount(epoch, token);
       if (r.unchanged) {
         if (cached) return cached.list;
         // Can't happen (we only send a tag we hold) — but never return nothing.
         r = await postJson<Reply>('/v1/friends/list', { token, etag: '' });
+        requireSameCarlAccount(epoch, token);
       }
       const { etag, unchanged: _unchanged, ...list } = r;
       friendsListCache = etag ? { token, etag, list } : null;

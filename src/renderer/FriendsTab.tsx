@@ -30,6 +30,15 @@ type Props = {
 let enrollAttemptActive = false;
 let enrollAttemptedThisSession = false;
 
+// The stored C.A.R.L. login changed: the one attempt this session belonged to
+// the login before it, so the tab is allowed to try again for the one stored
+// now — a corrected password included. An attempt still on the wire keeps its
+// place: it finishes or is refused on its own, and taking it away here would
+// let a second sign-on go out for the same person and mint a spare token.
+export function forgetFriendsSession(): void {
+  enrollAttemptedThisSession = false;
+}
+
 // How often the open Buddy List re-checks the server. Cheap: an unchanged
 // list is a bodyless reply (ETag), so this is one small round trip.
 const FRIENDS_POLL_MS = 20_000;
@@ -152,9 +161,12 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
     };
   }, [enrolled]);   // eslint-disable-line react-hooks/exhaustive-deps
 
-  const run = async (fn: () => Promise<void>) => {
+  // `refresh` goes off for a job that can finish with no buddy list to load:
+  // asking for one while signed out answers "Friends is not turned on", which
+  // is nothing gone wrong and does not belong on the Sign On screen.
+  const run = async (fn: () => Promise<void>, refresh = true) => {
     setBusy(true); setError('');
-    try { await fn(); loadList(); } catch (e) { setError(friendlyMsg(e)); }
+    try { await fn(); if (refresh) loadList(); } catch (e) { setError(friendlyMsg(e)); }
     setBusy(false);
   };
 
@@ -281,7 +293,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
         return;
       }
       await doEnroll(autoName);
-    });
+      loadList();
+    }, false);
   }, [enrolled, suggestedName]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   if (enrolled === null) return null;

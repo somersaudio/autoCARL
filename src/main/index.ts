@@ -23,6 +23,7 @@ import { sweepFlights } from './flight-fetcher';
 import {
   friendsStatus, friendsEnroll, friendsList, friendsRequest, friendsRespond,
   friendsRemove, friendsSetAvatar, friendsSetName, friendsSignOut, publishScheduleQuietly,
+  carlAccountChanged,
 } from './friends';
 import { createWeek, fetchIdentity, fetchWeek, pushWeek, recentContact, resetSession, sswEpoch, testSswLogin } from './ssw';
 import { loginCarl, CARL } from './carl-api';
@@ -465,8 +466,18 @@ function registerIpc(): void {
     const cleanEmail = email.trim();
     if (!cleanEmail || !password) return { stage: 'error', from: 'carl', message: 'Email and password are required.' };
     try {
+      const before = await readConfig();
       await saveCarlPassword(cleanEmail, password);
       await updateConfig({ carlEmail: cleanEmail });
+      if (before.carlEmail !== cleanEmail) {
+        // Nothing here belongs to this login, so a friends identity sitting in
+        // the config is one that a request still in flight at Log out wrote
+        // back. Auto sign-on enrolls this email instead.
+        carlAccountChanged();
+        await updateConfig({
+          friendsToken: '', friendsName: '', friendsAvatar: '', friendsSignedOut: false,
+        });
+      }
       // Try the XHR path first (no Chromium binary needed — works on a fresh
       // install). Fall back to the Playwright-based discovery if the URL
       // formula doesn't validate for this user.
@@ -502,6 +513,9 @@ function registerIpc(): void {
 
   ipcMain.handle('setup:clear', async () => {
     logouts += 1;
+    // As with the SSW session below: friends work already on its way back is
+    // dropped rather than writing this person's identity in again.
+    carlAccountChanged();
     return inLoginWrites(async () => {
       // First, so SSW work already on its way back is dropped rather than logging
       // the app in again or re-caching this person's week (see resetSession).
@@ -535,6 +549,13 @@ function registerIpc(): void {
       await resetSession();
       await clearSswWeeksCache().catch(() => {});
       await updateConfig({ identityName: '', identityUserId: '' });
+      // And friends once more, for the same reason: an enroll or a rename that
+      // started while this person's login was still stored writes nothing from
+      // here on, and anything one of them wrote in the meantime goes now.
+      carlAccountChanged();
+      await updateConfig({
+        friendsToken: '', friendsName: '', friendsAvatar: '', friendsSignedOut: false,
+      });
     });
   });
 
@@ -710,7 +731,8 @@ function registerIpc(): void {
         // Only persist after the test succeeds. If the email changed, also
         // clean up the old keychain entry so we don't leave stale passwords.
         const cfg = await readConfig();
-        if (cfg.carlEmail && cfg.carlEmail !== cleanEmail) {
+        const otherAccount = !!cfg.carlEmail && cfg.carlEmail !== cleanEmail;
+        if (otherAccount) {
           await clearCarlPassword(cfg.carlEmail).catch(() => {});
           // Different CARL account = different person as far as friends goes:
           // drop the old identity so schedules never publish to the previous
@@ -731,6 +753,15 @@ function registerIpc(): void {
         }
         await saveCarlPassword(cleanEmail, password);
         await updateConfig({ carlEmail: cleanEmail });
+        if (otherAccount) {
+          // Only once the new login is stored: a friends request still running
+          // as the old one, including one that started during this save, writes
+          // nothing from here on, and whatever one wrote in between goes now.
+          carlAccountChanged();
+          await updateConfig({
+            friendsToken: '', friendsName: '', friendsAvatar: '', friendsSignedOut: false,
+          });
+        }
         return { ok: true };
       });
     } catch (e) {

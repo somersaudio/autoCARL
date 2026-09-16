@@ -18,8 +18,9 @@ type Props = {
   // Full sign-out: clears logins and returns to setup.
   onLogout: () => void;
   // A CARL or SSW login was saved. It may be another person's account, so
-  // anything shown from the old one has to go.
-  onAccountChanged?: () => void;
+  // anything shown from the old one has to go — and which one it was matters:
+  // the Friends tab belongs to the C.A.R.L. login alone.
+  onAccountChanged?: (which: 'carl' | 'ssw') => void;
 };
 
 type SaveState = { tone: 'idle' | 'ok' | 'err' | 'busy'; message: string };
@@ -101,13 +102,13 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
   // A login for someone else clears the last person's timesheet email and
   // phone and the weeks they marked not paid. Show what's stored now, in this
   // form and in the app, so a Save on the General tab can't write them back.
-  const accountChanged = async () => {
+  const accountChanged = async (which: 'carl' | 'ssw') => {
     const s = await window.api.settings.get().catch(() => null);
     if (s) {
       showSettings(s);
       onSaved(s);
     }
-    onAccountChanged?.();
+    onAccountChanged?.(which);
   };
 
   useEffect(() => {
@@ -204,7 +205,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     if (r.ok) {
       setCarlState({ tone: 'ok', message: '✓ Saved. CARL login works.' });
       setCarlPassword('');
-      await accountChanged();
+      await accountChanged('carl');
     } else {
       setCarlState({ tone: 'err', message: r.error });
     }
@@ -216,7 +217,7 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
     if (r.ok) {
       setSswState({ tone: 'ok', message: '✓ Saved. SSW login works.' });
       setSswPassword('');
-      await accountChanged();
+      await accountChanged('ssw');
     } else {
       setSswState({ tone: 'err', message: r.error });
     }

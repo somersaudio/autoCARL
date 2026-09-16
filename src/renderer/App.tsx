@@ -9,7 +9,7 @@ import Setup from './Setup';
 import BookingsList from './BookingsList';
 import TimesheetTab, { forgetClearedDays } from './TimesheetTab';
 import SettingsModal from './Settings';
-import FriendsTab from './FriendsTab';
+import FriendsTab, { forgetFriendsSession } from './FriendsTab';
 import { estimatorKeepFrom, lastPayDateOf, timesheetDueDate } from '../shared/paychecks';
 import ExpensesTab from './ExpensesTab';
 import InstallBanner from './InstallBanner';
@@ -380,6 +380,15 @@ export default function App() {
     setSswWeek(next);
   }, []);
 
+  // The same for the buddy list: a C.A.R.L. login for someone else makes the
+  // name, icon and buddies on that tab the last person's, and they are held in
+  // the tab's own state, so it is built again from nothing.
+  const [friendsGen, setFriendsGen] = useState(0);
+  const forgetFriends = () => {
+    forgetFriendsSession();
+    setFriendsGen((n) => n + 1);
+  };
+
   // Log out, Reset, or a login changed in Settings: nothing from the previous
   // account's timesheets stays on screen or in memory.
   const forgetSswWeeks = () => {
@@ -688,7 +697,7 @@ export default function App() {
           onSetDayRate={setGigDayRate}
           onSetWeekSlipped={setWeekSlipped}
           onRefresh={refreshBookings}
-          onResetSetup={async () => { forgetClearedDays(); await window.api.setup.clear(); forgetClearedDays(); forgetSswWeeks(); setStatus({ stage: 'needs-carl-credentials' }); }}
+          onResetSetup={async () => { forgetClearedDays(); await window.api.setup.clear(); forgetClearedDays(); forgetSswWeeks(); forgetFriends(); setStatus({ stage: 'needs-carl-credentials' }); }}
         />
       )}
 
@@ -698,6 +707,7 @@ export default function App() {
 
       {tab === 'friends' && (
         <FriendsTab
+          key={friendsGen}
           bookings={bookings}
           suggestedName={sswWeek?.name || Object.values(sswWeeks)[0]?.name || ''}
         />
@@ -741,10 +751,11 @@ export default function App() {
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onSaved={setSettings}
-        onAccountChanged={() => {
+        onAccountChanged={(which) => {
           // The saved login may be another person's: drop what the old one
           // showed and read the open week again as the new login.
           forgetSswWeeks();
+          if (which === 'carl') forgetFriends();
           if (status?.stage === 'ready' && !sswSkipped) void reloadWeek();
         }}
         sswSkipped={sswSkipped}
@@ -760,6 +771,7 @@ export default function App() {
           // status changes, and a day cleared meanwhile would outlive the logout.
           forgetClearedDays();
           forgetSswWeeks();
+          forgetFriends();
           setStatus({ stage: 'needs-carl-credentials' });
         }}
       />

@@ -50,7 +50,7 @@ export async function migrateStoreFiles(): Promise<void> {
   }
 }
 
-type Config = {
+export type Config = {
   carlEmail: string;
   sswEmail: string;
   defaultStartTime: string;  // e.g. '8:00 am' — autofilled on empty worked days
@@ -144,10 +144,31 @@ export async function readConfig(): Promise<Config> {
   }
 }
 
-export async function updateConfig(patch: Partial<Config>): Promise<Config> {
-  const next = { ...(await readConfig()), ...patch };
-  await fs.writeFile(configPath(), JSON.stringify(next, null, 2), 'utf8');
-  return next;
+// Config writes take turns. Two at once — a friends reply landing while Log out
+// runs, say — each read the whole file and each write the whole thing back, so
+// the slower one puts everything the other just cleared straight back.
+let configQueue: Promise<unknown> = Promise.resolve();
+function inConfigQueue<T>(task: () => Promise<T>): Promise<T> {
+  const run = configQueue.then(task, task);
+  configQueue = run.catch(() => {});
+  return run;
+}
+
+// `stillCurrent` is asked about the file as it stands when the write's turn
+// comes, so a reply that belongs to a login since logged out can refuse its own
+// write with nothing able to land between the question and the write. It gets
+// back what is stored, patched or not, so the caller can see which happened.
+export async function updateConfig(
+  patch: Partial<Config>,
+  stillCurrent: (cfg: Config) => boolean = () => true,
+): Promise<Config> {
+  return inConfigQueue(async () => {
+    const current = await readConfig();
+    if (!stillCurrent(current)) return current;
+    const next = { ...current, ...patch };
+    await fs.writeFile(configPath(), JSON.stringify(next, null, 2), 'utf8');
+    return next;
+  });
 }
 
 export async function readCachedBookings(): Promise<{ bookings: Booking[]; fetchedAt: string | null }> {
