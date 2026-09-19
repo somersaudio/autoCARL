@@ -18,6 +18,7 @@ import {
 import {
   readCachedBookings, readConfig, updateConfig, writeCachedBookings,
   readFlightsCache, readSswWeek, readSswWeeksCache, clearSswWeeksCache, readContactsCache, writeContactsCache, migrateStoreFiles,
+  carlGuard, clearCarlCaches,
 } from './store';
 import { sweepFlights } from './flight-fetcher';
 import {
@@ -400,9 +401,14 @@ async function currentSetupStatus(): Promise<SetupStatus> {
 async function doRefresh(): Promise<RefreshResult> {
   const url = await getIcalUrl();
   if (!url) return { ok: false, error: 'No iCal URL configured — complete setup first.' };
+  // Whose calendar this is. Fetching takes seconds, and a log out or another
+  // C.A.R.L. login during it leaves these shows belonging to the person who
+  // left: not kept, not shown, and not published to their friends.
+  const stillCurrent = carlGuard();
   try {
     const bookings = await fetchAndParseBookings(url);
-    const fetchedAt = await writeCachedBookings(bookings);
+    const fetchedAt = await writeCachedBookings(bookings, stillCurrent);
+    if (fetchedAt === null) return { ok: false, error: 'The C.A.R.L. login changed while this was in progress.' };
     publishScheduleQuietly(bookings);
     maybeStartFlightSweep(bookings).catch(() => {});
     const payload: RefreshResult = { ok: true, bookings, fetchedAt };
@@ -538,6 +544,12 @@ function registerIpc(): void {
         timesheetEmail: '', timesheetPhone: '',
         // Weeks marked not paid are the last person's pay, keyed only by date.
         slippedWeeks: [],
+        // So is what they earn: the day rate, the rates set on single shows,
+        // and the year-to-date and tax figures. Left here, the estimator would
+        // price the next person's shows out of the last person's pay.
+        basePayDayRate: 0, defaultDailyRate: 0, gigDayRates: {},
+        retirementPct: 0, filingStatus: 'single', ytdWages: 0, ytdAsOf: '',
+        expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0,
       });
       // Their timesheets and SSW login go too. The Timesheet tab paints the cached
       // week before fetching, so a kept cache showed the next person this one's
@@ -556,6 +568,15 @@ function registerIpc(): void {
       await updateConfig({
         friendsToken: '', friendsName: '', friendsAvatar: '', friendsSignedOut: false,
       });
+      // And their shows, itineraries and venue contacts. The Bookings tab
+      // paints these the moment the next person finishes setting up, before any
+      // fetch comes back, so a slow or failed first fetch — or skipping
+      // timesheets entirely — showed them someone else's gigs, flight
+      // confirmation numbers and PM notes. The turn above means a refresh or a
+      // sweep still on its way writes nothing after this. The sweep is let go
+      // again so the next person's own can start without a relaunch.
+      await clearCarlCaches().catch(() => {});
+      flightSweepStartedThisLaunch = false;
     });
   });
 
@@ -726,12 +747,33 @@ function registerIpc(): void {
     try {
       // Validate against CARL — if login fails, this throws.
       await loginCarl(cleanEmail, password);
+      // A login for someone else needs their own calendar found before anything
+      // is saved. The stored feed is a private link belonging to whoever was
+      // signed in: left in place, every refresh from here on pulls their shows
+      // down under this person's name. Finding it takes a moment, so it happens
+      // out here rather than holding a Log out behind it in the queue below. If
+      // it can't be found, nothing at all is saved.
+      const before = await readConfig();
+      let feedForNewLogin = '';
+      if (before.carlEmail && before.carlEmail !== cleanEmail) {
+        try {
+          feedForNewLogin = await discoverIcalUrlViaApi(cleanEmail, password);
+        } catch (apiErr) {
+          console.log('[settings] XHR iCal discovery failed, falling back to browser:', apiErr instanceof Error ? apiErr.message : apiErr);
+          feedForNewLogin = await discoverIcalUrl(cleanEmail, password);
+        }
+      }
       return await inLoginWrites(async () => {
         if (logouts !== logoutsBefore) return { ok: false, error: LOGGED_OUT };
         // Only persist after the test succeeds. If the email changed, also
         // clean up the old keychain entry so we don't leave stale passwords.
         const cfg = await readConfig();
         const otherAccount = !!cfg.carlEmail && cfg.carlEmail !== cleanEmail;
+        if (otherAccount && !feedForNewLogin) {
+          // The stored login changed while this one was being checked, so the
+          // calendar found above belongs to a different swap than this one.
+          return { ok: false, error: 'The stored C.A.R.L. login changed while this one was being checked — try again.' };
+        }
         if (otherAccount) {
           await clearCarlPassword(cfg.carlEmail).catch(() => {});
           // Different CARL account = different person as far as friends goes:
@@ -761,6 +803,15 @@ function registerIpc(): void {
           await updateConfig({
             friendsToken: '', friendsName: '', friendsAvatar: '', friendsSignedOut: false,
           });
+          // The calendar goes with the login. Their shows, itineraries and
+          // venue contacts are removed rather than left for whoever is signed
+          // in now, and the fetch below fills the tab with this login's own.
+          // The turn above means a refresh or sweep still on its way writes
+          // nothing; the sweep is let go again for this login.
+          await saveIcalUrl(feedForNewLogin);
+          await clearCarlCaches().catch(() => {});
+          flightSweepStartedThisLaunch = false;
+          doRefresh().catch(() => {});
         }
         return { ok: true };
       });

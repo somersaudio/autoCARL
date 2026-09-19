@@ -171,6 +171,25 @@ export async function updateConfig(
   });
 }
 
+// Which C.A.R.L. login the app is working as. Log out and a change to another
+// C.A.R.L. email bump it, so work already on its way back — a booking refresh,
+// a flight sweep part-way down its list — writes nothing when it lands. What it
+// carries is the previous person's shows, itineraries and venue contacts, and
+// the next person would find them waiting on their Bookings tab. The friends
+// client turns this over through carlAccountChanged in friends.ts, and the SSW
+// side keeps the same kind of marker in ssw.ts.
+let carlEpoch = 0;
+
+export function bumpCarlEpoch(): void { carlEpoch += 1; }
+export function carlEpochNow(): number { return carlEpoch; }
+
+// Taken at the start of a job and asked again at the moment of writing, so
+// nothing can change in between the question and the write.
+export function carlGuard(): () => boolean {
+  const startedAt = carlEpoch;
+  return () => carlEpoch === startedAt;
+}
+
 export async function readCachedBookings(): Promise<{ bookings: Booking[]; fetchedAt: string | null }> {
   try {
     const raw = await fs.readFile(bookingsPath(), 'utf8');
@@ -182,7 +201,13 @@ export async function readCachedBookings(): Promise<{ bookings: Booking[]; fetch
   }
 }
 
-export async function writeCachedBookings(bookings: Booking[]): Promise<string> {
+// Nothing is written once the login these shows came down for has gone; the
+// caller gets null back and says nothing about them either.
+export async function writeCachedBookings(
+  bookings: Booking[],
+  stillCurrent: () => boolean = () => true,
+): Promise<string | null> {
+  if (!stillCurrent()) return null;
   const fetchedAt = new Date().toISOString();
   await fs.writeFile(bookingsPath(), JSON.stringify({ bookings, fetchedAt }, null, 2), 'utf8');
   return fetchedAt;
@@ -203,9 +228,16 @@ export async function readFlightsCache(): Promise<FlightsCache> {
   }
 }
 
-export async function writeFlightsCache(cache: FlightsCache): Promise<void> {
+// Answers whether it wrote: a sweep that has been overtaken by a login change
+// must not tell the screen about itineraries either.
+export async function writeFlightsCache(
+  cache: FlightsCache,
+  stillCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  if (!stillCurrent()) return false;
   await fs.mkdir(flightsDir(), { recursive: true });
   await fs.writeFile(flightsIndexPath(), JSON.stringify(cache, null, 2), 'utf8');
+  return true;
 }
 
 // ----- SSW week cache (per-week disk snapshot) -----
@@ -284,6 +316,30 @@ export async function readContactsCache(): Promise<BookingContactsCache> {
   }
 }
 
-export async function writeContactsCache(cache: BookingContactsCache): Promise<void> {
+export async function writeContactsCache(
+  cache: BookingContactsCache,
+  stillCurrent: () => boolean = () => true,
+): Promise<boolean> {
+  if (!stillCurrent()) return false;
   await fs.writeFile(contactsPath(), JSON.stringify(cache, null, 2), 'utf8');
+  return true;
+}
+
+// Log out, or a C.A.R.L. login for someone else: the shows, itineraries and
+// venue contacts cached here are the last person's. The Bookings tab paints
+// them the moment the app is set up again, before any fetch comes back, so a
+// slow or failed first fetch showed the next person someone else's gigs, flight
+// confirmations and PM notes. The downloaded itineraries go with them. Copies
+// under the old file names go too: with these gone, the next launch's
+// migrateStoreFiles would bring them straight back. Expense receipts and
+// reports deliberately survive a log out and are left alone.
+export async function clearCarlCaches(): Promise<void> {
+  const dir = app.getPath('userData');
+  await fs.rm(bookingsPath(), { force: true });
+  await fs.rm(flightsIndexPath(), { force: true });
+  await fs.rm(contactsPath(), { force: true });
+  await fs.rm(flightsDir(), { recursive: true, force: true });
+  for (const name of [BOOKINGS_FILE, FLIGHTS_FILE, CONTACTS_FILE]) {
+    await fs.rm(join(dir, LEGACY_FILES[name]), { force: true });
+  }
 }

@@ -4,7 +4,7 @@
 // friends who accepted us. The bearer token lives in config.json and never
 // reaches the renderer; everything goes through the IPC handlers.
 
-import { readCachedBookings, readConfig, updateConfig } from './store';
+import { bumpCarlEpoch, carlEpochNow, readCachedBookings, readConfig, updateConfig } from './store';
 import type { Config } from './store';
 import { getCarlPassword } from './credentials';
 import type { Booking } from '../shared/types';
@@ -15,18 +15,17 @@ const FRIENDS_URL = process.env.FRIENDS_URL || 'https://autocarl-friends.somerss
 // reinstall), issues an ADDITIONAL token instead of failing with a 409.
 const API_URL = process.env.AUTOCARL_API_URL || 'https://autocarl-api.somerss.workers.dev';
 
-// Whose C.A.R.L. login this app is working as. Log out and a change to another
-// C.A.R.L. email bump it, so a request that went out under the one before
-// writes nothing when it lands: enrolling goes through a full C.A.R.L. login on
-// the worker, which takes seconds, and the token, name and icon coming back are
-// the previous person's. Stored, they would sign the next person on as them —
-// their buddy list on screen, and this person's shows published to it. The SSW
-// side keeps the same kind of marker (see sswEpoch in ssw.ts).
-let carlEpoch = 0;
+// A request that went out under the C.A.R.L. login before this one writes
+// nothing when it lands: enrolling goes through a full C.A.R.L. login on the
+// worker, which takes seconds, and the token, name and icon coming back are the
+// previous person's. Stored, they would sign the next person on as them — their
+// buddy list on screen, and this person's shows published to it. Which login
+// the app is working as is kept in store.ts, where the cached shows and
+// itineraries answer to the same turn of the number.
 const ACCOUNT_CHANGED = 'The C.A.R.L. login changed while this was in progress.';
 
 export function carlAccountChanged(): void {
-  carlEpoch += 1;
+  bumpCarlEpoch();
   listCache = null;        // the buddies it holds are the last person's
   lastPublishedHash = '';  // the next account publishes even if its shows match
 }
@@ -35,7 +34,7 @@ export function carlAccountChanged(): void {
 // token, that token must still be the stored one too: signing out and back on
 // leaves the C.A.R.L. login alone but mints a new one.
 function accountGuard(epoch: number, token?: string): (cfg: Config) => boolean {
-  return (cfg) => carlEpoch === epoch && (token === undefined || cfg.friendsToken === token);
+  return (cfg) => carlEpochNow() === epoch && (token === undefined || cfg.friendsToken === token);
 }
 
 // Store this, but only while it still belongs to the login that asked for it.
@@ -114,7 +113,7 @@ export async function friendsStatus(): Promise<FriendsStatus> {
 
 // Buddy icon: push to the friends service, keep a local copy for preview.
 export async function friendsSetAvatar(avatar: string): Promise<void> {
-  const epoch = carlEpoch;
+  const epoch = carlEpochNow();
   const token = await authed();
   await call('/v1/avatar', { method: 'PUT', body: { avatar } }, token);
   await writeForAccount({ friendsAvatar: avatar }, accountGuard(epoch, token));
@@ -123,7 +122,7 @@ export async function friendsSetAvatar(avatar: string): Promise<void> {
 // Screen name: what buddies see beside your icon. The service normalises it
 // and refuses an email; its answer becomes the local copy.
 export async function friendsSetName(name: string): Promise<string> {
-  const epoch = carlEpoch;
+  const epoch = carlEpochNow();
   const token = await authed();
   const r = await call<{ name: string }>('/v1/name', { method: 'PUT', body: { name } }, token);
   await writeForAccount({ friendsName: r.name }, accountGuard(epoch, token));
@@ -135,7 +134,7 @@ export async function friendsSetName(name: string): Promise<string> {
 // stays off. The server account survives — signing back in with the same
 // C.A.R.L. login restores the buddy list.
 export async function friendsSignOut(): Promise<void> {
-  const epoch = carlEpoch;
+  const epoch = carlEpochNow();
   const cfg = await readConfig();
   if (cfg.friendsToken) {
     await call('/v1/schedule', { method: 'PUT', body: { gigs: [] } }, cfg.friendsToken).catch(() => {});
@@ -154,7 +153,7 @@ export async function friendsSignOut(): Promise<void> {
 }
 
 export async function friendsEnroll(name: string): Promise<FriendsStatus> {
-  const epoch = carlEpoch;
+  const epoch = carlEpochNow();
   const cfg = await readConfig();
   if (!cfg.carlEmail) throw new Error('Complete C.A.R.L. setup first — your email identifies you to friends.');
   const clean = name.trim();
@@ -212,7 +211,7 @@ export async function friendsEnroll(name: string): Promise<FriendsStatus> {
 // booking poll from re-uploading an unchanged schedule.
 let lastPublishedHash = '';
 export async function publishSchedule(bookings?: Booking[]): Promise<void> {
-  const epoch = carlEpoch;
+  const epoch = carlEpochNow();
   const cfg = await readConfig();
   if (!cfg.friendsToken) return;
   let source = bookings;
@@ -265,7 +264,7 @@ async function authed(): Promise<string> {
 let listCache: { token: string; etag: string; list: FriendsList } | null = null;
 
 export async function friendsList(): Promise<FriendsList> {
-  const epoch = carlEpoch;
+  const epoch = carlEpochNow();
   const token = await authed();
   const cached = listCache && listCache.token === token ? listCache : null;
   const headers: Record<string, string> = { authorization: `Bearer ${token}` };

@@ -97,10 +97,12 @@ function requireSameCarlAccount(epoch: number, token?: string): void {
   if (!sameCarlAccount(epoch, token)) throw new Error(CARL_CHANGED);
 }
 
-// Friends identity follows the CARL login: when the stored email changes,
-// drop the previous token so schedules never publish to another person's
-// buddy list. Auto sign-on re-enrolls the new email on the next visit.
-function dropFriendsIfEmailChanged(newEmail: string): void {
+// What the browser keeps follows the C.A.R.L. login: when the stored email
+// changes, the previous person's friends token goes, so schedules never publish
+// to their buddy list, and so does everything else that came down their
+// calendar or their timesheets. Auto sign-on re-enrolls the new email, and its
+// own first fetch fills the tabs back in.
+function dropPreviousPersonData(newEmail: string): void {
   const prev = lsGet(K.carlEmail);
   if (prev === newEmail) return;
   carlAccountChanged();
@@ -115,8 +117,10 @@ function dropFriendsIfEmailChanged(newEmail: string): void {
   if (!prev) return;
   lsRemove(K.identity);           // their name/ID, not yours
   lsRemove(K.sswWeeks);           // their timesheets, not yours
+  dropCarlCaches();               // their shows, itineraries and venue contacts
   forgetTimesheetContact();       // your phone and email, not theirs
   forgetSlippedWeeks();           // your pay corrections, not theirs
+  forgetPaySettings();            // their day rate and tax figures, not yours
 }
 
 // Weeks marked not paid are one person's pay corrections, keyed only by date.
@@ -125,6 +129,29 @@ function forgetSlippedWeeks(): void {
   if (stored.slippedWeeks && stored.slippedWeeks.length > 0) {
     writeJson(K.settings, { ...stored, slippedWeeks: [] });
   }
+}
+
+// The shows, itineraries and venue contacts held here all came down one
+// person's calendar. With a different C.A.R.L. login, or none, they are the
+// last person's — and the Bookings tab paints them before any fetch returns.
+function dropCarlCaches(): void {
+  lsRemove(K.bookings);
+  lsRemove(K.contacts);
+  lsRemove(K.contactsSweptAt);
+  lsRemove(K.flights);
+}
+
+// What someone earns: the day rate, the rates set on single shows, and the
+// year-to-date and tax figures. Left behind, the estimator prices the next
+// person's shows out of the last person's pay (as desktop setup:clear).
+function forgetPaySettings(): void {
+  const stored = readJson<Partial<UserSettings>>(K.settings, {});
+  writeJson(K.settings, {
+    ...stored,
+    basePayDayRate: 0, defaultDailyRate: 0, gigDayRates: {},
+    retirementPct: 0, filingStatus: 'single', ytdWages: 0, ytdAsOf: '',
+    expectedAnnualWages: 0, spouseAnnualWages: 0, stateTaxRatePct: 0,
+  });
 }
 
 // The timesheet phone and email overrides belong to whoever is logged in: the
@@ -418,6 +445,10 @@ function notifyContacts(cache: BookingContactsCache): void {
 async function refreshBookings(): Promise<RefreshResult> {
   const url = lsGet(K.icalUrl);
   if (!url) return { ok: false, error: 'No iCal URL configured — complete setup first.' };
+  // Whose calendar this is. Fetching takes seconds, and a log out or another
+  // C.A.R.L. login during it leaves these shows belonging to the person who
+  // left: not kept, not shown, and not published to their friends.
+  const epoch = carlEpoch;
   try {
     const res = await fetch(`${API}/v1/ical?u=${encodeURIComponent(url)}`, { cache: 'no-store' });
     if (!res.ok) throw new Error(`iCal fetch failed: HTTP ${res.status}`);
@@ -426,6 +457,7 @@ async function refreshBookings(): Promise<RefreshResult> {
       throw new Error('That link didn’t return a calendar — check it and try again.');
     }
     const bookings = parseIcs(text).map(eventToBooking).filter((b): b is Booking => b !== null);
+    if (!sameCarlAccount(epoch)) return { ok: false, error: CARL_CHANGED };
     const fetchedAt = new Date().toISOString();
     writeJson(K.bookings, { bookings, fetchedAt } satisfies BookingsCacheShape);
     const payload: RefreshResult = { ok: true, bookings, fetchedAt };
@@ -557,6 +589,7 @@ async function ingestItineraries(
   // desktop sweep log every drop to zero flights came back within minutes.
   // Clearing here would make tickets, and the wrong-day warning, flicker off.
   if (rows.length === 0) return;
+  const epoch = carlEpoch;
   const cache = readJson<FlightsCache>(K.flights, {});
   const existing = cache[bookingId] || [];
   const out: FlightPdf[] = [];
@@ -586,6 +619,9 @@ async function ingestItineraries(
   // Drop entries for PDFs the booking no longer lists.
   if (out.length !== existing.length) changed = true;
   if (!changed) return;
+  // Reading the itineraries took a while; these are the last person's if the
+  // login changed while it ran.
+  if (!sameCarlAccount(epoch)) return;
   if (out.length > 0) cache[bookingId] = out; else delete cache[bookingId];
   writeJson(K.flights, cache);
   notifyFlights(cache);
@@ -612,6 +648,10 @@ let sweepRunning = false;
 
 async function sweepContacts(bookings: Booking[]): Promise<void> {
   if (sweepRunning) return;
+  // Whose shows these are. The sweep works down the list for minutes, so a log
+  // out or another C.A.R.L. login part-way through leaves everything from there
+  // on belonging to someone who is no longer signed in.
+  const epoch = carlEpoch;
   const email = lsGet(K.carlEmail);
   const password = lsGet(K.carlPassword);
   if (!email || !password || bookings.length === 0) return;
@@ -646,6 +686,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
       (b) => !(cached0[b.bookingId] && stamps0[b.bookingId] && now0 - stamps0[b.bookingId] < FRESH_MS),
     );
     for (const booking of queue) {
+      if (!sameCarlAccount(epoch)) break;
       try {
         const scraped = await postJson<CarlDetails>('/v1/carl/details', {
           email, password, bookingId: booking.bookingId,
@@ -703,7 +744,7 @@ async function sweepContacts(bookings: Booking[]): Promise<void> {
           || prevContacts.gsaPerDiem !== next.gsaPerDiem
           || prevContacts.laborTravel !== next.laborTravel
           || prevContacts.bookingNotes !== next.bookingNotes;
-        if (contactsChanged) {
+        if (contactsChanged && sameCarlAccount(epoch)) {
           contacts[booking.bookingId] = next;
           writeJson(K.contacts, contacts);
           notifyContacts(contacts);
@@ -1207,7 +1248,7 @@ const api: Api = {
       }
       // Creds verified — store them so a transient discover failure can be
       // retried without retyping the login.
-      dropFriendsIfEmailChanged(cleanEmail);
+      dropPreviousPersonData(cleanEmail);
       lsSet(K.carlEmail, cleanEmail);
       lsSet(K.carlPassword, password);
       try {
@@ -1258,8 +1299,14 @@ const api: Api = {
       lsRemove(K.identity);
       lsRemove(K.friendsAvatar);
       lsRemove(K.sswWeeks);
+      // Their shows, itineraries and venue contacts. These paint the moment the
+      // next person finishes setting up, before any fetch comes back, so a slow
+      // or failed first fetch showed them someone else's gigs, flight
+      // confirmation numbers and PM notes.
+      dropCarlCaches();
       forgetTimesheetContact();
       forgetSlippedWeeks();           // their pay corrections, as desktop setup:clear
+      forgetPaySettings();            // and what they earn, for the same reason
     },
     setSswSkipped: async (skipped) => {
       if (skipped) lsSet(K.sswSkipped, '1');
@@ -1692,9 +1739,31 @@ const api: Api = {
       try {
         await postJson('/v1/carl/verify', { email: cleanEmail, password });
         if (logouts !== logoutsBefore) return { ok: false as const, error: LOGGED_OUT };
-        dropFriendsIfEmailChanged(cleanEmail);
+        // A login for someone else needs their own calendar found before
+        // anything is saved. The stored feed is a private link belonging to
+        // whoever was signed in: left in place, every refresh from here on
+        // pulls their shows down under this person's name. If it can't be
+        // found, nothing at all is saved.
+        const previous = lsGet(K.carlEmail);
+        const otherAccount = !!previous && previous !== cleanEmail;
+        let feedForNewLogin = '';
+        if (otherAccount) {
+          const r = await postJson<{ icalUrl?: string; url?: string }>('/v1/carl/discover', { email: cleanEmail, password });
+          feedForNewLogin = ((r && (r.icalUrl || r.url)) || '').trim();
+          if (!feedForNewLogin) {
+            throw new Error('Signed in, but your calendar couldn’t be found — try again in a minute.');
+          }
+          if (logouts !== logoutsBefore) return { ok: false as const, error: LOGGED_OUT };
+        }
+        dropPreviousPersonData(cleanEmail);
         lsSet(K.carlEmail, cleanEmail);
         lsSet(K.carlPassword, password);
+        if (otherAccount) {
+          // The calendar goes with the login, and this one's own shows fill the
+          // tab behind this.
+          lsSet(K.icalUrl, feedForNewLogin);
+          void refreshBookings();
+        }
         return { ok: true as const };
       } catch (e) {
         return { ok: false as const, error: errMsg(e) };

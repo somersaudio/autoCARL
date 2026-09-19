@@ -389,6 +389,19 @@ export default function App() {
     setFriendsGen((n) => n + 1);
   };
 
+  // The shows, itineraries and venue contacts on screen came down the calendar
+  // of the login stored a moment ago. What the app keeps for the new one is
+  // read again here — empty until its own first fetch lands behind this.
+  const reloadCarlCaches = () => {
+    setBookingsError(null);
+    window.api.bookings.getCached().then(({ bookings, fetchedAt }) => {
+      setBookings(bookings);
+      setBookingsFetchedAt(fetchedAt);
+    }).catch(() => {});
+    window.api.flights.getCached().then(setFlights).catch(() => {});
+    window.api.contacts.getCached().then(setContacts).catch(() => {});
+  };
+
   // Log out, Reset, or a login changed in Settings: nothing from the previous
   // account's timesheets stays on screen or in memory.
   const forgetSswWeeks = () => {
@@ -755,7 +768,10 @@ export default function App() {
           // The saved login may be another person's: drop what the old one
           // showed and read the open week again as the new login.
           forgetSswWeeks();
-          if (which === 'carl') forgetFriends();
+          if (which === 'carl') {
+            forgetFriends();
+            reloadCarlCaches();
+          }
           if (status?.stage === 'ready' && !sswSkipped) void reloadWeek();
         }}
         sswSkipped={sswSkipped}

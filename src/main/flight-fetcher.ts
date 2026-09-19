@@ -4,7 +4,7 @@ import { request as httpsRequest } from 'node:https';
 import { app } from 'electron';
 import type { Booking, BookingContactsCache, FlightPdf, FlightsCache } from '../shared/types';
 import {
-  flightsDir, readFlightsCache, writeFlightsCache,
+  carlGuard, flightsDir, readFlightsCache, writeFlightsCache,
   readContactsCache, writeContactsCache,
 } from './store';
 import { parseFlightPdf, parseItineraryLegs } from './flight-parser';
@@ -70,6 +70,10 @@ export async function sweepFlights(
   onUpdate: (cache: FlightsCache) => void,
   onContactsUpdate: (cache: BookingContactsCache) => void,
 ): Promise<FlightsCache> {
+  // Whose shows this sweep is for. It works through the list for minutes, so a
+  // log out or another C.A.R.L. login part-way down leaves everything from
+  // there on belonging to someone who is no longer signed in.
+  const stillCurrent = carlGuard();
   const today = new Date(); today.setHours(0, 0, 0, 0);
   // Visit every booking so past shows get their per-diem + contacts scraped
   // (users still submit timesheets for past weeks). PDFs only download for
@@ -98,8 +102,7 @@ export async function sweepFlights(
       } catch { /* unreadable today; try again next sweep */ }
     }
   }
-  if (backfilled) {
-    await writeFlightsCache(cache);
+  if (backfilled && await writeFlightsCache(cache, stillCurrent)) {
     onUpdate(cache);
     logSweep('sweep: read journeys from itineraries cached before they were stored');
   }
@@ -112,6 +115,12 @@ export async function sweepFlights(
     logSweep(`sweep: starting XHR fetcher, ${toVisit.length} booking(s)`);
 
     for (const booking of toVisit) {
+      // Nothing from here on belongs to whoever is signed in now, and the
+      // itineraries it would download land in a folder just emptied for them.
+      if (!stillCurrent()) {
+        logSweep('sweep: stopped, the C.A.R.L. login changed');
+        break;
+      }
       try {
         logSweep(`booking ${booking.bookingId} (${booking.jobNumber}): fetching`);
         const scraped = await fetchBookingDetails(booking.bookingId, email, password);
@@ -187,8 +196,7 @@ export async function sweepFlights(
           || prevContacts.bookingNotes !== next.bookingNotes;
         if (contactsChanged) {
           contacts[booking.bookingId] = next;
-          await writeContactsCache(contacts);
-          onContactsUpdate(contacts);
+          if (await writeContactsCache(contacts, stillCurrent)) onContactsUpdate(contacts);
         }
 
         // ----- flights -----
@@ -264,13 +272,11 @@ export async function sweepFlights(
         if (fresh.length === 0) {
           if (booking.bookingId in cache) {
             delete cache[booking.bookingId];
-            await writeFlightsCache(cache);
-            onUpdate(cache);
+            if (await writeFlightsCache(cache, stillCurrent)) onUpdate(cache);
           }
         } else if (changed) {
           cache[booking.bookingId] = fresh;
-          await writeFlightsCache(cache);
-          onUpdate(cache);
+          if (await writeFlightsCache(cache, stillCurrent)) onUpdate(cache);
         }
       } catch (e) {
         // Booking might be archived/gone from CARL — log but don't fail the
