@@ -196,7 +196,7 @@ export function sanitizeReport(report: ExpenseReport): ExpenseReport {
 // The expense email itself — recipients' shape and the message template are
 // shared so the desktop Mail draft and the phone's compose card say exactly
 // the same thing.
-export const PAYROLL_EMAIL = 'payroll@ctus.com';
+export const LABOR_ADMIN_EMAIL = 'laboradmin@ctus.com';
 
 // Sign-off with the first name alone: SSW writes names "Somers, John", and
 // a paycheck-style full name reads stiff at the bottom of an email.

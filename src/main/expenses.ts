@@ -9,7 +9,7 @@ import { extractLayoutText } from './flight-parser';
 import { parseReceiptText } from '../shared/receipt-parse';
 import { fillExpensePdf } from '../shared/expense-pdf';
 import {
-  BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, PAYROLL_EMAIL, applyReceiptPatch,
+  BAD_FORMAT_SKIP_REASON, MAX_RECEIPT_PDF_PAGES, LABOR_ADMIN_EMAIL, applyReceiptPatch,
   assembleDraftReport, expenseMailDraft, formFileName, imageBytesToPdf, matchBooking,
   multiPageSkipReason, orderedReceipts, receiptFileName, sanitizeReport,
 } from '../shared/expense-logic';
@@ -336,7 +336,7 @@ export async function mailReport(report: ExpenseReport): Promise<void> {
   const booking = bookings.find((b) => b.bookingId === clean.bookingId);
   const contacts = booking ? (await readContactsCache())[booking.bookingId] : undefined;
   const recipients = [...new Set(
-    [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
+    [contacts?.pmEmail, contacts?.lcEmail, LABOR_ADMIN_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
   )];
 
   const { subject, body } = expenseMailDraft(booking ?? null, clean.name);

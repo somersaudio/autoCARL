@@ -6,7 +6,7 @@ import { friendlyError } from '../shared/errors';
 import {
   COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
 } from '../shared/expense-form-layout';
-import { currentGigFor, CAT_ORDER, PAYROLL_EMAIL } from '../shared/expense-logic';
+import { currentGigFor, CAT_ORDER, LABOR_ADMIN_EMAIL } from '../shared/expense-logic';
 import sheetPng from './assets/expense-sheet@2x.png';
 
 // The Expense Reports tab: drop receipts in, the app reads them (on-device
@@ -393,7 +393,7 @@ export default function ExpensesTab({ bookings }: Props) {
       contacts = booking ? (await window.api.contacts.getCached())[booking.bookingId] : undefined;
     } catch { /* contacts cache unavailable — payroll alone still works */ }
     const emails = [...new Set(
-      [contacts?.pmEmail, contacts?.lcEmail, PAYROLL_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
+      [contacts?.pmEmail, contacts?.lcEmail, LABOR_ADMIN_EMAIL].filter((e): e is string => !!e && /@/.test(e)),
     )];
     const recipients = emails.join(', ');
     let copied = false;
