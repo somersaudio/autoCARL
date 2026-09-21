@@ -3,6 +3,7 @@ import type { Booking, FriendEntry, FriendGig, FriendsList } from '../shared/typ
 import runnerLogo from './assets/aim-runner.png';
 import { normalizeScreenName, SCREEN_NAME_MAX } from '../shared/screen-name';
 import { fmtDates, groupBuddies, isoDay, jobTitles, sharedShows } from './buddy-groups';
+import PhotoViewer from './PhotoViewer';
 
 // The Friends tab, dressed as a 1999 buddy list — beveled chrome, blue title
 // bar, groups with (n/total) counts, and away messages. The joke is loving:
@@ -68,6 +69,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [openBuddies, setOpenBuddies] = useState<Record<string, boolean>>({});
   // The buddy whose Buddy Info window is open (by email), or null.
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
+  // A buddy icon open full screen from Buddy Info, or null.
+  const [fullIcon, setFullIcon] = useState<{ src: string; name: string } | null>(null);
   useEffect(() => {
     if (!profileEmail) return;
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setProfileEmail(null); };
@@ -740,7 +743,13 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
                 <button className="aim-titlebar-close" aria-label="Close" onClick={close}>×</button>
               </div>
               <div className="aim-buddy-info-head">
-                <BuddyIcon src={f.avatar} name={f.name} seed={f.email} profile />
+                <BuddyIcon
+                  src={f.avatar}
+                  name={f.name}
+                  seed={f.email}
+                  profile
+                  onOpen={f.avatar ? () => setFullIcon({ src: f.avatar!, name: f.name }) : undefined}
+                />
                 <div className="aim-buddy-info-who">
                   <div className="aim-buddy-info-name">{f.name}</div>
                 </div>
@@ -755,6 +764,15 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
           </div>
         );
       })()}
+
+      {fullIcon && (
+        <PhotoViewer
+          src={fullIcon.src}
+          alt={`${fullIcon.name}'s buddy icon`}
+          crispUpTo={PIXEL_ART_MAX}
+          onClose={() => setFullIcon(null)}
+        />
+      )}
 
       {confirmRemove && (
         <div className="aim-modal-backdrop" onClick={() => setConfirmRemove(null)}>
@@ -913,8 +931,10 @@ function iconColour(seed: string): string {
   return ICON_COLOURS[h % ICON_COLOURS.length];
 }
 
-function BuddyIcon({ src, name, seed, preview = false, profile = false }: {
+// `onOpen`, for Buddy Info: the icon is a button that opens it full screen.
+function BuddyIcon({ src, name, seed, preview = false, profile = false, onOpen }: {
   src?: string | null; name: string; seed: string; preview?: boolean; profile?: boolean;
+  onOpen?: () => void;
 }) {
   const cls = profile ? 'aim-avatar-profile' : preview ? 'aim-avatar-preview' : 'aim-buddy-avatar';
   const alt = preview ? 'Your buddy icon' : profile ? `${name}'s buddy icon` : '';
@@ -925,7 +945,7 @@ function BuddyIcon({ src, name, seed, preview = false, profile = false }: {
   const [pixelArt, setPixelArt] = useState<{ src: string; size: number } | null>(null);
   if (src) {
     const pixelSize = pixelArt && pixelArt.src === src ? pixelArt.size : null;
-    return (
+    const img = (
       <img
         className={`${cls}${pixelSize ? ' is-pixel-art' : ''}`}
         src={src}
@@ -936,6 +956,18 @@ function BuddyIcon({ src, name, seed, preview = false, profile = false }: {
           if (n > 0 && n <= PIXEL_ART_MAX) setPixelArt({ src, size: n * Math.max(2, Math.round(96 / n)) });
         } : undefined}
       />
+    );
+    if (!onOpen) return img;
+    return (
+      <button
+        type="button"
+        className="aim-avatar-open"
+        onClick={onOpen}
+        aria-label={`View ${name}'s buddy icon full screen`}
+        title="View full screen"
+      >
+        {img}
+      </button>
     );
   }
   const letter = (name.match(/[A-Za-z0-9]/)?.[0] || seed.match(/[A-Za-z0-9]/)?.[0] || '?').toUpperCase();
