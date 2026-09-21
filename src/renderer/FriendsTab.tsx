@@ -23,8 +23,8 @@ import PhotoViewer from './PhotoViewer';
 //                          several CT job numbers, so another of yours running
 //                          alongside it in the same city gets its own group.
 //   Away message        -> just that buddy's own dates at the show
-//   Clicking a buddy    -> expands them in place to every show you share,
-//                          with a button for their Buddy Info window
+//   Clicking a buddy    -> their Buddy Info window: a big icon (click it to
+//                          see it full screen) and every show you share
 //   List Setup tab      -> add friend / pending invites / account
 
 type Props = {
@@ -65,8 +65,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
-  // Buddies expanded in place to every show you share (by email).
-  const [openBuddies, setOpenBuddies] = useState<Record<string, boolean>>({});
   // The buddy whose Buddy Info window is open (by email), or null.
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
   // A buddy icon open full screen from Buddy Info, or null.
@@ -382,10 +380,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const outgoing = list?.outgoing ?? [];
 
   const toggleGroup = (g: string) => setCollapsed((c) => ({ ...c, [g]: !c[g] }));
-  const toggleBuddy = (email: string) => setOpenBuddies((o) => ({ ...o, [email]: !o[email] }));
 
-  // Every show you share with a buddy, for their expanded row and their
-  // Buddy Info window alike.
+  // Every show you share with a buddy, for their Buddy Info window.
   const sharedList = (f: FriendEntry) => {
     const shows = sharedShows(groups.shared.get(f.email) ?? []);
     if (shows.length === 0) {
@@ -406,37 +402,28 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   };
 
   // `dates` is the buddy's own dates at the show their group is named for.
-  const buddyRow = (f: FriendEntry, dates?: FriendGig[]) => {
-    const open = !!openBuddies[f.email];
-    return (
-      <div key={f.email}>
-        <div
-          className={`aim-buddy${open ? ' is-open' : ''}`}
-          onClick={() => toggleBuddy(f.email)}
-          title={open ? undefined : 'Click for your shows together'}
-        >
-          <BuddyIcon src={f.avatar} name={f.name} seed={f.email} />
-          <span className="aim-buddy-name">{f.name}</span>
-          <button
-            className="aim-x"
-            title={`Remove ${f.name}`}
-            disabled={busy}
-            onClick={(e) => {
-              e.stopPropagation();
-              setConfirmRemove({ email: f.email, label: f.name, kind: 'buddy' });
-            }}
-          >×</button>
-        </div>
-        {dates && dates.length > 0 && <div className="aim-away aim-buddy-dates">{fmtDates(dates)}</div>}
-        {open && (
-          <div className="aim-profile aim-shared">
-            {sharedList(f)}
-            <button className="aim-btn aim-btn-sm" onClick={() => setProfileEmail(f.email)}>Buddy Info</button>
-          </div>
-        )}
+  const buddyRow = (f: FriendEntry, dates?: FriendGig[]) => (
+    <div key={f.email}>
+      <div
+        className="aim-buddy"
+        onClick={() => setProfileEmail(f.email)}
+        title="Click for Buddy Info"
+      >
+        <BuddyIcon src={f.avatar} name={f.name} seed={f.email} />
+        <span className="aim-buddy-name">{f.name}</span>
+        <button
+          className="aim-x"
+          title={`Remove ${f.name}`}
+          disabled={busy}
+          onClick={(e) => {
+            e.stopPropagation();
+            setConfirmRemove({ email: f.email, label: f.name, kind: 'buddy' });
+          }}
+        >×</button>
       </div>
-    );
-  };
+      {dates && dates.length > 0 && <div className="aim-away aim-buddy-dates">{fmtDates(dates)}</div>}
+    </div>
+  );
 
   const group = (id: string, label: string, rows: JSX.Element[], highlight = false) => (
     <div className="aim-group" key={id}>

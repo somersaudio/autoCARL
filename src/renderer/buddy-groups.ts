@@ -37,8 +37,8 @@ export type BuddyGroups = {
   shared: Map<string, SharedGig[]>;
 };
 
-// One entry in a buddy's expanded row or Buddy Info: a job of yours they're
-// on, with a line per place they work it, or a city you're both in.
+// One entry in a buddy's Buddy Info window: a job of yours they're on, with
+// a line per place they work it, or a city you're both in.
 export type SharedShow = {
   key: string;
   title: string;

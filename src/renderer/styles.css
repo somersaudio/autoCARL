@@ -1048,14 +1048,10 @@ a.featured-venue:hover .featured-venue-name {
   border: 1px solid #cfcabc;
 }
 
-
-/* A buddy's dates at the show their group is named for, and the shows you
-   share when their row is clicked open, both set under the name: past the
-   row's 20px indent, 28px icon and 7px gap. Buddy Info lists the same shows. */
-.aim-buddy.is-open { background: #e8f0ff; }
+/* A buddy's dates at the show their group is named for, set under the name:
+   past the row's 20px indent, 28px icon and 7px gap. */
 .aim-buddy-dates { padding-left: 55px; font-style: normal; }
-.aim-shared { margin-left: 55px; }
-.aim-shared .aim-btn { margin-top: 6px; }
+/* The shows you share with a buddy, in their Buddy Info window. */
 .aim-shared-show + .aim-shared-show { margin-top: 5px; }
 .aim-shared-title { font-size: 12px; font-weight: bold; color: #0a246a; overflow-wrap: anywhere; }
 .aim-shared-when { font-size: 11px; color: #444; }
