@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { Booking, FriendEntry, FriendGig, FriendsList } from '../shared/types';
 import runnerLogo from './assets/aim-runner.png';
 import { normalizeScreenName, SCREEN_NAME_MAX } from '../shared/screen-name';
+import { fmtDates, groupBuddies, isoDay, jobTitles, sharedShows } from './buddy-groups';
 
 // The Friends tab, dressed as a 1999 buddy list — beveled chrome, blue title
 // bar, groups with (n/total) counts, and away messages. The joke is loving:
@@ -10,13 +11,19 @@ import { normalizeScreenName, SCREEN_NAME_MAX } from '../shared/screen-name';
 //
 // AIM-to-AUTOcarl mapping:
 //   Sign On screen      -> enrollment
-//   Buddies group       -> friends on a show WITH you (same job number: the
-//                          gig in full) or in the same city at the same time
-//                          (a different job number: the server sends only the
-//                          city and the days you overlap, never the job). One
-//                          show is often split across several CT job numbers.
-//   (One list only, no Co-Workers/Offline split. Show-sharers sort first.)
-//   Away message        -> the shared show + its city + dates
+//   Groups              -> your show in progress, or your next one when
+//                          you're between shows (the soonest a buddy is on,
+//                          see buddy-groups.ts): a group named for the job with
+//                          the buddies on it, then "In <city> with you" for
+//                          buddies there on the same dates under a job number
+//                          of their own (the server sends only the city and
+//                          the days you overlap, never the job), then everyone
+//                          else under Buddies. One show is often split across
+//                          several CT job numbers, so another of yours running
+//                          alongside it in the same city gets its own group.
+//   Away message        -> just that buddy's own dates at the show
+//   Clicking a buddy    -> expands them in place to every show you share,
+//                          with a button for their Buddy Info window
 //   List Setup tab      -> add friend / pending invites / account
 
 type Props = {
@@ -57,6 +64,8 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
+  // Buddies expanded in place to every show you share (by email).
+  const [openBuddies, setOpenBuddies] = useState<Record<string, boolean>>({});
   // The buddy whose Buddy Info window is open (by email), or null.
   const [profileEmail, setProfileEmail] = useState<string | null>(null);
   useEffect(() => {
@@ -358,39 +367,50 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
   // ---------- Buddy List ----------
   const accepted = list?.accepted ?? [];
   // The server only ever sends gigs you SHARE (same job number, or same city
-  // on overlapping dates), so empty gigs means "no mutual shows" — updatedAt tells that apart from
-  // "never shared a schedule at all".
-  // ONE list. Friends sharing a show with you float to the top (soonest
-  // shared show first); everyone else follows alphabetically.
-  const soonestShared = (f: FriendEntry): string => {
-    const dates = f.gigs
-      .filter((g) => gigOverlapKind(g, upcoming) !== null)
-      .map((g) => g.start)
-      .sort();
-    return dates[0] ?? '';
-  };
-  const buddies = [...accepted].sort((a, b) => {
-    const sa = soonestShared(a);
-    const sb = soonestShared(b);
-    if (!!sa !== !!sb) return sa ? -1 : 1;
-    if (sa && sb && sa !== sb) return sa.localeCompare(sb);
-    return a.name.localeCompare(b.name);
-  });
+  // on overlapping dates), so empty gigs means "no mutual shows" — updatedAt
+  // tells that apart from "never shared a schedule at all".
+  const groups = groupBuddies(accepted, upcoming, isoDay(today));
+  const jobGroupNames = jobTitles(groups.jobs.map((j) => ({
+    name: j.show.jobName || j.show.jobNumber, jobNumber: j.show.jobNumber,
+  })));
   const total = accepted.length;
   const profileBuddy = profileEmail ? accepted.find((x) => x.email === profileEmail) ?? null : null;
   const incoming = list?.incoming ?? [];
   const outgoing = list?.outgoing ?? [];
 
   const toggleGroup = (g: string) => setCollapsed((c) => ({ ...c, [g]: !c[g] }));
+  const toggleBuddy = (email: string) => setOpenBuddies((o) => ({ ...o, [email]: !o[email] }));
 
-  const buddyRow = (f: FriendEntry, offlineStyle = false) => {
-    const away = awayMessage(f, upcoming);
+  // Every show you share with a buddy, for their expanded row and their
+  // Buddy Info window alike.
+  const sharedList = (f: FriendEntry) => {
+    const shows = sharedShows(groups.shared.get(f.email) ?? []);
+    if (shows.length === 0) {
+      return (
+        <div className="aim-shared-none">
+          {f.updatedAt
+            ? 'No shows together coming up. A show lists here when you’re on the same job, or in the same city on the same dates.'
+            : 'No schedule shared yet.'}
+        </div>
+      );
+    }
+    return shows.map((sh) => (
+      <div className="aim-shared-show" key={sh.key}>
+        <div className="aim-shared-title">{sh.title}</div>
+        {sh.lines.map((line, i) => <div className="aim-shared-when" key={i}>{line}</div>)}
+      </div>
+    ));
+  };
+
+  // `dates` is the buddy's own dates at the show their group is named for.
+  const buddyRow = (f: FriendEntry, dates?: FriendGig[]) => {
+    const open = !!openBuddies[f.email];
     return (
       <div key={f.email}>
         <div
-          className={`aim-buddy${offlineStyle ? ' aim-offline' : ''}`}
-          onClick={() => setProfileEmail(f.email)}
-          title="Click for Buddy Info"
+          className={`aim-buddy${open ? ' is-open' : ''}`}
+          onClick={() => toggleBuddy(f.email)}
+          title={open ? undefined : 'Click for your shows together'}
         >
           <BuddyIcon src={f.avatar} name={f.name} seed={f.email} />
           <span className="aim-buddy-name">{f.name}</span>
@@ -404,20 +424,26 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
             }}
           >×</button>
         </div>
-        {away && <div className="aim-away">{away}</div>}
+        {dates && dates.length > 0 && <div className="aim-away aim-buddy-dates">{fmtDates(dates)}</div>}
+        {open && (
+          <div className="aim-profile aim-shared">
+            {sharedList(f)}
+            <button className="aim-btn aim-btn-sm" onClick={() => setProfileEmail(f.email)}>Buddy Info</button>
+          </div>
+        )}
       </div>
     );
   };
 
-  const group = (label: string, members: FriendEntry[], offlineStyle = false) => (
-    <div className="aim-group">
-      <button className="aim-group-header" onClick={() => toggleGroup(label)}>
-        <span className="aim-tri">{collapsed[label] ? '▶' : '▼'}</span>
-        <span className={label === 'Buddies' ? 'aim-group-hl' : ''}>
-          {label} ({members.length}/{total})
+  const group = (id: string, label: string, rows: JSX.Element[], highlight = false) => (
+    <div className="aim-group" key={id}>
+      <button className="aim-group-header" onClick={() => toggleGroup(id)}>
+        <span className="aim-tri">{collapsed[id] ? '▶' : '▼'}</span>
+        <span className={highlight ? 'aim-group-hl' : ''}>
+          {label} ({rows.length}/{total})
         </span>
       </button>
-      {!collapsed[label] && members.map((f) => buddyRow(f, offlineStyle))}
+      {!collapsed[id] && rows}
     </div>
   );
 
@@ -473,7 +499,24 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
               ))}
             </div>
           )}
-          {group('Buddies', buddies)}
+          {groups.jobs.map((j, i) => group(
+            `job:${j.show.jobNumber}`,
+            jobGroupNames[i],
+            j.members.map((p) => buddyRow(p.buddy, p.dates)),
+            i === 0,
+          ))}
+          {groups.town && group(
+            `town:${groups.town.show.bookingId}`,
+            `In ${groups.town.show.city} with you`,
+            groups.town.members.map((p) => buddyRow(p.buddy, p.dates)),
+            groups.jobs.length === 0,
+          )}
+          {(groups.rest.length > 0 || (groups.jobs.length === 0 && !groups.town)) && group(
+            'Buddies',
+            'Buddies',
+            groups.rest.map((f) => buddyRow(f)),
+            groups.jobs.length === 0 && !groups.town,
+          )}
           {total === 0 && incoming.length === 0 && (
             <div className="aim-away" style={{ marginTop: 8 }}>
               Your buddy list is empty. Head to List Setup to add a coworker.
@@ -682,7 +725,6 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
 
       {profileBuddy && (() => {
         const f = profileBuddy;
-        const away = awayMessage(f, upcoming);
         const close = () => setProfileEmail(null);
         return (
           <div className="aim-modal-backdrop" onClick={close}>
@@ -701,27 +743,10 @@ export default function FriendsTab({ bookings, suggestedName }: Props) {
                 <BuddyIcon src={f.avatar} name={f.name} seed={f.email} profile />
                 <div className="aim-buddy-info-who">
                   <div className="aim-buddy-info-name">{f.name}</div>
-                  {away && <div className="aim-buddy-info-away">{away}</div>}
                 </div>
               </div>
               <div className="aim-profile aim-buddy-info-gigs">
-                {f.gigs.length === 0 && (
-                  <div className="aim-away">
-                    {f.updatedAt
-                      ? 'No shows together right now. A gig shows here when you’re on the same job, or in the same city on the same dates.'
-                      : 'No schedule shared yet.'}
-                  </div>
-                )}
-                {[...f.gigs].sort((a, b) => a.start.localeCompare(b.start)).map((g, i) => {
-                  const k = gigOverlapKind(g, upcoming);
-                  const where = `${g.city}${g.state ? `, ${g.state}` : ''}`;
-                  return (
-                    <div className={`aim-profile-gig${k ? ' is-overlap' : ''}`} key={`${g.jobNumber}-${g.start}-${i}`}>
-                      {fmtRange(g.start, g.end)} · {g.jobName ? `${g.jobName} (${where})` : `in ${where}`}
-                      {k === 'gig' ? ' — with you' : k === 'near' ? ' — same city, same dates' : ''}
-                    </div>
-                  );
-                })}
+                {sharedList(f)}
               </div>
               <div className="aim-dialog-actions">
                 <button className="aim-btn" onClick={close}>Close</button>
@@ -926,55 +951,10 @@ function BuddyIcon({ src, name, seed, preview = false, profile = false }: {
   );
 }
 
-// ---- overlap helpers ----
-//   'gig'  = the same job number on overlapping dates
-//   'near' = a different job number, same city, overlapping dates: usually
-//            the same show under another CT office's job number
-// Both count as being on a show together.
-
-function gigOverlapKind(g: FriendGig, mine: Booking[]): 'gig' | 'near' | null {
-  for (const b of mine) {
-    if (g.jobNumber && g.jobNumber === b.jobNumber && g.start <= b.endDate && b.startDate <= g.end) {
-      return 'gig';
-    }
-  }
-  for (const b of mine) {
-    const sameCity = g.city && b.city
-      && g.city.toLowerCase() === b.city.toLowerCase()
-      && g.state.toLowerCase().slice(0, 2) === b.state.toLowerCase().slice(0, 2);
-    if (sameCity && g.start <= b.endDate && b.startDate <= g.end) return 'near';
-  }
-  return null;
-}
-
 // SSW writes names "Somers, John"; buddy lists read better as "John Somers".
 function flipName(n: string): string {
   const m = n.trim().match(/^([^,]+),\s*(.+)$/);
   return m ? `${m[2]} ${m[1]}`.trim() : n.trim();
-}
-
-// The buddy's "away message": the shared show, or nothing. A gig is only
-// ever mentioned when you share it (same job, or same city on the same dates).
-function awayMessage(f: FriendEntry, mine: Booking[]): string {
-  for (const g of f.gigs) {
-    if (gigOverlapKind(g, mine) === 'gig') {
-      return `with you on ${g.jobName}${g.city ? ` in ${g.city}` : ''} · ${fmtRange(g.start, g.end)}`;
-    }
-  }
-  for (const g of f.gigs) {
-    if (gigOverlapKind(g, mine) === 'near') {
-      return `in ${g.city} with you · ${fmtRange(g.start, g.end)}`;
-    }
-  }
-  return '';
-}
-
-function fmtRange(start: string, end: string): string {
-  const f = (iso: string) => {
-    const [, m, d] = iso.split('-');
-    return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
-  };
-  return start === end ? f(start) : `${f(start)} – ${f(end)}`;
 }
 
 function parseISOLocal(s: string): Date {

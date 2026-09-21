@@ -1048,8 +1048,18 @@ a.featured-venue:hover .featured-venue-name {
   border: 1px solid #cfcabc;
 }
 
-.aim-profile-gig { font-size: 11px; color: #333; padding: 1px 0; }
-.aim-profile-gig.is-overlap { font-weight: bold; color: #0a246a; }
+
+/* A buddy's dates at the show their group is named for, and the shows you
+   share when their row is clicked open, both set under the name: past the
+   row's 20px indent, 28px icon and 7px gap. Buddy Info lists the same shows. */
+.aim-buddy.is-open { background: #e8f0ff; }
+.aim-buddy-dates { padding-left: 55px; font-style: normal; }
+.aim-shared { margin-left: 55px; }
+.aim-shared .aim-btn { margin-top: 6px; }
+.aim-shared-show + .aim-shared-show { margin-top: 5px; }
+.aim-shared-title { font-size: 12px; font-weight: bold; color: #0a246a; overflow-wrap: anywhere; }
+.aim-shared-when { font-size: 11px; color: #444; }
+.aim-shared-none { font-size: 11px; color: #666; font-style: italic; }
 
 .aim-x {
   background: none;
@@ -2751,10 +2761,7 @@ a.featured-venue:hover .featured-venue-name {
   image-rendering: pixelated;
 }
 .aim-buddy-info-name { font-size: 16px; font-weight: bold; color: #000; overflow-wrap: anywhere; }
-.aim-buddy-info-away { margin-top: 4px; color: #555; font-size: 12px; font-style: italic; }
 .aim-buddy-info-gigs { margin: 0 14px 4px; max-height: 40vh; overflow-y: auto; }
-.aim-buddy-info-gigs .aim-profile-gig { font-size: 12px; padding: 2px 0; }
-.aim-buddy-info-gigs .aim-away { padding-left: 0; }
 
 /* Red logout — deliberately alarming, two-click armed. */
 .logout-btn {
