@@ -4,7 +4,7 @@ import type {
 } from '../shared/types';
 import { friendlyError } from '../shared/errors';
 import {
-  COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
+  COL, COMMENTS_BOX, FINAL_Y, GRAND_Y, HDR, MILEAGE_RATE, NOTES_BOX, PAGE, ROWS_PER_PAGE, ROW_Y, TOTALS_Y, type Col,
 } from '../shared/expense-form-layout';
 import { currentGigFor, CAT_ORDER, LABOR_ADMIN_EMAIL } from '../shared/expense-logic';
 import sheetPng from './assets/expense-sheet@2x.png';
@@ -862,7 +862,7 @@ function FormSheet({ draft, startIndex, isFirst, isLast, scale, onPatchDraft, on
   onPatchRow: (i: number, patch: Partial<ExpenseRow>) => void;
   onRemoveRow: (i: number) => void;
 }) {
-  const rate = draft.mileageRate;
+  const rate = MILEAGE_RATE;
   const rows = draft.rows.slice(startIndex, startIndex + ROWS_PER_PAGE);
   const sum = (f: (r: ExpenseRow) => number) => draft.rows.reduce((a, r) => a + f(r), 0);
   const grand = draft.rows.reduce((a, r) => a + rowTotal(r, rate), 0);

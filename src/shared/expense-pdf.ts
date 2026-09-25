@@ -9,7 +9,7 @@ import type { ExpenseReport, ExpenseRow } from './types';
 // bottom-left (pdf-lib convention).
 
 import {
-  COL, COMMENTS_BOX as COMMENTS, FILL_PEACH, FILL_PINK, FINAL_Y, GRAND_Y, HDR,
+  COL, COMMENTS_BOX as COMMENTS, FILL_PEACH, FILL_PINK, FINAL_Y, GRAND_Y, HDR, MILEAGE_RATE,
   NOTES_BOX as NOTES, PAD_DOLLAR, PAD_RIGHT, ROW_Y, TOTALS_Y, type Col,
 } from './expense-form-layout';
 
@@ -107,7 +107,7 @@ export async function fillExpensePdf(
     doc.addPage(copied);
   }
 
-  const rate = report.mileageRate;
+  const rate = MILEAGE_RATE;
   for (let p = 0; p < pageCount; p++) {
     const page = doc.getPage(p);
 

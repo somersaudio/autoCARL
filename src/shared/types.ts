@@ -278,7 +278,8 @@ export type ExpenseReceipt = {
 };
 
 // One line on the form's expense table. Money fields map 1:1 onto columns;
-// mileage dollars are computed at export time as miles × report.mileageRate.
+// mileage dollars are computed as miles × the rate printed on the form
+// (MILEAGE_RATE in shared/expense-form-layout.ts).
 export type ExpenseRow = {
   jobNumber: string;
   description: string;
@@ -305,7 +306,6 @@ export type ExpenseReport = {
   laborCoordinator: string;
   stateWorkedIn: string;
   countryWorkedIn: string;
-  mileageRate: number;      // $/mile — the 2025 form says 70¢; editable when IRS moves it
   comments: string;
   notes: string;
   rows: ExpenseRow[];

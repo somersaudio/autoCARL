@@ -145,7 +145,6 @@ export function assembleDraftReport(
     laborCoordinator: uniq(chosen.map((b) => b.laborCoordinator)).join(' / '),
     stateWorkedIn: uniq(chosen.map((b) => b.state)).join(', '),
     countryWorkedIn: 'USA',
-    mileageRate: 0.70,
     comments: '',
     notes: '',
     rows,
@@ -178,8 +177,6 @@ export function sanitizeReport(report: ExpenseReport): ExpenseReport {
     laborCoordinator: str(report.laborCoordinator, 80),
     stateWorkedIn: str(report.stateWorkedIn, 60),
     countryWorkedIn: str(report.countryWorkedIn, 60),
-    mileageRate: typeof report.mileageRate === 'number' && isFinite(report.mileageRate) && report.mileageRate >= 0
-      ? Math.min(report.mileageRate, 10) : 0.70,
     comments: str(report.comments, 600),
     notes: str(report.notes, 1200),
     rows: (Array.isArray(report.rows) ? report.rows : []).slice(0, 60).map((r) => ({
