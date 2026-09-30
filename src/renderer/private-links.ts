@@ -7,7 +7,9 @@
 // document here.
 
 export type PrivateLink = {
-  owner: string;     // the C.A.R.L. login this link belongs to, lowercased
+  // The C.A.R.L. logins this link belongs to, lowercased: every address its
+  // owner signs in with, so switching logins doesn't lose it.
+  owners: string[];
   label: string;
   href: string;
   note?: string;
@@ -15,7 +17,7 @@ export type PrivateLink = {
 
 const PRIVATE_LINKS: PrivateLink[] = [
   {
-    owner: 'john@teamsomo.com',
+    owners: ['john@somersaudio.com', 'john@teamsomo.com'],
     label: 'Time Off Request Form',
     href: 'https://stjamesaustin.breezechms.com/form/8a83b2',
     note: 'Your own form — nobody else’s AUTOcarl shows this.',
@@ -27,5 +29,5 @@ const PRIVATE_LINKS: PrivateLink[] = [
 export function privateLinksFor(email: string | null | undefined): PrivateLink[] {
   const who = (email || '').trim().toLowerCase();
   if (!who) return [];
-  return PRIVATE_LINKS.filter((l) => l.owner === who);
+  return PRIVATE_LINKS.filter((l) => l.owners.includes(who));
 }
