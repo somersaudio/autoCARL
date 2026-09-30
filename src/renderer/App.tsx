@@ -10,7 +10,7 @@ import BookingsList from './BookingsList';
 import TimesheetTab, { forgetClearedDays } from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab, { forgetFriendsSession } from './FriendsTab';
-import { estimatorKeepFrom, lastPayDateOf, timesheetDueDate } from '../shared/paychecks';
+import { estimatorKeepFrom, lastPayDateOf, timesheetDueState } from '../shared/paychecks';
 import ExpensesTab from './ExpensesTab';
 import InstallBanner from './InstallBanner';
 import MatrixRain from './MatrixRain';
@@ -448,10 +448,11 @@ export default function App() {
         wanted.add(mondayOfDate(last));
       }
       const cached = await window.api.ssw.getCachedWeeks().catch(() => ({} as Record<string, SswWeek>));
-      // A week cached as not turned in is read again once its Monday deadline
-      // has passed: it may have been submitted on the SSW site since, and the
-      // estimator flags a week that still isn't (see PaychecksCard).
-      const stale = (m: string) => cached[m]?.statusIndex === 0 && timesheetDueDate(m) < todayIso;
+      // A week cached as not turned in is read again from the Sunday before
+      // it's due: it may have been submitted on the SSW site since, and the
+      // estimator reminds about a week that still isn't (see TimesheetDueNote).
+      const stale = (m: string) => cached[m]?.statusIndex === 0
+        && timesheetDueState(m, todayIso, slippedWeeks) !== 'quiet';
       // Cap the burst: each miss is a round trip to SSW.
       const missing = Array.from(wanted).filter((m) => !cached[m] || stale(m)).sort().slice(0, 6);
       for (const monday of missing) {

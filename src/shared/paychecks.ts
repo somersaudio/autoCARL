@@ -35,8 +35,9 @@ export const PAY_LAG_DAYS = 5;
 const PERIOD_DAYS = 14;
 const CHECKS_PER_YEAR = 26;
 
-// A timesheet turned in after its Monday can miss its check, and payroll pays
-// that week on the next one, two weeks later. Whether it does varies, so the
+// A timesheet turned in after it's due (see timesheetDueDate) can miss its
+// check, and payroll pays that week on the next one, two weeks later. Whether
+// it does varies, so the
 // estimator never guesses: the user marks a week "not paid on this check"
 // (UserSettings.slippedWeeks, by the week's Monday) and its days are priced
 // onto the following check. A check that has just paid stays on screen this
@@ -156,9 +157,27 @@ export function mondayOf(iso: string): string {
   return addDays(iso, -((parseISOLocal(iso).getDay() + 6) % 7));
 }
 
-// A timesheet week is due the Monday after its Sunday.
-export function timesheetDueDate(monday: string): string {
-  return addDays(monday, 7);
+// Timesheets are turned in a check at a time: both weeks of a pay period are
+// due the Monday after it closes, four days before the Friday that pays them.
+// The first week of a period isn't late the Monday after it ends, since no
+// check comes that week. A week moved onto a later check is due with that one.
+export function timesheetDueDate(monday: string, slippedWeeks: readonly string[] = []): string {
+  return addDays(expectedPayDateOf(monday, slippedWeeks), 1 - PAY_LAG_DAYS);
+}
+
+// Where a week that isn't turned in yet stands, as of `todayIso`:
+//   'quiet'  - before the Sunday its pay period closes: nothing to say yet;
+//   'remind' - that Sunday, the day before it's due;
+//   'due'    - from the Monday it's due until the check pays;
+//   'missed' - after payday, while the check is still on screen.
+export type TimesheetDueState = 'quiet' | 'remind' | 'due' | 'missed';
+export function timesheetDueState(
+  monday: string, todayIso: string, slippedWeeks: readonly string[] = [],
+): TimesheetDueState {
+  const due = timesheetDueDate(monday, slippedWeeks);
+  if (todayIso > expectedPayDateOf(monday, slippedWeeks)) return 'missed';
+  if (todayIso >= due) return 'due';
+  return todayIso === addDays(due, -1) ? 'remind' : 'quiet';
 }
 
 // How many checks a timesheet week has moved: slippedWeeks lists a week's

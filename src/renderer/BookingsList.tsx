@@ -4,7 +4,9 @@ import type {
   Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, HotelBooking,
   SswWeek, UserSettings,
 } from '../shared/types';
-import { buildPaychecks, estimatorKeepFrom, lastPayDateOf, money, timesheetDueDate, type Paycheck } from '../shared/paychecks';
+import {
+  buildPaychecks, estimatorKeepFrom, lastPayDateOf, money, timesheetDueDate, timesheetDueState, type Paycheck,
+} from '../shared/paychecks';
 import { placeLabel } from '../shared/airports';
 import {
   matchLeg, findRebookNeeded,
@@ -1031,6 +1033,46 @@ function fmtPayDate(iso: string): string {
   return `${MONTHS[m - 1]} ${d}`;
 }
 
+// The note under a check about its timesheets that aren't turned in yet. Both
+// weeks of a check are due together, the Monday before it pays, so they share
+// one note: nothing before the Sunday ahead of that Monday, a yellow reminder
+// that Sunday, a red warning from the Monday until payday, and after payday a
+// pointer to Not all paid? in case the deposit came up short.
+function TimesheetDueNote({ mondays, payDate, todayIso, slippedWeeks }: {
+  mondays: string[]; payDate: string; todayIso: string; slippedWeeks: readonly string[];
+}) {
+  if (mondays.length === 0) return null;
+  const state = timesheetDueState(mondays[0], todayIso, slippedWeeks);
+  if (state === 'quiet') return null;
+  const due = timesheetDueDate(mondays[0], slippedWeeks);
+  const weeks = mondays.map(fmtPayDate).join(' and ');
+  const one = mondays.length === 1;
+  const which = one ? `the week of ${weeks}` : `the weeks of ${weeks}`;
+  if (state === 'remind') {
+    return (
+      <div className="paycheck-late">
+        Reminder: submit your {one ? 'timesheet' : 'timesheets'} for {which} on C.A.R.L. if you haven't yet.
+        {' '}{one ? "It's" : "They're"} due tomorrow, Mon {fmtPayDate(due)}, for the {fmtPayDate(payDate)} check.
+      </div>
+    );
+  }
+  if (state === 'due') {
+    return (
+      <div className="paycheck-late is-due">
+        {todayIso === due
+          ? `Due today: submit your timesheet hours for ${which} on C.A.R.L. ASAP to be paid for them on the ${fmtPayDate(payDate)} check.`
+          : `Past due since Mon ${fmtPayDate(due)}: submit your timesheet hours for ${which} on C.A.R.L. ASAP, or they may miss the ${fmtPayDate(payDate)} check.`}
+      </div>
+    );
+  }
+  return (
+    <div className="paycheck-late">
+      {one ? `Week of ${weeks}: timesheet wasn't` : `Weeks of ${weeks}: timesheets weren't`} turned in by Mon {fmtPayDate(due)}.
+      {' '}If this deposit came up short, use Not all paid?
+    </div>
+  );
+}
+
 // "2026-09-25" moved n days, as an ISO date.
 function shiftIsoDays(iso: string, n: number): string {
   const d = parseISOLocal(iso);
@@ -1067,11 +1109,17 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
   const [draft, setDraft] = useState('');
   // The check whose "Not all paid?" chooser is open.
   const [slipCheck, setSlipCheck] = useState<EstimatorRow | null>(null);
-  // A week SSW still holds as not turned in after its Monday deadline may miss
-  // its check. It's only flagged: whether payroll pays it anyway varies, so the
-  // totals stay put until the week is marked not paid.
-  const notTurnedIn = (monday: string) =>
-    sswWeeks[monday]?.statusIndex === 0 && timesheetDueDate(monday) < todayIso;
+  // A week SSW still holds as not turned in, and where it stands against its
+  // check (timesheetDueState): a reminder the Sunday before it's due, a warning
+  // from that Monday. It's only flagged: whether payroll pays it anyway varies,
+  // so the totals stay put until the week is marked not paid.
+  const slippedWeeks = settings.slippedWeeks || [];
+  const notSubmitted = (monday: string) => sswWeeks[monday]?.statusIndex === 0;
+  const notTurnedIn = (monday: string) => {
+    if (!notSubmitted(monday)) return false;
+    const state = timesheetDueState(monday, todayIso, slippedWeeks);
+    return state === 'due' || state === 'missed';
+  };
 
   // Jobs with an override on ANY of their bookings — the underline marks
   // every appearance of the job, on every paycheck.
@@ -1123,13 +1171,14 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
                 </span>
               ))}
             </div>
-            {!c.requestOnly && c.weeks.filter((w) => notTurnedIn(w.monday)).map((w) => (
-              <div className="paycheck-late" key={`late-${w.monday}`}>
-                {c.payDate < todayIso
-                  ? `Week of ${fmtPayDate(w.monday)}: timesheet wasn't turned in by Mon ${fmtPayDate(timesheetDueDate(w.monday))}. If this deposit came up short, use Not all paid?`
-                  : `Week of ${fmtPayDate(w.monday)}: timesheet isn't turned in yet (due Mon ${fmtPayDate(timesheetDueDate(w.monday))}), so it may miss this check`}
-              </div>
-            ))}
+            {!c.requestOnly && (
+              <TimesheetDueNote
+                mondays={c.weeks.map((w) => w.monday).filter(notSubmitted)}
+                payDate={c.payDate}
+                todayIso={todayIso}
+                slippedWeeks={slippedWeeks}
+              />
+            )}
             {/* A week moved here because it wasn't paid on its own check. */}
             {c.weeks.filter((w) => w.movedFrom).map((w) => (
               <div className="paycheck-slip" key={`moved-${w.monday}`}>
@@ -1216,7 +1265,7 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
                 <button className="link" onClick={() => setSlipCheck(null)}>✕</button>
               </div>
               <p className="subtle" style={{ fontSize: 12, margin: '8px 0 6px' }}>
-                A timesheet turned in after its Monday can miss its check. Moving a week puts its
+                A timesheet turned in after the Monday before its check can miss it. Moving a week puts its
                 hours, overtime and per diem on the {fmtPayDate(nextPay)} check instead.
               </p>
               {slipCheck.weeks.map((w) => {
