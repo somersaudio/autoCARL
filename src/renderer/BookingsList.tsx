@@ -1158,6 +1158,16 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
               {c.gigs.map((g, i) => (
                 <span key={g.bookingId} className="paycheck-gig-wrap">
                   {i > 0 && <span className="paycheck-gig-sep">+</span>}
+                  {/* Saved timesheet days no booking covers: paid at the week's
+                      rate, with no gig of their own to set a rate on. */}
+                  {g.bookingId.startsWith('sheet:') ? (
+                    <span
+                      className="paycheck-gig is-sheet"
+                      title={`${g.days}d from timesheet hours on days no C.A.R.L. booking covers, at the week's daily rate`}
+                    >
+                      {g.jobName} · {g.days}d
+                    </span>
+                  ) : (
                   <button
                     className={`paycheck-gig${customJobs.has(g.jobNumber) ? ' is-custom' : ''}${requestIds.has(g.bookingId) ? ' is-request' : ''}`}
                     title={`${g.days > 0 ? `${g.days}d @ ${money(g.dayRate)}` : 'Per diem only: its days on this check are days off on the timesheet'}${customJobs.has(g.jobNumber) ? ' (custom)' : ''}${requestIds.has(g.bookingId) ? ' (request — not yet accepted)' : ''}${g.actualDays > 0 ? ` — ${g.actualDays}d from timesheet hours` : ''} — click to edit this job's day rate`}
@@ -1168,6 +1178,7 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
                   >
                     {g.jobName} · {g.days > 0 ? `${g.days}d` : 'per diem only'}
                   </button>
+                  )}
                 </span>
               ))}
             </div>

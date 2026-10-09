@@ -10,7 +10,7 @@ import BookingsList from './BookingsList';
 import TimesheetTab, { forgetClearedDays } from './TimesheetTab';
 import SettingsModal from './Settings';
 import FriendsTab, { forgetFriendsSession } from './FriendsTab';
-import { estimatorKeepFrom, lastPayDateOf, timesheetDueState } from '../shared/paychecks';
+import { estimatorKeepFrom, expectedPayDateOf, lastPayDateOf, timesheetDueState } from '../shared/paychecks';
 import ExpensesTab from './ExpensesTab';
 import InstallBanner from './InstallBanner';
 import MatrixRain from './MatrixRain';
@@ -448,6 +448,11 @@ export default function App() {
         wanted.add(mondayOfDate(last));
       }
       const cached = await window.api.ssw.getCachedWeeks().catch(() => ({} as Record<string, SswWeek>));
+      // A cached week with hours on days no booking covers is priced too (see
+      // buildPaychecks), so it's kept fresh the same way while its check is up.
+      for (const [m, w] of Object.entries(cached)) {
+        if (expectedPayDateOf(m, slippedWeeks) >= keepFrom && w.days.some((d) => !!(d.startTime && d.endTime))) wanted.add(m);
+      }
       // A week cached as not turned in is read again from the Sunday before
       // it's due: it may have been submitted on the SSW site since, and the
       // estimator reminds about a week that still isn't (see TimesheetDueNote).

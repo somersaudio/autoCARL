@@ -405,79 +405,119 @@ export function buildPaychecks(
     }
     return split[daysBetween(monday, date)];
   };
+  // One worked (or day-off) date's pay onto its check, under `owner`'s chip.
+  // `rate` prices a day with no saved hours, and stands in for a saved day's
+  // when its week carries no Daily Rate; `perDiemRate` fills a blank per diem.
+  type ChipOwner = { bookingId: string; jobName: string; jobNumber: string };
+  const priceDay = (day: string, owner: ChipOwner, rate: number, perDiemRate: number): void => {
+    const monday = mondayOf(day);
+    const home = periodIndex(day);
+    const idx = home + slipCount(slippedWeeks, monday);
+    // A day off earns no pay and isn't one of the gig's days on the check.
+    // Only a per diem the sheet itself claims for it is owed, and without
+    // one the day adds nothing at all.
+    const off = daysOff.has(day);
+    const offPerDiem = off ? weeks[monday]?.days.find((d) => d.date === day)?.perDiem || 0 : 0;
+    if (off) {
+      // The count is of booked days held off; an unbooked day off only
+      // comes through here for the per diem its sheet claims.
+      if (booked.has(day)) periodDaysOff.set(idx, (periodDaysOff.get(idx) || 0) + 1);
+      if (offPerDiem <= 0) return;
+    }
+    let bucket = periods.get(idx);
+    if (!bucket) { bucket = new Map(); periods.set(idx, bucket); }
+    let gig = bucket.get(owner.bookingId);
+    if (!gig) {
+      gig = {
+        bookingId: owner.bookingId, jobName: owner.jobName, jobNumber: owner.jobNumber,
+        days: 0, dayRate: rate, gross: 0, perDiem: 0, otPay: 0, actualHours: 0, actualDays: 0,
+      };
+      bucket.set(owner.bookingId, gig);
+    }
+    if (!off) gig.days += 1;
+    let weekBucket = periodWeeks.get(idx);
+    if (!weekBucket) { weekBucket = new Map(); periodWeeks.set(idx, weekBucket); }
+    let week = weekBucket.get(monday);
+    if (!week) {
+      week = {
+        monday, days: 0, gross: 0, perDiem: 0,
+        // The check before this one, so Undo steps back one check at a time.
+        movedFrom: idx !== home ? addDays(periodStartOf(idx - 1), PERIOD_DAYS - 1 + PAY_LAG_DAYS) : null,
+      };
+      weekBucket.set(monday, week);
+    }
+    if (!off) week.days += 1;
+    const grossBefore = gig.gross;
+    const perDiemBefore = gig.perDiem;
+    const sheet = timesheetDayFor(day, weeks);
+    const split = splitOn(day);
+    if (off) {
+      gig.perDiem += offPerDiem;
+    } else if (sheet) {
+      // Saved hours are paid at the rate on that week's timesheet; the gig
+      // override or base pay only stands in when the week carries none.
+      const sheetRate = weekRateFor(day, weeks) || rate;
+      gig.gross += hoursPay(split, sheetRate);
+      gig.otPay += overtimePay(split, sheetRate);
+      gig.actualHours += pricedHours(sheet);
+      // A blank per-diem box on the timesheet means "not filled in", not
+      // "none owed" — taking it literally quietly removes the day's per
+      // diem from the estimate, so a saved sheet could LOWER the projected
+      // deposit. Fall back to the rate the day would otherwise have used.
+      gig.perDiem += sheet.perDiem > 0 ? sheet.perDiem : perDiemRate;
+      gig.actualDays += 1;
+    } else {
+      gig.gross += hoursPay(split, rate);
+      gig.otPay += overtimePay(split, rate);
+      gig.perDiem += perDiemRate;
+    }
+    week.gross += gig.gross - grossBefore;
+    week.perDiem += gig.perDiem - perDiemBefore;
+  };
+  const perDiemOf = (b: Booking): number => {
+    const c = contacts[b.bookingId];
+    return c?.gsaPerDiem || c?.perDiem || 0;
+  };
+
   for (const b of upcoming) {
     const rate = settings.gigDayRates?.[b.bookingId] || baseRate;
     if (rate <= 0) continue;
-    const c = contacts[b.bookingId];
-    const perDiemRate = c?.gsaPerDiem || c?.perDiem || 0;
     const total = daysBetween(b.startDate, b.endDate) + 1;
-    if (total <= 0) continue;
     for (let i = 0; i < total; i++) {
       const day = addDays(b.startDate, i);
       // A date another booking also covers is priced on that date's owner.
-      if (dayOwner.get(day) !== b) continue;
-      const monday = mondayOf(day);
-      const home = periodIndex(day);
-      const idx = home + slipCount(slippedWeeks, monday);
-      // A day off earns no pay and isn't one of the gig's days on the check.
-      // Only a per diem the sheet itself claims for it is owed, and without
-      // one the day adds nothing at all.
-      const off = daysOff.has(day);
-      const offPerDiem = off ? weeks[monday]?.days.find((d) => d.date === day)?.perDiem || 0 : 0;
-      if (off) {
-        periodDaysOff.set(idx, (periodDaysOff.get(idx) || 0) + 1);
-        if (offPerDiem <= 0) continue;
-      }
-      let bucket = periods.get(idx);
-      if (!bucket) { bucket = new Map(); periods.set(idx, bucket); }
-      let gig = bucket.get(b.bookingId);
-      if (!gig) {
-        gig = {
-          bookingId: b.bookingId, jobName: b.jobName, jobNumber: b.jobNumber,
-          days: 0, dayRate: rate, gross: 0, perDiem: 0, otPay: 0, actualHours: 0, actualDays: 0,
-        };
-        bucket.set(b.bookingId, gig);
-      }
-      if (!off) gig.days += 1;
-      let weekBucket = periodWeeks.get(idx);
-      if (!weekBucket) { weekBucket = new Map(); periodWeeks.set(idx, weekBucket); }
-      let week = weekBucket.get(monday);
-      if (!week) {
-        week = {
-          monday, days: 0, gross: 0, perDiem: 0,
-          // The check before this one, so Undo steps back one check at a time.
-          movedFrom: idx !== home ? addDays(periodStartOf(idx - 1), PERIOD_DAYS - 1 + PAY_LAG_DAYS) : null,
-        };
-        weekBucket.set(monday, week);
-      }
-      if (!off) week.days += 1;
-      const grossBefore = gig.gross;
-      const perDiemBefore = gig.perDiem;
-      const sheet = timesheetDayFor(day, weeks);
-      const split = splitOn(day);
-      if (off) {
-        gig.perDiem += offPerDiem;
-      } else if (sheet) {
-        // Saved hours are paid at the rate on that week's timesheet; the gig
-        // override or base pay only stands in when the week carries none.
-        const sheetRate = weekRateFor(day, weeks) || rate;
-        gig.gross += hoursPay(split, sheetRate);
-        gig.otPay += overtimePay(split, sheetRate);
-        gig.actualHours += pricedHours(sheet);
-        // A blank per-diem box on the timesheet means "not filled in", not
-        // "none owed" — taking it literally quietly removes the day's per
-        // diem from the estimate, so a saved sheet could LOWER the projected
-        // deposit. Fall back to the rate the day would otherwise have used.
-        gig.perDiem += sheet.perDiem > 0 ? sheet.perDiem : perDiemRate;
-        gig.actualDays += 1;
-      } else {
-        gig.gross += hoursPay(split, rate);
-        gig.otPay += overtimePay(split, rate);
-        gig.perDiem += perDiemRate;
-      }
-      week.gross += gig.gross - grossBefore;
-      week.perDiem += gig.perDiem - perDiemBefore;
+      if (dayOwner.get(day) === b) priceDay(day, b, rate, perDiemOf(b));
     }
+  }
+
+  // A day saved on a timesheet that no booking covers was still worked, and
+  // payroll pays it: a travel day home after a show ends, say, or a day C.A.R.L.
+  // never booked. Its hours already count toward the week's 40 and a seventh
+  // day (weekSplitFor); price it too, on the booking of the job the sheet names
+  // for it (the nearest one, when that job has several), or on a chip of its
+  // own when no booking has that job. A day off there is owed only the per
+  // diem its sheet claims. It needs a rate the way a booked day does, and only
+  // a day still owed counts, as with the bookings above (estimatorKeepFrom).
+  const keepFrom = estimatorKeepFrom(todayIso);
+  const claimedOff = (day: string): boolean =>
+    (weeks[mondayOf(day)]?.days.find((d) => d.date === day)?.perDiem || 0) > 0;
+  const unbooked = [...new Set(Object.values(weeks).flatMap((w) => w.days.map((d) => d.date)))]
+    .filter((day) => !booked.has(day)
+      && (daysOff.has(day) ? claimedOff(day) : !!timesheetDayFor(day, weeks))
+      && expectedPayDateOf(day, slippedWeeks) >= keepFrom)
+    .sort();
+  for (const day of unbooked) {
+    const job = sheetJobFor(day, weeks, daysOff);
+    const gap = (x: Booking): number =>
+      day < x.startDate ? daysBetween(day, x.startDate) : daysBetween(x.endDate, day);
+    const b = job
+      ? upcoming.filter((x) => x.jobNumber === job)
+        .sort((p, q) => gap(p) - gap(q) || q.startDate.localeCompare(p.startDate))[0]
+      : undefined;
+    const rate = (b && settings.gigDayRates?.[b.bookingId]) || baseRate;
+    if (rate <= 0) continue;
+    const owner = b || { bookingId: `sheet:${job}`, jobName: job || 'Timesheet hours', jobNumber: job };
+    priceDay(day, owner, rate, b ? perDiemOf(b) : 0);
   }
 
   // ---- withhold each check in isolation ----

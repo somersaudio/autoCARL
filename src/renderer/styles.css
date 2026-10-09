@@ -795,7 +795,8 @@ a.featured-venue:hover .featured-venue-name {
   cursor: pointer;
 }
 
-.paycheck-gig:hover {
+.paycheck-gig.is-sheet { cursor: default; }
+.paycheck-gig:not(.is-sheet):hover {
   color: var(--text);
   text-decoration: underline;
   text-decoration-style: dotted;
