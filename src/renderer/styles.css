@@ -2968,5 +2968,5 @@ a.featured-venue:hover .featured-venue-name {
 /* The featured card is nearly clear glass on the other themes; over a photo
    it needs a tint of its own for the job name and dates to read. */
 :root[data-theme="city-view"] .featured-booking {
-  background: linear-gradient(180deg, rgba(10, 16, 30, 0.66), rgba(10, 16, 30, 0.74));
+  background: linear-gradient(180deg, rgba(10, 16, 30, 0.54), rgba(10, 16, 30, 0.62));
 }

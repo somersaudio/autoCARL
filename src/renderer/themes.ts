@@ -101,8 +101,9 @@ export const THEMES: Theme[] = [
       // there's no photo to show; the photo's bottom fades into it too (see
       // CityBackdrop.tsx), so iOS's home-indicator strip matches either way.
       '--bg': '#0a1020',
-      '--panel': 'rgba(10, 16, 30, 0.76)',
-      '--panel-2': 'rgba(14, 22, 40, 0.82)',
+      // Lighter than the other themes' panels so more of the photo shows.
+      '--panel': 'rgba(10, 16, 30, 0.62)',
+      '--panel-2': 'rgba(14, 22, 40, 0.70)',
       '--border': 'rgba(255, 255, 255, 0.16)',
       '--text': '#ffffff',
       '--text-subtle': 'rgba(255, 255, 255, 0.66)',
