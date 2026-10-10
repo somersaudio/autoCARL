@@ -54,7 +54,9 @@ const K = {
   // "X" → x.com rather than xAI), and unresolvable job codes now get named
   // aliases instead of a wrong guess. Bumping the key drops stale logos once.
   logos: 'autocarl.web.logos6',
-  cityPhotos: 'autocarl.web.cityPhotos1',
+  // v2: skylines and aerials replaced several close-up picks. Bumping the key
+  // drops the old answers at once instead of a week later.
+  cityPhotos: 'autocarl.web.cityPhotos2',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',

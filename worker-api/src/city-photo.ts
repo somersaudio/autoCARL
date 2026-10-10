@@ -79,27 +79,29 @@ const ALIASES: Record<string, string> = {
 };
 
 // Hand-picked photos, "city|ST" -> Commons file: the cities John has worked
-// and the big convention towns, each one looked at, mostly dusk and night
-// skylines (they sit best under the veil). focus is where the subject sits,
-// percent from the left, since a phone in portrait shows only a slice.
+// and the big convention towns, each one looked at. Wide views only, the way
+// John likes them: skylines, downtowns and the city from the air, never a
+// close-up of one landmark; dusk and night where there's a good one (they sit
+// best under the veil). focus is where the subject sits, percent from the
+// left, since a phone in portrait shows only a slice.
 const CURATED: Record<string, { file: string; focus: number }> = {
   'las vegas|NV': { file: 'Las Vegas Strip from Resorts World February 2023 HDR 2.jpg', focus: 35 },
   'san diego|CA': { file: 'San Diego skyline at dusk from Coronado 2015.jpg', focus: 35 },
   'los angeles|CA': { file: 'Downtown LA at Sunset..jpg', focus: 40 },
-  'huntington beach|CA': { file: 'Huntington Beach Pier.jpg', focus: 46 },
+  'huntington beach|CA': { file: 'HB Pier by Don Ramey Logan.jpg', focus: 60 },
   'long beach|CA': { file: 'Downtown, Long Beach from Queen Mary (Dusk).JPG', focus: 32 },
-  'anaheim|CA': { file: "Mickey's Fun Wheel at Night (9926789015).jpg", focus: 68 },
+  'anaheim|CA': { file: 'DCA from Paradise Pier Hotel 2012.jpg', focus: 55 },
   'san francisco|CA': { file: 'Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu (cropped).jpg', focus: 78 },
   'san jose|CA': { file: 'San Jose CA skyline at night 2014.jpg', focus: 45 },
-  'santa clara|CA': { file: 'Mission Santa Clara (cropped).jpg', focus: 45 },
-  'mountain view|CA': { file: 'Early Lake Reflection Shoreline Park Mountain View, California.jpg', focus: 40 },
+  'santa clara|CA': { file: "Levi's Stadium from California's Great Adventure (4059).jpg", focus: 50 },
+  'mountain view|CA': { file: 'Google Campus, Mountain View, CA.jpg', focus: 55 },
   'cupertino|CA': { file: 'Aerial view of Apple Park dllu.jpg', focus: 50 },
-  'palo alto|CA': { file: 'Stanford Memorial Church May 2011 HDR 1.jpg', focus: 50 },
+  'palo alto|CA': { file: 'Stanford University campus from above.jpg', focus: 58 },
   'austin|TX': { file: 'View from Town lake 03.jpg', focus: 52 },
-  'san antonio|TX': { file: 'River Walk Night001.jpg', focus: 45 },
+  'san antonio|TX': { file: 'San antonio blue hour.jpg', focus: 68 },
   'dallas|TX': { file: 'Dallas Texas Skyline - Trinity River - Margaret Hunt Hill Bridge.jpg', focus: 60 },
   'houston|TX': { file: 'HoustonTX.jpg', focus: 62 },
-  'new orleans|LA': { file: 'Stlouiscathedralnight.jpg', focus: 49 },
+  'new orleans|LA': { file: 'New Orleans skyline-02.jpg', focus: 38 },
   'phoenix|AZ': { file: 'Downtown Phoenix Skyline at Night.jpg', focus: 42 },
   'portland|OR': { file: 'Portland from Pittock Mansion October 2019 001.jpg', focus: 48 },
   'seattle|WA': { file: 'Seattle skyline from Kerry Park, evening of 2014-10-19 no. 05.jpg', focus: 32 },
@@ -111,7 +113,7 @@ const CURATED: Record<string, { file: string; focus: number }> = {
   'lowell|MA': { file: 'Lowell, Massachusetts.jpg', focus: 57 },
   'new york|NY': { file: '2024-11-17-Lower Manhattan-0593.jpg', focus: 62 },
   'philadelphia|PA': { file: 'Center City Philadelphia 2018.jpg', focus: 50 },
-  'washington|DC': { file: 'Capitol at dusk (87785p)2.jpg', focus: 50 },
+  'washington|DC': { file: 'Washington, D.C. - 2007 aerial view.jpg', focus: 46 },
   'indianapolis|IN': { file: 'The city from Wapahani Trail (5071573814).jpg', focus: 40 },
   'orlando|FL': { file: 'Lake Eola Park in Orlando 02.jpg', focus: 40 },
   'miami|FL': { file: 'Night Panorama Miami Florida 5462.jpg', focus: 45 },
