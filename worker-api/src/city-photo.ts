@@ -76,6 +76,9 @@ const ALIASES: Record<string, string> = {
   'winchester|NV': 'las vegas|NV',
   'rosemont|IL': 'chicago|IL',
   'national harbor|MD': 'washington|DC',
+  // No downtown skyline of its own (the old downtown was razed in the '60s),
+  // and John passed on the stadium and the Mission: the neighbor's skyline.
+  'santa clara|CA': 'san jose|CA',
 };
 
 // Hand-picked photos, "city|ST" -> Commons file: the cities John has worked
@@ -93,7 +96,6 @@ const CURATED: Record<string, { file: string; focus: number }> = {
   'anaheim|CA': { file: 'DCA from Paradise Pier Hotel 2012.jpg', focus: 55 },
   'san francisco|CA': { file: 'Golden Gate Bridge and San Francisco skyline from Hawk Hill at Blue Hour dllu (cropped).jpg', focus: 78 },
   'san jose|CA': { file: 'San Jose CA skyline at night 2014.jpg', focus: 45 },
-  'santa clara|CA': { file: "Levi's Stadium from California's Great Adventure (4059).jpg", focus: 50 },
   'mountain view|CA': { file: 'Google Campus, Mountain View, CA.jpg', focus: 55 },
   'cupertino|CA': { file: 'Aerial view of Apple Park dllu.jpg', focus: 50 },
   'palo alto|CA': { file: 'Stanford University campus from above.jpg', focus: 58 },
