@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import type {
-  Booking, BookingContacts, BookingContactsCache, FlightPdf, FlightsCache, HotelBooking,
+  Booking, BookingContacts, BookingContactsCache, ExpenseReport, FlightPdf, FlightsCache, HotelBooking,
   SswWeek, UserSettings,
 } from '../shared/types';
 import {
-  buildPaychecks, estimatorKeepFrom, lastPayDateOf, money, timesheetDueDate, timesheetDueState, type Paycheck,
+  buildPaychecks, estimatorKeepFrom, expectedPayDateOf, lastPayDateOf, money, timesheetDueDate, timesheetDueState,
+  type Paycheck,
 } from '../shared/paychecks';
+import { reportTotal } from '../shared/expense-logic';
 import { placeLabel } from '../shared/airports';
 import {
   matchLeg, findRebookNeeded,
@@ -391,6 +393,12 @@ export default function BookingsList({
   bookings, fetchedAt, refreshing, error, flights, contacts, settings, sswWeeks, onSetDayRate, onSetWeekSlipped, onRefresh, onResetSetup,
 }: Props) {
   const [showAllPast, setShowAllPast] = useState(false);
+  // Expense reports, read each time the tab opens, for the estimator's
+  // "+ expenses" lines.
+  const [expenseReports, setExpenseReports] = useState<ExpenseReport[]>([]);
+  useEffect(() => {
+    window.api.expenses.getCached().then((c) => setExpenseReports(c.reports)).catch(() => {});
+  }, []);
   // Which upcoming gig shows as the full-view card. null = the default (first
   // upcoming); 'none' = everything collapsed. Rows expand on click, and only
   // one gig is ever expanded — the previous one collapses back into its row,
@@ -546,7 +554,7 @@ export default function BookingsList({
       })()}
 
       {estimatorRows.length > 0 && (
-        <PaychecksCard checks={estimatorRows} settings={settings} bookings={bookings} sswWeeks={sswWeeks} todayIso={todayIso} keepFrom={keepFrom} onSetDayRate={onSetDayRate} onSetWeekSlipped={onSetWeekSlipped} />
+        <PaychecksCard checks={estimatorRows} settings={settings} bookings={bookings} sswWeeks={sswWeeks} expenseReports={expenseReports} todayIso={todayIso} keepFrom={keepFrom} onSetDayRate={onSetDayRate} onSetWeekSlipped={onSetWeekSlipped} />
       )}
 
       {past.length > 0 && (
@@ -1090,11 +1098,12 @@ function shiftIsoDays(iso: string, n: number): string {
 // made up entirely of requests (no confirmed money to headline).
 type EstimatorRow = Paycheck & { requestExtra?: number; requestOnly?: boolean };
 
-function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFrom, onSetDayRate, onSetWeekSlipped }: {
+function PaychecksCard({ checks, settings, bookings, sswWeeks, expenseReports, todayIso, keepFrom, onSetDayRate, onSetWeekSlipped }: {
   checks: EstimatorRow[];
   settings: UserSettings;
   bookings: Booking[];
   sswWeeks: Record<string, SswWeek>;
+  expenseReports: ExpenseReport[];
   todayIso: string;
   keepFrom: string;         // the earliest payday still on the estimator
 
@@ -1115,6 +1124,16 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
   // so the totals stay put until the week is marked not paid.
   const slippedWeeks = settings.slippedWeeks || [];
   const notSubmitted = (monday: string) => sswWeeks[monday]?.statusIndex === 0;
+  // Each gig's expense report rides on the check that pays the gig's last day,
+  // where reimbursement has come so far. It's shown beside the check, never in
+  // its total: payroll pays a report when it processes it.
+  const expensesFor = (c: EstimatorRow): Array<{ jobName: string; total: number }> =>
+    expenseReports.flatMap((r) => {
+      const b = r.bookingId ? bookings.find((x) => x.bookingId === r.bookingId) : undefined;
+      const total = reportTotal(r);
+      if (!b || total <= 0 || expectedPayDateOf(b.endDate, slippedWeeks) !== c.payDate) return [];
+      return [{ jobName: b.jobName, total }];
+    });
   const notTurnedIn = (monday: string) => {
     if (!notSubmitted(monday)) return false;
     const state = timesheetDueState(monday, todayIso, slippedWeeks);
@@ -1146,6 +1165,8 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
     <div className="card">
       <h3>Paycheck Estimator</h3>
       {checks.map((c) => {
+        const expenses = expensesFor(c);
+        const expensesTotal = expenses.reduce((a, e) => a + e.total, 0);
         return (
         <div className="paycheck-row" key={c.periodStart}>
           <div className="paycheck-main">
@@ -1245,6 +1266,9 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
               c.daysOff > 0
                 ? `${c.daysOff} booked day${c.daysOff === 1 ? '' : 's'} saved as a day off on the timesheet, not paid.`
                 : null,
+              expensesTotal > 0
+                ? `Expenses: ${expenses.map((e) => `${e.jobName} $${e.total.toFixed(2)}`).join(', ')}. Not in the total: payroll reimburses a report when it processes it, usually on its gig's check.`
+                : null,
               'Pay rules: 10-hour guarantee; OT past 8h a day or 40h a week; DT past 12h, or past 8h on a 7th straight day.',
             ].filter((l) => l !== null).join('\n')}
           >
@@ -1255,6 +1279,9 @@ function PaychecksCard({ checks, settings, bookings, sswWeeks, todayIso, keepFro
             )}
             {!c.requestOnly && !settings.perDiemInTotal && c.perDiem > 0 && (
               <div className="earnings-mini-sub">+{money(c.perDiem)} per diem</div>
+            )}
+            {expensesTotal > 0 && (
+              <div className="earnings-mini-sub">+{money(expensesTotal)} expenses</div>
             )}
             {(c.requestExtra ?? 0) > 0 && (
               <div className="earnings-mini-sub is-request">

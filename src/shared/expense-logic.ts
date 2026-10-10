@@ -6,6 +6,17 @@
 import type {
   Booking, ExpenseReceipt, ExpenseReport, ExpenseRow, SswWeek,
 } from './types';
+import { MILEAGE_RATE } from './expense-form-layout';
+
+// What a report claims in all: every row's money columns plus its mileage at
+// the rate printed on the form, the figure the form's reimbursement-total cell
+// shows (see expense-pdf.ts).
+export function reportTotal(report: ExpenseReport): number {
+  const cents = report.rows.reduce((sum, r) => sum
+    + Math.round((r.lodging + r.airfare + r.parking + r.carRental + r.rideshare + r.misc) * 100)
+    + Math.round(r.miles * MILEAGE_RATE * 100), 0);
+  return cents / 100;
+}
 
 export const CATEGORIES = new Set(['lodging', 'airfare', 'parking', 'carRental', 'rideshare', 'misc']);
 
