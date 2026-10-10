@@ -15,6 +15,7 @@ import {
 } from './transport';
 import * as carl from './carl';
 import * as ssw from './ssw';
+import { cityPhoto, cityPhotoImage } from './city-photo';
 
 export interface Env {
   SESS: KVNamespace;
@@ -340,6 +341,17 @@ export default {
           },
         });
       }
+      // ---- City View theme: a photo of the gig's city, and its image ----
+      if (path === '/v1/city-photo' && req.method === 'GET') {
+        const photo = await cityPhoto(
+          url.searchParams.get('city') || '', url.searchParams.get('st') || '', url.origin,
+        );
+        return json(req, { photo });
+      }
+      if (path === '/v1/city-photo/img' && req.method === 'GET') {
+        return cityPhotoImage(url.searchParams.get('p') || '');
+      }
+
       if (req.method !== 'POST' && path !== '/v1/gsa') {
         return json(req, { error: 'not found' }, 404);
       }

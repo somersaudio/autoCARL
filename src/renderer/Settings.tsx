@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import type { UserSettings } from '../shared/types';
 import { FILING_STATUSES, FILING_STATUS_LABELS, TAX_YEAR, type FilingStatus } from '../shared/taxes';
-import { THEMES } from './themes';
+import { THEMES, themeAvailable } from './themes';
+import { onShownCityPhoto, shownCityPhoto } from './city-view';
 import PasswordInput from './PasswordInput';
 import { privateLinksFor } from './private-links';
 import { cleanAirportCode } from '../shared/airports';
@@ -578,11 +579,12 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         </p>
         <div className="field" style={{ margin: '6px 0 0', maxWidth: 260 }}>
           <select value={theme} onChange={(e) => changeTheme(e.target.value)}>
-            {THEMES.map((t) => (
+            {THEMES.filter((t) => themeAvailable(t) || t.id === theme).map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
           </select>
         </div>
+        {theme === 'city-view' && <CityPhotoNote />}
         </>)}
 
         <div className="row-actions" style={{ marginTop: 18, justifyContent: 'flex-end' }}>
@@ -590,6 +592,30 @@ export default function SettingsModal({ open, onClose, onSaved, sswSkipped, onEn
         </div>
       </div>
     </div>
+  );
+}
+
+// What City View is showing, and whose photo it is: Commons photos are
+// shared on the condition that they're credited, and this is where. Follows
+// the backdrop live, so a photo that lands while Settings is open is credited
+// at once, and nothing is while the starfield is up.
+function CityPhotoNote() {
+  const shown = useSyncExternalStore(onShownCityPhoto, shownCityPhoto)?.photo;
+  return (
+    <p className="subtle" style={{ marginTop: 10, fontSize: 12, lineHeight: 1.5 }}>
+      Shows a photo of the city your current gig is in, or your next one.
+      {shown && (<>
+        <br />
+        Now: {shown.place}. <a href={shown.pageUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--ct-gold)' }}>
+          {shown.title}
+        </a>
+        {shown.artist && <> by {shown.artist}</>}
+        {shown.license && <>, {shown.licenseUrl
+          ? <a href={shown.licenseUrl} target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>{shown.license}</a>
+          : shown.license}</>}
+        , via Wikimedia Commons.
+      </>)}
+    </p>
   );
 }
 

@@ -17,6 +17,9 @@ import MatrixRain from './MatrixRain';
 import Starfield from './Starfield';
 import CamoField from './CamoField';
 import SunsetField from './SunsetField';
+import CityBackdrop from './CityBackdrop';
+import { cityViewGig } from './city-view';
+import { isoDay } from './buddy-groups';
 import { applyTheme, findTheme } from './themes';
 import logoCT from './assets/logoCT.png';
 
@@ -85,6 +88,7 @@ export default function App() {
   // user switches tabs so there's no reload when they bounce between them.
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [bookingsFetchedAt, setBookingsFetchedAt] = useState<string | null>(null);
+  const [bookingsLoaded, setBookingsLoaded] = useState(false);
   const [bookingsRefreshing, setBookingsRefreshing] = useState(false);
   const [bookingsError, setBookingsError] = useState<string | null>(null);
   const [flights, setFlights] = useState<FlightsCache>({});
@@ -178,11 +182,20 @@ export default function App() {
   // -------- theme: apply CSS-var overrides whenever the selected theme changes
   const theme = findTheme(settings.theme);
   useEffect(() => { applyTheme(theme); }, [theme]);
+  // City View's gig. Unknown (undefined) until the bookings are in, so the
+  // last photo stays up instead of the fallback flashing past at launch; none
+  // (null) when no one is logged in, so the login screen never shows where
+  // the last person was working.
+  const cityGig = theme.backdrop !== 'city' || !status ? undefined
+    : status.stage !== 'ready' ? null
+    : !bookingsLoaded || (bookings.length === 0 && bookingsRefreshing) ? undefined
+    : cityViewGig(bookings, isoDay(new Date()));
   const backdrop =
     theme.backdrop === 'rain' ? <MatrixRain />
     : theme.backdrop === 'stars' ? <Starfield />
     : theme.backdrop === 'camo' ? <CamoField />
     : theme.backdrop === 'sunset' ? <SunsetField />
+    : theme.backdrop === 'city' ? <CityBackdrop city={cityGig === undefined ? undefined : cityGig?.city ?? null} state={cityGig?.state ?? ''} />
     : null;
 
   // "I don't submit timesheets through C.A.R.L." — hides the Timesheet tab
@@ -191,10 +204,12 @@ export default function App() {
 
   // -------- bookings --------
   useEffect(() => {
-    if (status?.stage !== 'ready') return;
+    // The next login's first render mustn't read the last one's list.
+    if (status?.stage !== 'ready') { setBookingsLoaded(false); return; }
     window.api.bookings.getCached().then(({ bookings, fetchedAt }) => {
       setBookings(bookings);
       setBookingsFetchedAt(fetchedAt);
+      setBookingsLoaded(true);
     });
     window.api.flights.getCached().then(setFlights);
     window.api.contacts.getCached().then(setContacts);

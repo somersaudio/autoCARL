@@ -4,7 +4,7 @@
 // for themes that include a background effect (digital-rain), so the canvas
 // shows through the cards subtly.
 
-export type ThemeId = 'default' | 'digital-rain' | 'constellation' | 'icy-camo' | 'for-the-girls';
+export type ThemeId = 'default' | 'digital-rain' | 'constellation' | 'icy-camo' | 'for-the-girls' | 'city-view';
 
 export type Theme = {
   id: ThemeId;
@@ -13,7 +13,7 @@ export type Theme = {
   // styles.css; anything you omit falls through to the original value.
   vars: Record<string, string>;
   // Which full-window canvas App.tsx mounts behind everything, if any.
-  backdrop?: 'rain' | 'stars' | 'camo' | 'sunset';
+  backdrop?: 'rain' | 'stars' | 'camo' | 'sunset' | 'city';
 };
 
 // Constellations leads: it's the default for fresh installs, the fallback for
@@ -92,7 +92,29 @@ export const THEMES: Theme[] = [
       '--ct-gold': '#f7a8cd',
     },
   },
+  {
+    id: 'city-view',
+    name: 'City View',
+    backdrop: 'city',
+    vars: {
+      // The starfield's horizon, because the starfield stands in whenever
+      // there's no photo to show; the photo's bottom fades into it too (see
+      // CityBackdrop.tsx), so iOS's home-indicator strip matches either way.
+      '--bg': '#0a1020',
+      '--panel': 'rgba(10, 16, 30, 0.76)',
+      '--panel-2': 'rgba(14, 22, 40, 0.82)',
+      '--border': 'rgba(255, 255, 255, 0.16)',
+      '--text': '#ffffff',
+      '--text-subtle': 'rgba(255, 255, 255, 0.66)',
+    },
+  },
 ];
+
+// City View looks its photos up through the web API, so only the web app
+// offers it.
+export function themeAvailable(t: Theme): boolean {
+  return t.backdrop !== 'city' || !!window.api.cityPhoto;
+}
 
 export function findTheme(id: string): Theme {
   return THEMES.find((t) => t.id === id) || THEMES[0];

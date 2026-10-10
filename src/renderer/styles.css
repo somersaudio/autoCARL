@@ -2913,3 +2913,60 @@ a.featured-venue:hover .featured-venue-name {
 }
 .slip-week-dates { font-size: 13px; font-weight: 600; }
 .slip-week-detail { font-size: 12px; }
+
+/* ---- City View theme (CityBackdrop.tsx) ----
+   The photo covers the window; on a phone in portrait only a slice around
+   the photo's focal point shows (object-position, set per photo). The veil
+   keeps white text readable on a bright daytime skyline, heaviest at the
+   bottom, where the photo melts into --bg: iOS paints the home-indicator
+   strip with --bg over everything, so the fade turns solid exactly where the
+   strip begins. */
+.city-backdrop {
+  overflow: hidden;
+  background: #0a1020;
+}
+
+.city-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.city-photo.is-fresh {
+  animation: city-photo-in 900ms ease both;
+}
+
+@keyframes city-photo-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.city-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg,
+    rgba(10, 16, 32, 0.62) 0%,
+    rgba(10, 16, 32, 0.42) 30%,
+    rgba(10, 16, 32, 0.48) 65%,
+    rgba(10, 16, 32, 0.78) 100%);
+}
+
+.city-veil::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: calc(env(safe-area-inset-bottom, 0px) + 56px);
+  background: linear-gradient(180deg, rgba(10, 16, 32, 0) 0, #0a1020 56px, #0a1020 100%);
+}
+
+/* The featured card is nearly clear glass on the other themes; over a photo
+   it needs a tint of its own for the job name and dates to read. */
+:root[data-theme="city-view"] .featured-booking {
+  background: linear-gradient(180deg, rgba(10, 16, 30, 0.66), rgba(10, 16, 30, 0.74));
+}

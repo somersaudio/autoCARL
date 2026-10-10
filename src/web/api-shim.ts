@@ -8,7 +8,7 @@
 // window.api and window.__AUTOCARL_WEB__.
 
 import type {
-  Api, Booking, BookingContacts, BookingContactsCache, ExpenseReceipt, FlightPdf,
+  Api, Booking, BookingContacts, BookingContactsCache, CityPhoto, ExpenseReceipt, FlightPdf,
   ExpenseReport, ExpensesCache, FlightsCache, FriendsList, FriendsStatus,
   HotelBooking, IngestOutcome, RefreshResult, SetupStatus, SswPushResult,
   SswWeek, UserSettings,
@@ -26,6 +26,9 @@ import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import { cleanSlippedWeeks } from '../shared/paychecks';
 import { parseItinerary } from '../shared/flight-itinerary';
 import { splitWeek } from '../shared/hours';
+import {
+  CITY_PHOTO_KEEP_MS, CITY_PHOTO_MISS_KEEP_MS, CITY_VIEW_LAST_KEY, cityPhotoKey, cleanCityPhoto,
+} from '../shared/city-photo';
 import expenseTemplateUrl from '../../resources/expense-template.pdf?url';
 
 const API: string =
@@ -51,6 +54,7 @@ const K = {
   // "X" → x.com rather than xAI), and unresolvable job codes now get named
   // aliases instead of a wrong guess. Bumping the key drops stale logos once.
   logos: 'autocarl.web.logos6',
+  cityPhotos: 'autocarl.web.cityPhotos1',
   friendsToken: 'autocarl.web.friendsToken',
   friendsName: 'autocarl.web.friendsName',
   friendsSignedOut: 'autocarl.web.friendsSignedOut',
@@ -139,6 +143,9 @@ function dropCarlCaches(): void {
   lsRemove(K.contacts);
   lsRemove(K.contactsSweptAt);
   lsRemove(K.flights);
+  // City View's photos are of their gig cities.
+  lsRemove(K.cityPhotos);
+  lsRemove(CITY_VIEW_LAST_KEY);
 }
 
 // What someone earns: the day rate, the rates set on single shows, and the
@@ -1431,6 +1438,35 @@ const api: Api = {
         return logo;
       } catch {
         return null;
+      }
+    },
+  },
+
+  cityPhoto: {
+    forPlace: async (city, state) => {
+      if (!city.trim()) return null;
+      const key = cityPhotoKey(city, state);
+      const cache = readJson<Record<string, { photo: CityPhoto | null; at: number }>>(K.cityPhotos, {});
+      const kept = cache[key];
+      const age = kept ? Date.now() - kept.at : Infinity;
+      if (kept && age >= 0 && age < (kept.photo ? CITY_PHOTO_KEEP_MS : CITY_PHOTO_MISS_KEEP_MS)) return kept.photo;
+      try {
+        const q = new URLSearchParams({ city: city.trim(), st: state.trim() });
+        const res = await fetch(`${API}/v1/city-photo?${q}`);
+        // A failed lookup isn't an answer: keep what we had and ask again later.
+        if (!res.ok) return kept?.photo ?? null;
+        const body = await res.json() as { photo?: unknown };
+        const photo = cleanCityPhoto(body?.photo);
+        // A photo that doesn't pass the check isn't a "no photo" either.
+        if (!photo && body?.photo) return kept?.photo ?? null;
+        // Keep the newest few cities only; each entry is small, but a
+        // touring year passes through a lot of them.
+        const next = Object.fromEntries(Object.entries({ ...cache, [key]: { photo, at: Date.now() } })
+          .sort(([, a], [, b]) => b.at - a.at).slice(0, 40));
+        writeJson(K.cityPhotos, next);
+        return photo;
+      } catch {
+        return kept?.photo ?? null;
       }
     },
   },

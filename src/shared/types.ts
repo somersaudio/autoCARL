@@ -182,6 +182,24 @@ export type FlightPdf = {
 // Cache of flight PDFs per booking. Map keyed by bookingId.
 export type FlightsCache = Record<string, FlightPdf[]>;
 
+// A photo of a city from Wikimedia Commons, the City View theme's wallpaper
+// (see worker-api/src/city-photo.ts). `src` is about 1920px wide; `srcLarge`
+// is about 3840px, or '' when the original is smaller. `focus` is where the
+// subject sits across the frame, as a percent from the left.
+export type CityPhoto = {
+  place: string;
+  title: string;
+  artist: string;
+  license: string;
+  licenseUrl: string;
+  pageUrl: string;
+  width: number;
+  height: number;
+  focus: number;
+  src: string;
+  srcLarge: string;
+};
+
 // Per-booking extras scraped from the CARL booking detail page — stuff iCal
 // doesn't carry. Email fields are empty strings when the page doesn't expose
 // them; perDiem / venue / GSA fields are undefined when not present.
@@ -402,6 +420,12 @@ export type Api = {
   };
   logo: {
     forJob: (jobName: string) => Promise<string | null>;
+  };
+  // The City View theme's wallpaper for a booking's city and state; null
+  // when there's no photo of it, or it couldn't be looked up just now. Web
+  // only: the desktop app doesn't offer City View.
+  cityPhoto?: {
+    forPlace: (city: string, state: string) => Promise<CityPhoto | null>;
   };
   app: {
     getVersion: () => Promise<string>;
