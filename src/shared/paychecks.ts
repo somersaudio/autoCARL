@@ -349,6 +349,10 @@ function claimsDay(challenger: Booking, holder: Booking, sheetJob: string): bool
  * day off (shared/daysOff.ts, judged as of `todayIso`) is paid nothing but a
  * per diem the sheet itself claims.
  *
+ * `noPerDiem` holds the dates whose per diem the user emptied on the
+ * Timesheet tab: a saved day among them is priced with no per diem, where any
+ * other blank per diem box reads as not filled in yet.
+ *
  * Every date is priced once. Bookings include their travel days, so gigs back
  * to back share the day one ends and the next begins; a date in two bookings
  * goes to just one of them (see claimsDay).
@@ -359,6 +363,7 @@ export function buildPaychecks(
   settings: UserSettings,
   weeks: Record<string, SswWeek> = {},
   todayIso: string = toISO(new Date()),
+  noPerDiem: ReadonlySet<string> = new Set(),
 ): PaycheckPlan {
   const baseRate = Number.isFinite(settings.basePayDayRate) && settings.basePayDayRate > 0
     ? settings.basePayDayRate : 0;
@@ -463,8 +468,9 @@ export function buildPaychecks(
       // A blank per-diem box on the timesheet means "not filled in", not
       // "none owed" — taking it literally quietly removes the day's per
       // diem from the estimate, so a saved sheet could LOWER the projected
-      // deposit. Fall back to the rate the day would otherwise have used.
-      gig.perDiem += sheet.perDiem > 0 ? sheet.perDiem : perDiemRate;
+      // deposit. Fall back to the rate the day would otherwise have used,
+      // unless the user emptied the box on purpose.
+      gig.perDiem += sheet.perDiem > 0 ? sheet.perDiem : noPerDiem.has(day) ? 0 : perDiemRate;
       gig.actualDays += 1;
     } else {
       gig.gross += hoursPay(split, rate);

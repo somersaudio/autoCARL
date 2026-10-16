@@ -4,6 +4,7 @@ import { friendlyError } from '../shared/errors';
 import { splitWeek } from '../shared/hours';
 import { savedDaysOff } from '../shared/daysOff';
 import { dayEditKey, weekEditKey } from '../shared/weekMerge';
+import { CLEARED_DAYS_KEY, NO_PER_DIEM_KEY, clearedDaysStore, noPerDiemStore } from './timesheet-marks';
 import type { HoursSplit } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
 import WeekPicker from './WeekPicker';
@@ -101,91 +102,6 @@ function bookingsCoveringDate(bookings: Booking[], iso: string): Booking[] {
   );
 }
 
-// Days the user emptied by hand, as ISO dates, so autofill leaves them empty.
-// A booked day with no times is otherwise filled with the default hours, which
-// made a day off impossible to save: clear both times and 8:00 am – 6:00 pm
-// came straight back, and a save wrote those hours to SSW. Kept in this
-// device's storage, not only in the tab's state, because the tab unmounts on
-// every tab switch and a save reloads the week with the day blank; either
-// would have filled it again. Filed under the week's SSW user, so someone else
-// signing in on this device doesn't inherit these days off, and forgotten on
-// Log out and Reset. A date leaves the list once its day gets a time again.
-// Other devices can't see this list; they read a saved day off from SSW itself
-// (shared/daysOff.ts).
-const CLEARED_DAYS_KEY = 'autocarl.timesheetClearedDays';
-// The newest dates kept per user. Pruned by count, not age, so a day cleared on
-// an old week that was never submitted still sticks.
-const CLEARED_DAYS_MAX = 366;
-const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
-// Changes this session couldn't write to storage, per user: date -> cleared by
-// hand (true) or handed back (false). They're laid over whatever storage holds
-// until a write succeeds. Only the changes, never a whole list, so a copy held
-// here can't undo days another window stored in the meantime.
-const clearedPending = new Map<string, Map<string, boolean>>();
-
-// Every user's stored list, or null when storage can't be reached. A stored
-// value that isn't valid JSON reads as empty and is replaced on the next write.
-function readClearedStore(): Record<string, unknown> | null {
-  let raw: string | null;
-  try {
-    raw = localStorage.getItem(CLEARED_DAYS_KEY);
-  } catch {
-    return null;
-  }
-  try {
-    const stored: unknown = JSON.parse(raw || '{}');
-    return stored && typeof stored === 'object' && !Array.isArray(stored) ? stored as Record<string, unknown> : {};
-  } catch {
-    return {};
-  }
-}
-
-function storedClearedDays(store: Record<string, unknown> | null, owner: string): Set<string> {
-  const stored = store?.[owner];
-  return new Set(Array.isArray(stored)
-    ? stored.filter((d): d is string => typeof d === 'string' && ISO_DATE.test(d))
-    : []);
-}
-
-function readClearedDays(owner: string): Set<string> {
-  const days = storedClearedDays(readClearedStore(), owner);
-  clearedPending.get(owner)?.forEach((cleared, date) => {
-    if (cleared) days.add(date);
-    else days.delete(date);
-  });
-  return days;
-}
-
-// Record one day as cleared by hand (true) or handed back to autofill (false).
-function setDayCleared(owner: string, date: string, cleared: boolean): void {
-  const pending = new Map<string, boolean>(clearedPending.get(owner) ?? []);
-  pending.set(date, cleared);
-  try {
-    const store = readClearedStore();
-    if (!store) throw new Error('storage unavailable');
-    const days = storedClearedDays(store, owner);
-    pending.forEach((c, d) => {
-      if (c) days.add(d);
-      else days.delete(d);
-    });
-    const kept = Array.from(days).sort().slice(-CLEARED_DAYS_MAX);
-    if (kept.length > 0) store[owner] = kept;
-    else delete store[owner];
-    localStorage.setItem(CLEARED_DAYS_KEY, JSON.stringify(store));
-    clearedPending.delete(owner);
-  } catch {
-    clearedPending.set(owner, pending);
-  }
-}
-
-// For Log out and Reset: whoever signs in next starts with no days off here.
-export function forgetClearedDays(): void {
-  clearedPending.clear();
-  try {
-    localStorage.removeItem(CLEARED_DAYS_KEY);
-  } catch { /* nothing stored */ }
-}
-
 function todayISO(): string {
   const t = startOfToday();
   return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
@@ -205,6 +121,7 @@ function applyAutofill(
   defaultEnd: string,
   autofillPerDiem: boolean,
   daysOff: ReadonlySet<string>,
+  noPerDiem: ReadonlySet<string>,
 ): SswWeek {
   if ((week.statusIndex ?? 0) > 0) return week;
   let anyChanged = false;
@@ -253,9 +170,9 @@ function applyAutofill(
     // is still empty. Runs even on days the user has worked, so swapping the
     // show on a saved day still picks up the new rate. User-typed amounts
     // (any non-zero value) are preserved. Skipped entirely when the user has
-    // disabled GSA autofill in Settings, and on a day off, whose per diem
-    // stays whatever the user left.
-    if (autofillPerDiem && !dayOff && next.job && !next.perDiem) {
+    // disabled GSA autofill in Settings, on a day off, whose per diem stays
+    // whatever the user left, and on a day whose per diem they emptied.
+    if (autofillPerDiem && !dayOff && !noPerDiem.has(next.date) && next.job && !next.perDiem) {
       const suggested = perDiemForJob(next.job, bookings, contacts);
       if (suggested > 0) next = { ...next, perDiem: suggested };
     }
@@ -336,18 +253,21 @@ export default function TimesheetTab({
   useEffect(() => { setSaveError(saveNotice ? friendlyError(saveNotice, !navigator.onLine) : null); }, [saveNotice]);
   const flashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Days emptied by hand (see readClearedDays), for the SSW user whose week is
-  // open. Read again when that user changes, after each change made here, and
-  // when another window changes the stored list.
+  // Days emptied by hand and days whose per diem was (see CLEARED_DAYS_KEY and
+  // NO_PER_DIEM_KEY), for the SSW user whose week is open. Read again when that
+  // user changes, after each change made here, and when another window changes
+  // a stored list.
   const owner = week?.userId ?? '';
   const [clearedVersion, setClearedVersion] = useState(0);
-  const clearedDays = useMemo(() => readClearedDays(owner), [owner, clearedVersion]);
+  const clearedDays = useMemo(() => clearedDaysStore.read(owner), [owner, clearedVersion]);
+  const noPerDiem = useMemo(() => noPerDiemStore.read(owner), [owner, clearedVersion]);
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key !== CLEARED_DAYS_KEY && e.key !== null) return;
-      // Another window logged out or reset: changes this one never managed to
-      // store go with that session.
-      if (e.newValue === null) clearedPending.clear();
+      if (e.key !== CLEARED_DAYS_KEY && e.key !== NO_PER_DIEM_KEY && e.key !== null) return;
+      if (e.newValue === null) {
+        if (e.key !== NO_PER_DIEM_KEY) clearedDaysStore.dropPending();
+        if (e.key !== CLEARED_DAYS_KEY) noPerDiemStore.dropPending();
+      }
       setClearedVersion((v) => v + 1);
     };
     window.addEventListener('storage', onStorage);
@@ -383,9 +303,9 @@ export default function TimesheetTab({
   useEffect(() => {
     if (!week) return;
     autofilledFor.current = dayKey;
-    const filled = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOff);
+    const filled = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOff, noPerDiem);
     if (filled !== week) onLocalEdit(filled);
-  }, [week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOff, dayKey, onLocalEdit]);
+  }, [week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOff, noPerDiem, dayKey, onLocalEdit]);
 
   useEffect(() => () => { if (flashTimer.current) clearTimeout(flashTimer.current); }, []);
 
@@ -393,7 +313,12 @@ export default function TimesheetTab({
   // what storage holds now, so days other windows changed are kept.
   const markCleared = (date: string, cleared: boolean) => {
     if (clearedDays.has(date) === cleared) return;
-    setDayCleared(owner, date, cleared);
+    clearedDaysStore.set(owner, date, cleared);
+    setClearedVersion((v) => v + 1);
+  };
+  const markNoPerDiem = (date: string, none: boolean) => {
+    if (noPerDiem.has(date) === none) return;
+    noPerDiemStore.set(owner, date, none);
     setClearedVersion((v) => v + 1);
   };
 
@@ -415,6 +340,15 @@ export default function TimesheetTab({
     const hasTimes = !!(after.startTime || after.endTime);
     if (hadTimes && !hasTimes && isPastOrToday(after.date)) markCleared(after.date, true);
     else if (!hadTimes && hasTimes) markCleared(after.date, false);
+    // Emptying the per diem box keeps the day without one; typing an amount
+    // hands it back, and so does a new show that brings a rate of its own.
+    // Picking a show with no rate leaves it as it was, so taking a day's show
+    // away and putting it back doesn't refill a per diem emptied on purpose.
+    if ('job' in patch) {
+      if (after.job && after.job !== before.job && after.perDiem > 0) markNoPerDiem(after.date, false);
+    } else if ('perDiem' in patch) {
+      markNoPerDiem(after.date, !(after.perDiem > 0));
+    }
     onEdit({ ...week, days }, Object.keys(patch).map((field) => dayEditKey(after.date, field)));
   };
 
@@ -441,7 +375,7 @@ export default function TimesheetTab({
     const today = todayISO();
     if (today !== autofilledFor.current) {
       setDayKey(today);
-      const current = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOffOn(today));
+      const current = applyAutofill(week, bookings, contacts, defaultStartTime, defaultEndTime, autofillPerDiem, daysOffOn(today), noPerDiem);
       if (current !== week) {
         onLocalEdit(current);
         setSaveError('The week was updated for today. Check it, then tap Save again.');
@@ -594,6 +528,7 @@ export default function TimesheetTab({
                 upcoming={upcoming}
                 locked={isLocked || saving}
                 autofillPerDiem={autofillPerDiem}
+                noPerDiem={noPerDiem.has(d.date)}
                 getPerDiem={(job) => perDiemForJob(job, bookings, contacts)}
                 onChange={(patch) => updateDay(i, patch)}
               />
@@ -717,11 +652,13 @@ type DayRowProps = {
   upcoming: Booking[];
   locked: boolean;
   autofillPerDiem: boolean;
+  // The user emptied this day's per diem, so autofill leaves it empty.
+  noPerDiem: boolean;
   getPerDiem: (jobNumber: string) => number;
   onChange: (patch: Partial<SswDay>) => void;
 };
 
-function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recentPast, upcoming, locked, autofillPerDiem, getPerDiem, onChange }: DayRowProps) {
+function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recentPast, upcoming, locked, autofillPerDiem, noPerDiem, getPerDiem, onChange }: DayRowProps) {
   const past = isPastOrToday(day.date);
   const worked = !!(day.startTime || day.endTime);
   const today = parseISO(day.date).getTime() === startOfToday().getTime();
@@ -809,21 +746,18 @@ function DayRow({ day, hours, dayOff, onFillHours, label, bookingsForDay, recent
 
       <div className="day-perdiem">
         <span className="day-perdiem-label">P/D $</span>
-        <input
-          className="day-perdiem-input"
-          type="number"
-          inputMode="decimal"
-          min="0"
-          step="1"
-          value={day.perDiem || ''}
+        <PerDiemInput
+          value={day.perDiem}
           placeholder={(() => {
+            if (noPerDiem) return '0';
             if (!autofillPerDiem) return '';
             const s = getPerDiem(day.job);
             return s > 0 ? String(s) : '';
           })()}
-          onChange={(e) => onChange({ perDiem: parseFloat(e.target.value) || 0 })}
-          disabled={locked}
+          locked={locked}
+          onCommit={(perDiem) => onChange({ perDiem })}
           title={(() => {
+            if (noPerDiem) return 'No per diem this day — type an amount to claim one';
             if (!autofillPerDiem) return 'GSA autofill disabled — type to claim';
             const s = getPerDiem(day.job);
             return s > 0 ? `Suggested: $${s} (federal GSA rate)` : 'No suggested rate — type to claim';
@@ -1162,6 +1096,57 @@ function ContactField({ kind, value, lookingUp, locked, onCommit }: {
 // Time field that lets the user type loose input ("6", "6:30", "18p") and
 // normalizes it to "h:mm am/pm" on blur or Enter. Holds a local draft string
 // while the user is typing so the parent doesn't see in-flight characters.
+// The per diem box. Like the times, it's typed as text and saved when the box
+// is left, not on every keystroke: saved as it was typed, backspacing to an
+// empty box read as "no amount yet", and autofill put the GSA rate straight
+// back before a new amount could be typed. Emptied, or set to 0, the day has
+// no per diem (see NO_PER_DIEM_KEY).
+function PerDiemInput({ value, placeholder, title, locked, onCommit }: {
+  value: number;
+  placeholder: string;
+  title: string;
+  locked: boolean;
+  onCommit: (next: number) => void;
+}) {
+  const shown = value > 0 ? String(value) : '';
+  const [draft, setDraft] = useState(shown);
+  // While the box is being typed in, a rate autofill puts on the day doesn't
+  // replace the draft; leaving the box saves what was typed over it.
+  const editing = useRef(false);
+  useEffect(() => { if (!editing.current) setDraft(shown); }, [shown]);
+  // A box disabled mid-edit (a save locking the week) may never see its blur.
+  useEffect(() => {
+    if (locked) { editing.current = false; setDraft(shown); }
+  }, [locked]);   // eslint-disable-line react-hooks/exhaustive-deps
+  const commit = () => {
+    editing.current = false;
+    const n = parseFloat(draft);
+    const next = Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : 0;
+    setDraft(next > 0 ? String(next) : '');
+    // A typed 0 is saved even over an empty day, so it counts as "none" and a
+    // rate that turns up later isn't filled in over it.
+    const typedZero = draft.trim() !== '' && next === 0;
+    if (next !== (value > 0 ? value : 0) || typedZero) onCommit(next);
+  };
+  return (
+    <input
+      className="day-perdiem-input"
+      type="text"
+      inputMode="decimal"
+      placeholder={placeholder}
+      title={title}
+      value={draft}
+      onFocus={() => { editing.current = true; }}
+      // Digits and one decimal point; anything else typed or pasted is dropped.
+      onChange={(e) => setDraft(e.target.value.replace(/[^\d.]/g, '')
+        .replace(/\./g, (dot, at: number, all: string) => (all.indexOf('.') === at ? dot : '')))}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur(); }}
+      disabled={locked}
+    />
+  );
+}
+
 function TimeInput({ value, placeholder, defaultMeridiem, locked, onCommit }: {
   value: string;
   placeholder: string;

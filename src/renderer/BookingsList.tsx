@@ -9,6 +9,7 @@ import {
   type Paycheck,
 } from '../shared/paychecks';
 import { reportTotal } from '../shared/expense-logic';
+import { noPerDiemDates } from './timesheet-marks';
 import { placeLabel } from '../shared/airports';
 import {
   matchLeg, findRebookNeeded,
@@ -457,10 +458,12 @@ export default function BookingsList({
     .filter((b) => !isRequest(b) || b.endDate >= todayIso)
     .sort((a, b) => a.startDate.localeCompare(b.startDate));
   const confirmedOnly = onUnpaidChecks.filter((b) => !isRequest(b));
-  const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks, todayIso);
+  // Days whose per diem was emptied on the Timesheet tab (this device only).
+  const noPerDiem = noPerDiemDates(Object.values(sswWeeks).map((w) => w.userId));
+  const plan = buildPaychecks(confirmedOnly, contacts, settings, sswWeeks, todayIso, noPerDiem);
   const planAll = confirmedOnly.length === onUnpaidChecks.length
     ? plan
-    : buildPaychecks(onUnpaidChecks, contacts, settings, sswWeeks, todayIso);
+    : buildPaychecks(onUnpaidChecks, contacts, settings, sswWeeks, todayIso, noPerDiem);
   const estimatorRows: EstimatorRow[] = planAll.checks.filter((c) => c.payDate >= keepFrom).flatMap((all): EstimatorRow[] => {
     const base = plan.checks.find((c) => c.periodStart === all.periodStart);
     // A check that has already paid can't gain a request's money.
