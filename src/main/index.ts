@@ -35,6 +35,7 @@ import {
 import type {
   Booking, BookingContactsCache, ExpenseReceipt, ExpenseReport, FlightsCache, RefreshResult, SetupStatus, SswWeek, UpdateProgress,
   UserSettings,
+  WeekCrew,
 } from '../shared/types';
 import { FILING_STATUSES, type FilingStatus } from '../shared/taxes';
 import { cleanAirportCode } from '../shared/airports';
@@ -649,7 +650,7 @@ function registerIpc(): void {
     friendsRespond(String(email ?? ''), accept === true));
   ipcMain.handle('friends:remove', (_e, email: string) => friendsRemove(String(email ?? '')));
   ipcMain.handle('ssw:fetchWeek', (_e, weekStartDate: string) => fetchWeek(weekStartDate));
-  ipcMain.handle('ssw:createWeek', (_e, weekStartDate: string) => createWeek(weekStartDate));
+  ipcMain.handle('ssw:createWeek', (_e, weekStartDate: string, crew?: WeekCrew) => createWeek(weekStartDate, crew));
   ipcMain.handle('ssw:pushWeek', (_e, week: SswWeek) => pushWeek(week));
   ipcMain.handle('ssw:recentContact', () => recentContact());
 

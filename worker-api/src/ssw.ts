@@ -34,8 +34,18 @@ export class SessionExpiredError extends Error {}
 
 // timesheetEmail and timesheetPhone are the user's Settings overrides, '' for
 // none (see cleanTimesheetEmail below). todayIso is the client's local date,
-// YYYY-MM-DD (see isFutureISO below).
-export type SswCfg = { defaultDailyRate: number; timesheetEmail: string; timesheetPhone: string; todayIso: string };
+// YYYY-MM-DD (see isFutureISO below). weekCrew is the project manager and
+// labor coordinator of the gig the week being CREATED is for, worked out on
+// the client (src/shared/weekCrew.ts) because bookings never reach the worker;
+// '' for either means that gig lists nobody, and createWeek writes the blank
+// rather than falling back to another record's crew.
+export type SswCfg = {
+  defaultDailyRate: number;
+  timesheetEmail: string;
+  timesheetPhone: string;
+  todayIso: string;
+  weekCrew: { projectManager: string; laborCoordinator: string };
+};
 
 function sswFetch(t: Transport, jar: CookieJar, url: string, opts: FetchOpts = {}): Promise<FetchResult> {
   // Same defaults the desktop set on every request. Electron's setHeader
@@ -332,6 +342,22 @@ export function cleanTimesheetEmail(raw: unknown): string | null {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) ? e : null;
 }
 
+// What a crew name may hold: a project manager or labor coordinator name as
+// CARL wrote it into one line of the gig's iCal description. Too long, or
+// carrying control or invisible characters, reads as nobody rather than being
+// written onto a payroll record. '' is a legitimate value — the gig lists
+// nobody — so there is no "recover it from an older record" fallback here, by
+// design: that fallback was the backfill.
+// Mirrored in src/shared/weekCrew.ts; keep them identical.
+export const CREW_NAME_MAX = 80;
+
+export function cleanCrewName(raw: unknown): string {
+  if (typeof raw !== 'string') return '';
+  const n = raw.trim();
+  if (!n || n.length > CREW_NAME_MAX) return '';
+  return /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u.test(n) ? '' : n;
+}
+
 // SSW keeps phone numbers as bare digits with the country code, 11 of them for
 // a US number, so an entry is saved the same way: "(512) 555-0123" becomes
 // 15125550123, the same as what SSW already holds. It needs 10 to 15 digits,
@@ -497,6 +523,12 @@ function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: R
   inputs.push(mkInput('iPosition', week.position));
   inputs.push(mkInput('iCaliforniaCheck', week.californiaCheck ? 'true' : 'false'));
   inputs.push(mkInput('iPhone', week.phone));
+  // iLaborCoordinator and iProjectManager go up exactly as the week holds
+  // them, blank included: mkInput applies no blank guard, and these two are
+  // derived from the week's gig (src/shared/weekCrew.ts), so a gig listing
+  // nobody writes an empty name rather than keeping an older week's. Nothing
+  // here has confirmed SSW rejects an empty one — it never came up before,
+  // because a new week always inherited a name.
   inputs.push(mkInput('iLaborCoordinator', week.laborCoordinator));
   inputs.push(mkInput('iProjectManager', week.projectManager));
   inputs.push(mkInput('iEmail', emailForSave));
@@ -646,8 +678,12 @@ export async function createWeek(t: Transport, s: SswSession, weekStartDate: str
     email: String(pt.iEmail || ''),
     phone: String(pt.iPhone || ''),
     position: String(pt.iPosition || ''),
-    laborCoordinator: String(pt.iLaborCoordinator || ''),
-    projectManager: String(pt.iProjectManager || ''),
+    // This week's own gig's people, sent by the client — NOT the template's.
+    // The template is whichever timesheet was edited last, so copying its crew
+    // wrote a stranger's name into the new payroll record. A gig that lists
+    // nobody leaves the week naming nobody.
+    laborCoordinator: cleanCrewName(cfg.weekCrew.laborCoordinator),
+    projectManager: cleanCrewName(cfg.weekCrew.projectManager),
     userId: String(pt.iUserId || ''),
     employeeId: String(pt.iEmployee_User_Name || pt.iUserId || ''),
     dailyRate,

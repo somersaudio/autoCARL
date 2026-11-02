@@ -5,7 +5,8 @@ import { readConfig, writeSswWeek } from './store';
 import { getSswPassword } from './credentials';
 import { splitWeek } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
-import type { SswDay, SswPushResult, SswWeek } from '../shared/types';
+import { cleanCrewName } from '../shared/weekCrew';
+import type { SswDay, SswPushResult, SswWeek, WeekCrew } from '../shared/types';
 
 const SSW = 'https://ctts.ctus.com/SpreadsheetWeb';
 const APP_ID = 'ca66110c-107a-47f5-9896-7a6b87fcd7a0';        // Temp Tech Timesheet
@@ -674,6 +675,12 @@ function buildInputs(week: SswWeek, originalDailyRate: string, _originalRates: R
   inputs.push(mkInput('iPosition', week.position));
   inputs.push(mkInput('iCaliforniaCheck', week.californiaCheck ? 'true' : 'false'));
   inputs.push(mkInput('iPhone', week.phone));
+  // iLaborCoordinator and iProjectManager go up exactly as the week holds
+  // them, blank included: mkInput applies no blank guard, and these two are
+  // derived from the week's gig (src/shared/weekCrew.ts), so a gig listing
+  // nobody writes an empty name rather than keeping an older week's. Nothing
+  // here has confirmed SSW rejects an empty one — it never came up before,
+  // because a new week always inherited a name.
   inputs.push(mkInput('iLaborCoordinator', week.laborCoordinator));
   inputs.push(mkInput('iProjectManager', week.projectManager));
   inputs.push(mkInput('iEmail', emailForSave));
@@ -799,7 +806,7 @@ function blankDay(date: string, weekday: SswDay['weekday']): SswDay {
   };
 }
 
-export async function createWeek(weekStartDate: string): Promise<SswWeek | null> {
+export async function createWeek(weekStartDate: string, crew?: WeekCrew): Promise<SswWeek | null> {
   return withSession(async () => {
     // 0. If a record for this week already exists (user created it via SSW
     //    directly, or a previous attempt silently succeeded), don't insert
@@ -825,8 +832,12 @@ export async function createWeek(weekStartDate: string): Promise<SswWeek | null>
       email: String(pt.iEmail || ''),
       phone: String(pt.iPhone || ''),
       position: String(pt.iPosition || ''),
-      laborCoordinator: String(pt.iLaborCoordinator || ''),
-      projectManager: String(pt.iProjectManager || ''),
+      // This week's own gig's people, handed over by the caller — NOT the
+      // template's. The template is whichever timesheet was edited last, so
+      // copying its crew wrote a stranger's name into the new payroll record.
+      // A gig that lists nobody leaves the week naming nobody.
+      laborCoordinator: cleanCrewName(crew?.laborCoordinator),
+      projectManager: cleanCrewName(crew?.projectManager),
       userId: String(pt.iUserId || ''),
       employeeId: String(pt.iEmployee_User_Name || pt.iUserId || ''),
       dailyRate,

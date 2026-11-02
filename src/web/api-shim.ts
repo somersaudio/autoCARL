@@ -23,6 +23,7 @@ import {
 import { extractLayoutFromPdfDoc } from '../shared/pdf-text';
 import { cleanAirportCode } from '../shared/airports';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
+import { NO_CREW } from '../shared/weekCrew';
 import { cleanSlippedWeeks } from '../shared/paychecks';
 import { parseItinerary } from '../shared/flight-itinerary';
 import { splitWeek } from '../shared/hours';
@@ -1380,10 +1381,14 @@ const api: Api = {
       if (week) cacheWeek(week);
       return week;
     },
-    createWeek: async (weekStartDate) => {
+    createWeek: async (weekStartDate, crew) => {
       const { email, password } = requireSsw();
+      // The worker has no bookings, so this week's gig's crew rides along with
+      // the create. Without it the worker has nothing to write but a blank —
+      // it will never fall back to another record's crew (that was the bug).
       const r = await postJson<unknown>('/v1/ssw/create', {
-        email, password, weekMonday: weekStartDate, cfg: sswCfg(),
+        email, password, weekMonday: weekStartDate,
+        cfg: { ...sswCfg(), weekCrew: crew ?? NO_CREW },
       });
       requireSameSswLogin(email, password);
       const week = unwrapWeek(r);

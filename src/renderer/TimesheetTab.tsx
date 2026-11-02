@@ -4,6 +4,7 @@ import { friendlyError } from '../shared/errors';
 import { splitWeek } from '../shared/hours';
 import { savedDaysOff } from '../shared/daysOff';
 import { dayEditKey, weekEditKey } from '../shared/weekMerge';
+import { crewOf, crewForNewWeek, primaryGigForWeek } from '../shared/weekCrew';
 import { CLEARED_DAYS_KEY, NO_PER_DIEM_KEY, clearedDaysStore, noPerDiemStore } from './timesheet-marks';
 import type { HoursSplit } from '../shared/hours';
 import { cleanTimesheetEmail, cleanTimesheetPhone } from '../shared/contact';
@@ -126,6 +127,7 @@ function applyAutofill(
   if ((week.statusIndex ?? 0) > 0) return week;
   let anyChanged = false;
   const today = startOfToday().getTime();
+  const todayIso = todayISO();
   const days = week.days.map((d) => {
     // Future days: show the scheduled show number in the dropdown so the user
     // can see what's coming up, but leave times/per-diem blank. The save path
@@ -179,27 +181,22 @@ function applyAutofill(
     if (next !== d) anyChanged = true;
     return next;
   });
-  // Sync the week-level identity (position, PM, LC) to whichever show is
-  // primary. SSW only stores one PM/LC/position per week, and a new week
-  // inherits them from the previous timesheet, so without this sync the UI
-  // shows last week's people even though this week is a different show.
-  // The primary show is the first worked (past or today) day with a job. A
-  // week created ahead of its gig has only upcoming days, so it falls back to
-  // the first upcoming day's show; otherwise a brand-new week kept the old
-  // PM and LC on screen until one of its days had passed.
-  const primaryJob = days.find((d) => !!d.job && parseISO(d.date).getTime() <= today)?.job
-    ?? days.find((d) => !!d.job)?.job;
+  // The week's project manager and labor coordinator come from the week's OWN
+  // gig, re-read every pass. SSW keeps one pair per week and copies them onto
+  // a new record from the most recently edited timesheet, so left alone the
+  // sheet carries a stranger's name — and a save writes that name into CT's
+  // payroll. They are re-derived rather than only filled in when blank: when
+  // the gig lists nobody the week lists nobody, instead of keeping whoever the
+  // last timesheet named (John, 2026-11-02). A submitted week never reaches
+  // this line (the statusIndex guard above), so nothing filed is rewritten.
+  // Position keeps its own rule — only ever filled in, never cleared — but now
+  // reads off the same gig rather than whichever booking happened to carry the
+  // job number first.
+  const gig = primaryGigForWeek(days, bookings, todayIso);
+  const { projectManager, laborCoordinator } = crewOf(gig);
+  if (projectManager !== week.projectManager || laborCoordinator !== week.laborCoordinator) anyChanged = true;
   let position = week.position;
-  let projectManager = week.projectManager;
-  let laborCoordinator = week.laborCoordinator;
-  if (primaryJob) {
-    const b = bookings.find((bk) => bk.jobNumber === primaryJob);
-    if (b) {
-      if (b.position && b.position !== position) { position = b.position; anyChanged = true; }
-      if (b.projectManager && b.projectManager !== projectManager) { projectManager = b.projectManager; anyChanged = true; }
-      if (b.laborCoordinator && b.laborCoordinator !== laborCoordinator) { laborCoordinator = b.laborCoordinator; anyChanged = true; }
-    }
-  }
+  if (gig && gig.position && gig.position !== position) { position = gig.position; anyChanged = true; }
   // Return the SAME reference when nothing changed — that lets the calling
   // effect skip the update without needing a separate dedup key (which got
   // stale when navigating between weeks).
@@ -598,7 +595,9 @@ function CreateWeekCard({ weekMonday, bookings, onCreated }: {
     setCreating(true);
     setErr(null);
     try {
-      const created = await window.api.ssw.createWeek(weekMonday);
+      // The new record's crew comes from this week's gig, never from whatever
+      // timesheet SSW last touched (see crewForNewWeek).
+      const created = await window.api.ssw.createWeek(weekMonday, crewForNewWeek(weekMonday, bookings));
       if (!created) throw new Error('SSW did not return a record for the new week.');
       onCreated();
     } catch (e) {

@@ -129,6 +129,11 @@ export type SswWeek = {
   statusIndex: number;
 };
 
+// The project manager and labor coordinator a gig lists, as they go onto a
+// timesheet week. '' means the gig lists nobody, which is a real answer: it is
+// never filled in from another week. Worked out by src/shared/weekCrew.ts.
+export type WeekCrew = { projectManager: string; laborCoordinator: string };
+
 // Result of a push attempt — same union shape as RefreshResult. `submitted` is
 // set when SSW refused because the week has been submitted there, so the
 // Timesheet tab can reload the week and show it locked.
@@ -406,10 +411,18 @@ export type Api = {
     // Caches the result to disk on success. Returns null if no SSW record
     // exists for that week yet.
     fetchWeek: (weekStartDate: string) => Promise<SswWeek | null>;
-    // Creates a new SSW record for the given week by copying identity fields
+    // Creates a new SSW record for the given week, copying identity fields
     // (name, email, position, group, rate, etc.) from the user's latest
     // existing record. Returns the new SswWeek, or throws on failure.
-    createWeek: (weekStartDate: string) => Promise<SswWeek | null>;
+    // `crew` is the exception to that copying: the project manager and labor
+    // coordinator come from the week's OWN gig (src/shared/weekCrew.ts
+    // crewForNewWeek), never from the latest record — taking them off the
+    // latest record is what put a stranger's name on a new timesheet. The
+    // backends cannot work it out themselves; the worker has no bookings.
+    // Required rather than optional so a caller has to say who the gig lists:
+    // a gig listing nobody passes NO_CREW, which is a different statement
+    // from forgetting to pass anything.
+    createWeek: (weekStartDate: string, crew: WeekCrew) => Promise<SswWeek | null>;
     // Saves a modified week. Builds the 169-input Calculate payload from this.
     pushWeek: (week: SswWeek) => Promise<SswPushResult>;
     // The phone and email on the user's newest timesheets that have them

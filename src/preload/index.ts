@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
   Api, Booking, BookingContactsCache, ExpenseReport, ExpensesCache, FlightsCache, IngestOutcome,
   FriendsList, FriendsStatus, RefreshResult, SetupStatus, SswPushResult, SswWeek, UpdateProgress, UserSettings,
+  WeekCrew,
 } from '../shared/types';
 
 const api: Api = {
@@ -51,8 +52,8 @@ const api: Api = {
       ipcRenderer.invoke('ssw:identity') as Promise<{ name: string; userId: string } | null>,
     fetchWeek: (weekStartDate) =>
       ipcRenderer.invoke('ssw:fetchWeek', weekStartDate) as Promise<SswWeek | null>,
-    createWeek: (weekStartDate) =>
-      ipcRenderer.invoke('ssw:createWeek', weekStartDate) as Promise<SswWeek | null>,
+    createWeek: (weekStartDate, crew) =>
+      ipcRenderer.invoke('ssw:createWeek', weekStartDate, crew) as Promise<SswWeek | null>,
     pushWeek: (week) =>
       ipcRenderer.invoke('ssw:pushWeek', week) as Promise<SswPushResult>,
     recentContact: () =>

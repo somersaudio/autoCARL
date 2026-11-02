@@ -282,6 +282,20 @@ function isoDateOf(raw: unknown): string | null {
   return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === raw ? raw : null;
 }
 
+// The crew a client sends for the week it is creating. Each name passes the
+// same check as in the apps; anything else — a missing field, a build from
+// before this existed, or a value that isn't a usable name — reads as "this
+// gig lists nobody". It deliberately does NOT fall back to another record's
+// crew: that fallback is what put the last-edited timesheet's project manager
+// onto every new week.
+function weekCrewOf(raw: unknown): ssw.SswCfg['weekCrew'] {
+  const c = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return {
+    projectManager: ssw.cleanCrewName(c.projectManager),
+    laborCoordinator: ssw.cleanCrewName(c.laborCoordinator),
+  };
+}
+
 // The timesheet settings a client sends with a create or save. The phone and
 // email overrides pass the same check as in the apps; a build from before the
 // phone override sends none, which reads as no override. todayIso is the
@@ -294,6 +308,7 @@ function sswCfgOf(raw: unknown): ssw.SswCfg {
     timesheetEmail: ssw.cleanTimesheetEmail(cfg.timesheetEmail) || '',
     timesheetPhone: ssw.cleanTimesheetPhone(cfg.timesheetPhone) || '',
     todayIso: isoDateOf(cfg.todayIso) || new Date().toISOString().slice(0, 10),
+    weekCrew: weekCrewOf(cfg.weekCrew),
   };
 }
 
