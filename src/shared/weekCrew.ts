@@ -15,23 +15,27 @@ export type { WeekCrew };
 
 export const NO_CREW: WeekCrew = { projectManager: '', laborCoordinator: '' };
 
-// A pending request, which only counts when no confirmed gig is in the running.
-// Same test as expense-logic.ts currentGigFor and city-view.ts cityViewGig.
-const isRequest = (b: Booking) => /\brequest/i.test(b.status || '');
-
 const jobKey = (job: string) => (job || '').trim().toUpperCase();
 
 const covers = (b: Booking, iso: string) => b.startDate <= iso && iso <= b.endDate;
 
-// Of several bookings in the running, the one a timesheet follows: a confirmed
-// gig over a pending request, then the one that STARTS latest. On a changeover
-// day the gig beginning that day is the one you travel to, which is how the
-// day's own show is already picked (bookingsCoveringDate's sort in
-// TimesheetTab.tsx).
+// Of several bookings in the running, the one a timesheet follows: the one that
+// STARTS latest — on a changeover day the gig beginning that day is the one you
+// travel to. This is deliberately the SAME comparator, on the same array, that
+// the Timesheet tab uses to decide which show a day is billed to
+// (bookingsCoveringDate(...).sort((a, b) => b.startDate.localeCompare(a.startDate))[0]
+// in TimesheetTab.tsx), ties and all, so the crew always belongs to the show
+// the week actually bills.
+//
+// It deliberately does NOT prefer a confirmed gig over a pending request the
+// way currentGigFor (expense-logic.ts) and cityViewGig (city-view.ts) do. Those
+// answer "which gig are you on"; this one has to agree with the job already
+// written on the day. Preferring confirmed here made a week whose Monday is a
+// confirmed gig rolling off and a request starting take the rolling-off gig's
+// people, while every day of the week got billed to the request — so the name
+// flipped the moment the week was created.
 function bestOf(candidates: Booking[]): Booking | null {
-  const confirmed = candidates.filter((b) => !isRequest(b));
-  const pool = confirmed.length > 0 ? confirmed : candidates;
-  return pool.slice().sort((a, b) => b.startDate.localeCompare(a.startDate))[0] ?? null;
+  return candidates.slice().sort((a, b) => b.startDate.localeCompare(a.startDate))[0] ?? null;
 }
 
 // The gig a week's crew comes from, read in the order the week itself reads:

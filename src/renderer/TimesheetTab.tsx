@@ -209,7 +209,16 @@ function applyAutofill(
     const crew = crewOf(gig);
     if (crew.projectManager !== projectManager) { projectManager = crew.projectManager; anyChanged = true; }
     if (crew.laborCoordinator !== laborCoordinator) { laborCoordinator = crew.laborCoordinator; anyChanged = true; }
-    if (gig.position && gig.position !== position) { position = gig.position; anyChanged = true; }
+    // Position keeps its narrower, older rule: only a week that actually bills
+    // a show takes a position from it, and a blank one never clears it. The
+    // crew above may come from the gig merely covering a week with no show on
+    // it yet — right for a brand-new week's people, but not a reason to restamp
+    // a pay classification SSW already holds from a gig the week bills nothing
+    // to. John asked about the project manager and labor coordinator only.
+    if (days.some((d) => !!d.job) && gig.position && gig.position !== position) {
+      position = gig.position;
+      anyChanged = true;
+    }
   }
   // Return the SAME reference when nothing changed — that lets the calling
   // effect skip the update without needing a separate dedup key (which got
