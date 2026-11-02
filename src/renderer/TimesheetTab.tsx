@@ -192,11 +192,25 @@ function applyAutofill(
   // Position keeps its own rule — only ever filled in, never cleared — but now
   // reads off the same gig rather than whichever booking happened to carry the
   // job number first.
+  //
+  // Only a gig we actually FOUND speaks for the week. A gig that lists nobody
+  // leaves the week listing nobody — that is the point — but failing to find a
+  // gig at all is a different thing entirely: the bookings start out empty and
+  // load behind a promise, a CARL refresh can fail outright, and a week's show
+  // can drop out of the feed. Knowing nobody is not the same as knowing
+  // nothing, so with no gig the week keeps the names it has. Blanking them
+  // there would erase a real project manager from a live payroll row on the
+  // next save, just because the calendar hadn't loaded.
   const gig = primaryGigForWeek(days, bookings, todayIso);
-  const { projectManager, laborCoordinator } = crewOf(gig);
-  if (projectManager !== week.projectManager || laborCoordinator !== week.laborCoordinator) anyChanged = true;
   let position = week.position;
-  if (gig && gig.position && gig.position !== position) { position = gig.position; anyChanged = true; }
+  let projectManager = week.projectManager;
+  let laborCoordinator = week.laborCoordinator;
+  if (gig) {
+    const crew = crewOf(gig);
+    if (crew.projectManager !== projectManager) { projectManager = crew.projectManager; anyChanged = true; }
+    if (crew.laborCoordinator !== laborCoordinator) { laborCoordinator = crew.laborCoordinator; anyChanged = true; }
+    if (gig.position && gig.position !== position) { position = gig.position; anyChanged = true; }
+  }
   // Return the SAME reference when nothing changed — that lets the calling
   // effect skip the update without needing a separate dedup key (which got
   // stale when navigating between weeks).
